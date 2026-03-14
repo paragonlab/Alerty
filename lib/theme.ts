@@ -1,0 +1,31 @@
+export const theme = {
+  colors: {
+    background: "#F6F2EA",
+    surface: "#FFFFFF",
+    surfaceAlt: "#EFE6D7",
+    border: "#E1D4C2",
+    text: "#1B1A17",
+    textMuted: "#6A6257",
+    accent: "#D9552B",
+    accentSoft: "#F3B8A4",
+    success: "#1F9D6E",
+    warning: "#D79A24",
+    danger: "#B6402F",
+    mapRed: "#D9342B",
+    mapOrange: "#E9792F",
+    mapYellow: "#E5C548",
+    mapVerified: "#2C7BE5",
+    mapMedia: "#5A4C3B",
+  },
+  radius: {
+    md: 12,
+    xl: 18,
+    xxl: 26,
+    pill: 999,
+  },
+  fonts: {
+    heading: "SpaceGrotesk_700Bold",
+    body: "SpaceGrotesk_500Medium",
+    mono: "SpaceGrotesk_400Regular",
+  },
+};

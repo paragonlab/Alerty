@@ -1,0 +1,43 @@
+{
+  "expo": {
+    "name": "Alerty",
+    "slug": "alerty",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#F6F2EA"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "Necesitamos tu ubicación para mostrar alertas cercanas y ubicar reportes.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Permite alertas críticas cerca de tus zonas guardadas.",
+        "NSPhotoLibraryUsageDescription": "Permite adjuntar fotos y videos a tus reportes.",
+        "NSCameraUsageDescription": "Permite capturar evidencia para tus reportes."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#F6F2EA"
+      },
+      "edgeToEdgeEnabled": true,
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-router"
+    ]
+  }
+}
