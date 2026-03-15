@@ -42,7 +42,7 @@ export default function ReportScreen() {
 
   const handlePickMedia = async () => {
     if (isWeb) {
-      Alert.alert(\"Multimedia\", \"Adjuntos disponibles en la app móvil.\");
+      Alert.alert("Multimedia", "Adjuntos disponibles en la app móvil.");
       return;
     }
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -59,10 +59,10 @@ export default function ReportScreen() {
 
     if (result.canceled) return;
 
-    const picked = result.assets.map((asset) => ({
+    const picked: AlertMedia[] = result.assets.map((asset) => ({
       id: asset.assetId ?? `local-${Date.now()}-${asset.uri}`,
       url: asset.uri,
-      type: asset.type === "video" ? "video" : "image",
+      type: (asset.type === "video" ? "video" : "image") as "image" | "video",
     }));
 
     setMedia((prev) => [...prev, ...picked]);
@@ -144,7 +144,7 @@ export default function ReportScreen() {
       setLocating(true);
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== "granted") {
-        Alert.alert(\"Permiso requerido\", \"Activa ubicación para usar tu posición actual.\");
+        Alert.alert("Permiso requerido", "Activa ubicación para usar tu posición actual.");
         return;
       }
       const current = await Location.getCurrentPositionAsync({});
@@ -160,7 +160,7 @@ export default function ReportScreen() {
       });
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     } catch (error) {
-      Alert.alert(\"Ubicación\", \"No se pudo obtener tu ubicación.\");
+      Alert.alert("Ubicación", "No se pudo obtener tu ubicación.");
     } finally {
       setLocating(false);
     }
@@ -199,7 +199,7 @@ export default function ReportScreen() {
         <View style={styles.mapCard}>
           {isWeb ? (
             <View style={styles.webMap}>
-              <Ionicons name=\"map\" size={24} color={theme.colors.textMuted} />
+              <Ionicons name="map" size={24} color={theme.colors.textMuted} />
               <Text style={styles.webMapText}>
                 Ajuste de ubicación disponible en la app móvil.
               </Text>
@@ -230,7 +230,7 @@ export default function ReportScreen() {
                 onPress={handleUseMyLocation}
                 disabled={locating}
               >
-                <Ionicons name=\"locate\" size={16} color={theme.colors.text} />
+                <Ionicons name="locate" size={16} color={theme.colors.text} />
               </Pressable>
             </>
           )}

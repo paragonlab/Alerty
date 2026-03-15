@@ -54,7 +54,7 @@ export default function MapScreen() {
   const handleCenterLocation = async () => {
     try {
       if (isWeb) {
-        Alert.alert(\"Mapa\", \"La ubicación en tiempo real está disponible en iOS y Android.\");
+        Alert.alert("Mapa", "La ubicación en tiempo real está disponible en iOS y Android.");
         return;
       }
       setLocating(true);

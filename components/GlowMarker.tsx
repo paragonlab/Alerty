@@ -1,11 +1,5 @@
-import { useEffect } from "react";
-import { StyleSheet, View } from "react-native";
-import Animated, {
-  useAnimatedStyle,
-  useSharedValue,
-  withRepeat,
-  withTiming,
-} from "react-native-reanimated";
+import { useEffect, useRef } from "react";
+import { StyleSheet, View, Animated, Easing } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "../lib/theme";
 
@@ -24,29 +18,50 @@ export function GlowMarker({
   isVerified,
   lowConnection,
 }: GlowMarkerProps) {
-  const pulse = useSharedValue(0);
+  const pulseAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     if (lowConnection) {
-      pulse.value = 0;
+      pulseAnim.setValue(0);
       return;
     }
-    pulse.value = withRepeat(withTiming(1, { duration }), -1, false);
-  }, [duration, lowConnection, pulse]);
 
-  const ringStyle = useAnimatedStyle(() => {
-    if (lowConnection) {
-      return { transform: [{ scale: 1.3 }], opacity: 0.15 };
-    }
-    return {
-      transform: [{ scale: 1 + pulse.value * 1.8 }],
-      opacity: 0.6 - pulse.value * 0.5,
-    };
+    const animation = Animated.loop(
+      Animated.timing(pulseAnim, {
+        toValue: 1,
+        duration: duration,
+        easing: Easing.linear,
+        useNativeDriver: true,
+      })
+    );
+
+    animation.start();
+
+    return () => animation.stop();
+  }, [duration, lowConnection, pulseAnim]);
+
+  const ringScale = pulseAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [1, 2.8],
+  });
+
+  const ringOpacity = pulseAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.6, 0.1],
   });
 
   return (
     <View style={styles.container}>
-      <Animated.View style={[styles.ring, ringStyle, { backgroundColor: color }]} />
+      <Animated.View
+        style={[
+          styles.ring,
+          {
+            backgroundColor: color,
+            transform: [{ scale: lowConnection ? 1.3 : ringScale }],
+            opacity: lowConnection ? 0.15 : ringOpacity,
+          },
+        ]}
+      />
       <View style={[styles.dot, { borderColor: color }]}>
         <View style={[styles.inner, { backgroundColor: color }]} />
       </View>
