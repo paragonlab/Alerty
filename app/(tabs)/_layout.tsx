@@ -1,12 +1,14 @@
 import { useEffect } from "react";
 import { Tabs } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { theme } from "../../lib/theme";
+import { useTheme } from "../../lib/theme";
 import { useAlertyStore } from "../../lib/alerty/store";
 import { isSupabaseConfigured } from "../../lib/supabase";
+import { GlassTabBar } from "../../components/GlassTabBar";
 
 export default function TabsLayout() {
   const { startDemo, loadAlertsFromSupabase, startRealtime } = useAlertyStore();
+  const theme = useTheme();
 
   useEffect(() => {
     if (isSupabaseConfigured) {
@@ -19,15 +21,9 @@ export default function TabsLayout() {
 
   return (
     <Tabs
+      tabBar={(props) => <GlassTabBar {...props} />}
       screenOptions={{
         headerShown: false,
-        tabBarStyle: {
-          backgroundColor: theme.colors.surface,
-          borderTopColor: theme.colors.border,
-          height: 68,
-          paddingBottom: 10,
-          paddingTop: 8,
-        },
         tabBarInactiveTintColor: theme.colors.textMuted,
         tabBarActiveTintColor: theme.colors.accent,
       }}

@@ -3,13 +3,15 @@ import { useEffect, useState } from "react";
 import { StatusBar } from "expo-status-bar";
 import { useFonts, SpaceGrotesk_400Regular, SpaceGrotesk_500Medium, SpaceGrotesk_700Bold } from "@expo-google-fonts/space-grotesk";
 import { trackEvent } from "../lib/analytics";
-import { theme } from "../lib/theme";
+import { ThemeProvider, useTheme } from "../lib/theme";
 import { isSupabaseConfigured, supabase } from "../lib/supabase";
+import { useAlertyStore } from "../lib/alerty/store";
 
-export default function RootLayout() {
+function RootLayoutInner() {
   const router = useRouter();
   const segments = useSegments();
   const rootNavigationState = useRootNavigationState();
+  const theme = useTheme();
   const [isReady, setIsReady] = useState(false);
   const [hasSession, setHasSession] = useState(false);
   const [fontsLoaded] = useFonts({
@@ -69,7 +71,7 @@ export default function RootLayout() {
 
   return (
     <>
-      <StatusBar style="dark" />
+      <StatusBar style={theme.mode === "dark" ? "light" : "dark"} />
       <Stack
         initialRouteName="(tabs)"
         screenOptions={{
@@ -92,5 +94,14 @@ export default function RootLayout() {
         />
       </Stack>
     </>
+  );
+}
+
+export default function RootLayout() {
+  const themePreference = useAlertyStore((state) => state.themePreference);
+  return (
+    <ThemeProvider preference={themePreference}>
+      <RootLayoutInner />
+    </ThemeProvider>
   );
 }

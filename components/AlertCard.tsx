@@ -1,8 +1,10 @@
+import { useMemo } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { theme } from "../lib/theme";
+import { useTheme } from "../lib/theme";
+import type { Theme } from "../lib/theme";
 import { CATEGORY_LABELS } from "../lib/alerty/constants";
-import { formatRelativeTime, getIntensityColor } from "../lib/alerty/utils";
+import { formatRelativeTime, getCategoryColor } from "../lib/alerty/utils";
 import type { AlertItem } from "../lib/alerty/types";
 
 type AlertCardProps = {
@@ -11,7 +13,9 @@ type AlertCardProps = {
 };
 
 export function AlertCard({ alert, onPress }: AlertCardProps) {
-  const color = getIntensityColor(alert.createdAt);
+  const theme = useTheme();
+  const styles = useMemo(() => createStyles(theme), [theme]);
+  const color = getCategoryColor(alert.category, theme);
 
   return (
     <Pressable style={styles.card} onPress={onPress}>
@@ -56,97 +60,101 @@ export function AlertCard({ alert, onPress }: AlertCardProps) {
   );
 }
 
-const styles = StyleSheet.create({
-  card: {
-    backgroundColor: theme.colors.surface,
-    borderRadius: theme.radius.xl,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    padding: 14,
-    gap: 10,
-  },
-  headerRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 8,
-  },
-  categoryPill: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    borderWidth: 1,
-    borderRadius: theme.radius.pill,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    backgroundColor: theme.colors.surfaceAlt,
-  },
-  categoryDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 999,
-  },
-  categoryText: {
-    color: theme.colors.text,
-    fontSize: 12,
-    fontFamily: theme.fonts.body,
-  },
-  timeText: {
-    color: theme.colors.textMuted,
-    fontSize: 12,
-    fontFamily: theme.fonts.mono,
-  },
-  titleText: {
-    color: theme.colors.text,
-    fontSize: 15,
-    fontFamily: theme.fonts.heading,
-  },
-  metaRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-  },
-  metaText: {
-    color: theme.colors.textMuted,
-    fontSize: 12,
-    fontFamily: theme.fonts.body,
-  },
-  metaDivider: {
-    width: 4,
-    height: 4,
-    borderRadius: 999,
-    backgroundColor: theme.colors.border,
-  },
-  footerRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  votePill: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    backgroundColor: theme.colors.surfaceAlt,
-    borderRadius: theme.radius.pill,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  mediaPill: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    backgroundColor: theme.colors.surfaceAlt,
-    borderRadius: theme.radius.pill,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  voteText: {
-    color: theme.colors.textMuted,
-    fontSize: 12,
-    fontFamily: theme.fonts.body,
-  },
-});
+const createStyles = (theme: Theme) =>
+  StyleSheet.create({
+    card: {
+      backgroundColor: theme.colors.surface,
+      borderRadius: theme.radius.xl,
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+      padding: 14,
+      gap: 10,
+      ...theme.effects.glassCard,
+    },
+    headerRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: 8,
+    },
+    categoryPill: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+      borderWidth: 1,
+      borderRadius: theme.radius.pill,
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+      backgroundColor: theme.colors.surfaceAlt,
+    },
+    categoryDot: {
+      width: 6,
+      height: 6,
+      borderRadius: 999,
+    },
+    categoryText: {
+      color: theme.colors.text,
+      fontSize: 12,
+      fontFamily: theme.fonts.body,
+    },
+    timeText: {
+      color: theme.colors.textMuted,
+      fontSize: 12,
+      fontFamily: theme.fonts.mono,
+    },
+    titleText: {
+      color: theme.colors.text,
+      fontSize: 15,
+      fontFamily: theme.fonts.heading,
+    },
+    metaRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+    },
+    metaText: {
+      color: theme.colors.textMuted,
+      fontSize: 12,
+      fontFamily: theme.fonts.body,
+    },
+    metaDivider: {
+      width: 4,
+      height: 4,
+      borderRadius: 999,
+      backgroundColor: theme.colors.border,
+    },
+    footerRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+    },
+    votePill: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+      backgroundColor: theme.colors.surfaceAlt,
+      borderRadius: theme.radius.pill,
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+      ...theme.effects.glassPill,
+    },
+    mediaPill: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+      backgroundColor: theme.colors.surfaceAlt,
+      borderRadius: theme.radius.pill,
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+      ...theme.effects.glassPill,
+    },
+    voteText: {
+      color: theme.colors.textMuted,
+      fontSize: 12,
+      fontFamily: theme.fonts.body,
+    },
+  });

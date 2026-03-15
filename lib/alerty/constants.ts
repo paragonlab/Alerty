@@ -29,7 +29,7 @@ export const CATEGORY_LABELS: Record<(typeof ALERT_CATEGORIES)[number], string> 
   "zona segura": "Zona segura",
 };
 
-export const TIME_FILTERS = ["1h", "6h", "24h", "7d"] as const;
+export const TIME_FILTERS = ["1h", "6h", "24h", "7d", "todo"] as const;
 
 export const CULIACAN_NEIGHBORHOODS = [
   { name: "Las Quintas", latitude: 24.8099, longitude: -107.3874 },

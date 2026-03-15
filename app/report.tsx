@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   Image,
@@ -11,13 +11,14 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import MapView, { Marker } from "react-native-maps";
+import MapView, { Marker, type MapViewRef } from "../components/MapView";
 import * as ImagePicker from "expo-image-picker";
 import * as Haptics from "expo-haptics";
 import * as Location from "expo-location";
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
-import { theme } from "../lib/theme";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { useTheme } from "../lib/theme";
+import type { Theme } from "../lib/theme";
 import { ALERT_CATEGORIES, CATEGORY_LABELS, CULIACAN_CENTER } from "../lib/alerty/constants";
 import { useAlertyStore } from "../lib/alerty/store";
 import type { AlertCategory, AlertItem, AlertMedia } from "../lib/alerty/types";
@@ -25,7 +26,9 @@ import { supabase } from "../lib/supabase";
 
 export default function ReportScreen() {
   const router = useRouter();
-  const mapRef = useRef<MapView | null>(null);
+  const theme = useTheme();
+  const { lat, lng } = useLocalSearchParams<{ lat?: string; lng?: string }>();
+  const mapRef = useRef<MapViewRef | null>(null);
   const [category, setCategory] = useState<AlertCategory | null>(null);
   const [description, setDescription] = useState("");
   const [location, setLocation] = useState({
@@ -37,12 +40,27 @@ export default function ReportScreen() {
   const [locating, setLocating] = useState(false);
   const isWeb = Platform.OS === "web";
   const addAlert = useAlertyStore((state) => state.addAlert);
+  const styles = useMemo(() => createStyles(theme), [theme]);
 
   const previewMedia = useMemo(() => media.slice(0, 3), [media]);
 
+  useEffect(() => {
+    if (!lat || !lng) return;
+    const latitude = Number(lat);
+    const longitude = Number(lng);
+    if (Number.isNaN(latitude) || Number.isNaN(longitude)) return;
+    setLocation({ latitude, longitude });
+    mapRef.current?.animateToRegion({
+      latitude,
+      longitude,
+      latitudeDelta: 0.02,
+      longitudeDelta: 0.02,
+    });
+  }, [lat, lng]);
+
   const handlePickMedia = async () => {
     if (isWeb) {
-      Alert.alert(\"Multimedia\", \"Adjuntos disponibles en la app móvil.\");
+      Alert.alert("Multimedia", "Adjuntos disponibles en la app móvil.");
       return;
     }
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -141,10 +159,14 @@ export default function ReportScreen() {
 
   const handleUseMyLocation = async () => {
     try {
+      if (isWeb) {
+        Alert.alert("Ubicación", "La ubicación en tiempo real está disponible en iOS y Android.");
+        return;
+      }
       setLocating(true);
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== "granted") {
-        Alert.alert(\"Permiso requerido\", \"Activa ubicación para usar tu posición actual.\");
+        Alert.alert("Permiso requerido", "Activa ubicación para usar tu posición actual.");
         return;
       }
       const current = await Location.getCurrentPositionAsync({});
@@ -160,7 +182,7 @@ export default function ReportScreen() {
       });
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     } catch (error) {
-      Alert.alert(\"Ubicación\", \"No se pudo obtener tu ubicación.\");
+      Alert.alert("Ubicación", "No se pudo obtener tu ubicación.");
     } finally {
       setLocating(false);
     }
@@ -197,43 +219,45 @@ export default function ReportScreen() {
 
         <Text style={styles.sectionTitle}>Ubicación exacta</Text>
         <View style={styles.mapCard}>
-          {isWeb ? (
-            <View style={styles.webMap}>
-              <Ionicons name=\"map\" size={24} color={theme.colors.textMuted} />
-              <Text style={styles.webMapText}>
-                Ajuste de ubicación disponible en la app móvil.
-              </Text>
-            </View>
-          ) : (
-            <>
-              <MapView
-                ref={mapRef}
-                style={StyleSheet.absoluteFill}
-                initialRegion={{
-                  latitude: location.latitude,
-                  longitude: location.longitude,
-                  latitudeDelta: 0.02,
-                  longitudeDelta: 0.02,
-                }}
-              >
+          <>
+            <MapView
+              ref={mapRef}
+              style={StyleSheet.absoluteFill}
+              initialRegion={{
+                latitude: location.latitude,
+                longitude: location.longitude,
+                latitudeDelta: 0.02,
+                longitudeDelta: 0.02,
+              }}
+              mapStyle={theme.mode}
+            >
+              {isWeb ? (
+                <Marker
+                  coordinate={location}
+                  draggable
+                  color={theme.colors.accent}
+                  pulseDuration={1600}
+                  onDragEnd={(event) => setLocation(event.nativeEvent.coordinate)}
+                />
+              ) : (
                 <Marker
                   coordinate={location}
                   draggable
                   onDragEnd={(event) => setLocation(event.nativeEvent.coordinate)}
                 />
-              </MapView>
-              <View style={styles.mapOverlay}>
-                <Text style={styles.mapHint}>Arrastra el pin para ajustar</Text>
-              </View>
-              <Pressable
-                style={styles.locationButton}
-                onPress={handleUseMyLocation}
-                disabled={locating}
-              >
-                <Ionicons name=\"locate\" size={16} color={theme.colors.text} />
-              </Pressable>
-            </>
-          )}
+              )}
+            </MapView>
+            <View style={styles.mapOverlay}>
+              <Text style={styles.mapHint}>Arrastra el pin para ajustar</Text>
+            </View>
+            <Pressable
+              style={styles.locationButton}
+              onPress={handleUseMyLocation}
+              disabled={locating}
+            >
+              <Ionicons name="locate" size={16} color={theme.colors.text} />
+            </Pressable>
+          </>
         </View>
 
         <View style={styles.sectionHeaderRow}>
@@ -281,195 +305,190 @@ export default function ReportScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: theme.colors.background,
-  },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-  },
-  headerSpacer: {
-    width: 32,
-  },
-  backButton: {
-    width: 32,
-    height: 32,
-    borderRadius: theme.radius.pill,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    backgroundColor: theme.colors.surface,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  title: {
-    color: theme.colors.text,
-    fontSize: 18,
-    fontFamily: theme.fonts.heading,
-  },
-  container: {
-    paddingHorizontal: 16,
-    paddingBottom: 40,
-    gap: 14,
-  },
-  sectionTitle: {
-    color: theme.colors.text,
-    fontSize: 15,
-    fontFamily: theme.fonts.heading,
-  },
-  categoryWrap: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-  },
-  categoryPill: {
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    borderRadius: theme.radius.pill,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    backgroundColor: theme.colors.surface,
-  },
-  categoryPillActive: {
-    borderColor: theme.colors.accent,
-    backgroundColor: theme.colors.accentSoft,
-  },
-  categoryText: {
-    color: theme.colors.textMuted,
-    fontSize: 12,
-    fontFamily: theme.fonts.body,
-  },
-  categoryTextActive: {
-    color: theme.colors.text,
-    fontFamily: theme.fonts.heading,
-  },
-  mapCard: {
-    height: 200,
-    borderRadius: theme.radius.xl,
-    overflow: "hidden",
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-  },
-  mapOverlay: {
-    position: "absolute",
-    bottom: 10,
-    left: 10,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: theme.radius.pill,
-    backgroundColor: "rgba(255,255,255,0.9)",
-  },
-  webMap: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    backgroundColor: theme.colors.surfaceAlt,
-  },
-  webMapText: {
-    color: theme.colors.textMuted,
-    fontSize: 12,
-    fontFamily: theme.fonts.body,
-    textAlign: "center",
-    maxWidth: 200,
-  },
-  locationButton: {
-    position: "absolute",
-    top: 10,
-    right: 10,
-    width: 34,
-    height: 34,
-    borderRadius: theme.radius.pill,
-    backgroundColor: "rgba(255,255,255,0.9)",
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  mapHint: {
-    color: theme.colors.textMuted,
-    fontSize: 11,
-    fontFamily: theme.fonts.body,
-  },
-  sectionHeaderRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 8,
-  },
-  mediaButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    borderRadius: theme.radius.pill,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    backgroundColor: theme.colors.surfaceAlt,
-  },
-  mediaButtonText: {
-    color: theme.colors.text,
-    fontSize: 12,
-    fontFamily: theme.fonts.body,
-  },
-  mediaRow: {
-    flexDirection: "row",
-    gap: 8,
-  },
-  mediaThumb: {
-    width: 80,
-    height: 80,
-    borderRadius: theme.radius.md,
-  },
-  moreMedia: {
-    width: 80,
-    height: 80,
-    borderRadius: theme.radius.md,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: theme.colors.surfaceAlt,
-  },
-  moreMediaText: {
-    color: theme.colors.textMuted,
-    fontSize: 12,
-    fontFamily: theme.fonts.body,
-  },
-  helperText: {
-    color: theme.colors.textMuted,
-    fontSize: 12,
-    fontFamily: theme.fonts.body,
-  },
-  textInput: {
-    minHeight: 90,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    borderRadius: theme.radius.xl,
-    padding: 12,
-    color: theme.colors.text,
-    backgroundColor: theme.colors.surface,
-    fontFamily: theme.fonts.body,
-  },
-  submitButton: {
-    marginTop: 12,
-    height: 54,
-    borderRadius: theme.radius.pill,
-    backgroundColor: theme.colors.accent,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  submitButtonDisabled: {
-    opacity: 0.6,
-  },
-  submitText: {
-    color: theme.colors.surface,
-    fontSize: 16,
-    fontFamily: theme.fonts.heading,
-  },
-});
+const createStyles = (theme: Theme) =>
+  StyleSheet.create({
+    safeArea: {
+      flex: 1,
+      backgroundColor: theme.colors.background,
+    },
+    header: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      paddingHorizontal: 16,
+      paddingVertical: 10,
+    },
+    headerSpacer: {
+      width: 32,
+    },
+    backButton: {
+      width: 32,
+      height: 32,
+      borderRadius: theme.radius.pill,
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+      backgroundColor: theme.colors.surface,
+      alignItems: "center",
+      justifyContent: "center",
+      ...theme.effects.glassPill,
+    },
+    title: {
+      color: theme.colors.text,
+      fontSize: 18,
+      fontFamily: theme.fonts.heading,
+    },
+    container: {
+      paddingHorizontal: 16,
+      paddingBottom: 40,
+      gap: 14,
+    },
+    sectionTitle: {
+      color: theme.colors.text,
+      fontSize: 15,
+      fontFamily: theme.fonts.heading,
+    },
+    categoryWrap: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+      gap: 8,
+    },
+    categoryPill: {
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+      borderRadius: theme.radius.pill,
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+      backgroundColor: theme.colors.surface,
+      ...theme.effects.glassPill,
+    },
+    categoryPillActive: {
+      borderColor: theme.colors.accent,
+      backgroundColor: theme.colors.accentSoft,
+    },
+    categoryText: {
+      color: theme.colors.textMuted,
+      fontSize: 12,
+      fontFamily: theme.fonts.body,
+    },
+    categoryTextActive: {
+      color: theme.colors.text,
+      fontFamily: theme.fonts.heading,
+    },
+    mapCard: {
+      height: 200,
+      borderRadius: theme.radius.xl,
+      overflow: "hidden",
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+      ...theme.effects.glassCard,
+    },
+    mapOverlay: {
+      position: "absolute",
+      bottom: 10,
+      left: 10,
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+      borderRadius: theme.radius.pill,
+      backgroundColor: theme.colors.surface,
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+      ...theme.effects.glassPill,
+    },
+    locationButton: {
+      position: "absolute",
+      top: 10,
+      right: 10,
+      width: 34,
+      height: 34,
+      borderRadius: theme.radius.pill,
+      backgroundColor: theme.colors.surface,
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+      alignItems: "center",
+      justifyContent: "center",
+      ...theme.effects.glassPill,
+    },
+    mapHint: {
+      color: theme.colors.textMuted,
+      fontSize: 11,
+      fontFamily: theme.fonts.body,
+    },
+    sectionHeaderRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: 8,
+    },
+    mediaButton: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+      borderRadius: theme.radius.pill,
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+      backgroundColor: theme.colors.surfaceAlt,
+      ...theme.effects.glassPill,
+    },
+    mediaButtonText: {
+      color: theme.colors.text,
+      fontSize: 12,
+      fontFamily: theme.fonts.body,
+    },
+    mediaRow: {
+      flexDirection: "row",
+      gap: 8,
+    },
+    mediaThumb: {
+      width: 80,
+      height: 80,
+      borderRadius: theme.radius.md,
+    },
+    moreMedia: {
+      width: 80,
+      height: 80,
+      borderRadius: theme.radius.md,
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: theme.colors.surfaceAlt,
+    },
+    moreMediaText: {
+      color: theme.colors.textMuted,
+      fontSize: 12,
+      fontFamily: theme.fonts.body,
+    },
+    helperText: {
+      color: theme.colors.textMuted,
+      fontSize: 12,
+      fontFamily: theme.fonts.body,
+    },
+    textInput: {
+      minHeight: 90,
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+      borderRadius: theme.radius.xl,
+      padding: 12,
+      color: theme.colors.text,
+      backgroundColor: theme.colors.surface,
+      fontFamily: theme.fonts.body,
+    },
+    submitButton: {
+      marginTop: 12,
+      height: 54,
+      borderRadius: theme.radius.pill,
+      backgroundColor: theme.colors.accent,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    submitButtonDisabled: {
+      opacity: 0.6,
+    },
+    submitText: {
+      color: theme.colors.surface,
+      fontSize: 16,
+      fontFamily: theme.fonts.heading,
+    },
+  });

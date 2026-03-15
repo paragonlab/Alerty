@@ -9,14 +9,17 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { AlertCard } from "../../components/AlertCard";
-import { theme } from "../../lib/theme";
+import { useTheme } from "../../lib/theme";
+import type { Theme } from "../../lib/theme";
 import { TIME_FILTERS } from "../../lib/alerty/constants";
 import { useAlertyStore } from "../../lib/alerty/store";
 import { isAlertInWindow, shouldSuppressAlert } from "../../lib/alerty/utils";
 
 export default function FeedScreen() {
   const router = useRouter();
+  const theme = useTheme();
   const { alerts, timeFilter, setTimeFilter, activeCategories } = useAlertyStore();
+  const styles = useMemo(() => createStyles(theme), [theme]);
 
   const filteredAlerts = useMemo(
     () =>
@@ -30,50 +33,50 @@ export default function FeedScreen() {
     [alerts, activeCategories, timeFilter],
   );
 
-  const total24h = useMemo(
-    () =>
-      alerts.filter(
-        (alert) =>
-          alert.status === "active" &&
-          activeCategories.includes(alert.category) &&
-          isAlertInWindow(alert, "24h"),
-      ).length,
-    [alerts, activeCategories],
-  );
-
-  const verifiedCount = useMemo(
-    () => filteredAlerts.filter((alert) => alert.user.isVerified).length,
-    [filteredAlerts],
-  );
+  const severityCounts = useMemo(() => {
+    const dangerCategories = ["balacera", "narcobloqueo", "enfrentamiento", "detonaciones"];
+    const safeCategories = ["zona segura", "captura"];
+    return filteredAlerts.reduce(
+      (acc, alert) => {
+        if (dangerCategories.includes(alert.category)) acc.danger += 1;
+        else if (safeCategories.includes(alert.category)) acc.safe += 1;
+        else acc.caution += 1;
+        return acc;
+      },
+      { danger: 0, caution: 0, safe: 0 },
+    );
+  }, [filteredAlerts]);
 
   return (
     <SafeAreaView style={styles.safeArea}>
       <ScrollView contentContainerStyle={styles.container}>
         <View style={styles.header}>
-          <Text style={styles.title}>Feed comunitario</Text>
-          <Text style={styles.subtitle}>
-            Reportes cronológicos con validación colectiva.
-          </Text>
+          <Text style={styles.title}>Alertas</Text>
+          <Text style={styles.subtitle}>Culiacán, Sinaloa</Text>
         </View>
 
         <View style={styles.statsRow}>
           <View style={styles.statCard}>
-            <Text style={styles.statValue}>{filteredAlerts.length}</Text>
-            <Text style={styles.statLabel}>En ventana</Text>
+            <View style={[styles.statIcon, { backgroundColor: theme.colors.mapRed }]} />
+            <Text style={styles.statValue}>{severityCounts.danger}</Text>
+            <Text style={styles.statLabel}>Peligro</Text>
           </View>
           <View style={styles.statCard}>
-            <Text style={styles.statValue}>{total24h}</Text>
-            <Text style={styles.statLabel}>Últimas 24h</Text>
+            <View style={[styles.statIcon, { backgroundColor: theme.colors.mapOrange }]} />
+            <Text style={styles.statValue}>{severityCounts.caution}</Text>
+            <Text style={styles.statLabel}>Precaución</Text>
           </View>
           <View style={styles.statCard}>
-            <Text style={styles.statValue}>{verifiedCount}</Text>
-            <Text style={styles.statLabel}>Verificados</Text>
+            <View style={[styles.statIcon, { backgroundColor: theme.colors.success }]} />
+            <Text style={styles.statValue}>{severityCounts.safe}</Text>
+            <Text style={styles.statLabel}>Seguro</Text>
           </View>
         </View>
 
         <View style={styles.filterRow}>
           {TIME_FILTERS.map((filter) => {
             const active = timeFilter === filter;
+            const label = filter === "todo" ? "Todo" : filter;
             return (
               <Pressable
                 key={filter}
@@ -81,7 +84,7 @@ export default function FeedScreen() {
                 onPress={() => setTimeFilter(filter)}
               >
                 <Text style={[styles.filterText, active && styles.filterTextActive]}>
-                  {filter.toUpperCase()}
+                  {label}
                 </Text>
               </Pressable>
             );
@@ -89,6 +92,7 @@ export default function FeedScreen() {
         </View>
 
         <View style={styles.list}>
+          <Text style={styles.countText}>{filteredAlerts.length} alertas</Text>
           {filteredAlerts.length === 0 ? (
             <Text style={styles.emptyText}>
               No hay alertas en este rango. Ajusta los filtros para ver más.
@@ -108,7 +112,8 @@ export default function FeedScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (theme: Theme) =>
+  StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: theme.colors.background,
@@ -144,6 +149,7 @@ const styles = StyleSheet.create({
     borderColor: theme.colors.border,
     padding: 12,
     gap: 4,
+    ...theme.effects.glassCard,
   },
   statValue: {
     color: theme.colors.text,
@@ -166,6 +172,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 8,
     backgroundColor: theme.colors.surface,
+    ...theme.effects.glassPill,
   },
   filterPillActive: {
     borderColor: theme.colors.accent,
@@ -188,4 +195,4 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontFamily: theme.fonts.body,
   },
-});
+  });

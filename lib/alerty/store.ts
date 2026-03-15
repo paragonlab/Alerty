@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type { AlertCategory, AlertItem, TimeFilter } from "./types";
+import type { ThemePreference } from "../theme";
 import { ALERT_CATEGORIES } from "./constants";
 import { baseAlerts, createRandomAlert } from "./mock";
 import { isSupabaseConfigured, supabase } from "../supabase";
@@ -13,6 +14,7 @@ type AlertyState = {
   activeCategories: AlertCategory[];
   lowConnection: boolean;
   pushEnabled: boolean;
+  themePreference: ThemePreference;
   demoStarted: boolean;
   demoInterval: ReturnType<typeof setInterval> | null;
   realtimeStarted: boolean;
@@ -27,6 +29,7 @@ type AlertyState = {
   setCategoryDefaults: (categories: AlertCategory[]) => void;
   setLowConnection: (value: boolean) => void;
   setPushEnabled: (value: boolean) => void;
+  setThemePreference: (preference: ThemePreference) => void;
   loadAlertsFromSupabase: () => Promise<void>;
 };
 
@@ -36,6 +39,7 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
   activeCategories: [...ALERT_CATEGORIES],
   lowConnection: false,
   pushEnabled: true,
+  themePreference: "system",
   demoStarted: false,
   demoInterval: null,
   realtimeStarted: false,
@@ -180,6 +184,7 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
   setCategoryDefaults: (categories) => set({ activeCategories: categories }),
   setLowConnection: (value) => set({ lowConnection: value }),
   setPushEnabled: (value) => set({ pushEnabled: value }),
+  setThemePreference: (preference) => set({ themePreference: preference }),
   loadAlertsFromSupabase: async () => {
     if (!isSupabaseConfigured || !supabase) return;
     const { data } = await supabase

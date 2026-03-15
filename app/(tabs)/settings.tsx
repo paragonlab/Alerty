@@ -9,12 +9,14 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { theme } from "../../lib/theme";
+import { useTheme } from "../../lib/theme";
+import type { Theme } from "../../lib/theme";
 import { ALERT_CATEGORIES, CATEGORY_LABELS } from "../../lib/alerty/constants";
 import { useAlertyStore } from "../../lib/alerty/store";
 import { supabase } from "../../lib/supabase";
 
 export default function SettingsScreen() {
+  const theme = useTheme();
   const {
     lowConnection,
     setLowConnection,
@@ -23,7 +25,10 @@ export default function SettingsScreen() {
     activeCategories,
     toggleCategory,
     setCategoryDefaults,
+    themePreference,
+    setThemePreference,
   } = useAlertyStore();
+  const styles = useMemo(() => createStyles(theme), [theme]);
 
   const allSelected = useMemo(
     () => activeCategories.length === ALERT_CATEGORIES.length,
@@ -52,6 +57,30 @@ export default function SettingsScreen() {
         </View>
 
         <View style={styles.card}>
+          <Text style={styles.cardTitle}>Apariencia</Text>
+          <View style={styles.themeRow}>
+            {(["system", "light", "dark"] as const).map((mode) => {
+              const active = themePreference === mode;
+              const label = mode === "system" ? "Sistema" : mode === "light" ? "Claro" : "Oscuro";
+              return (
+                <Pressable
+                  key={mode}
+                  style={[styles.themePill, active && styles.themePillActive]}
+                  onPress={() => setThemePreference(mode)}
+                >
+                  <Text style={[styles.themePillText, active && styles.themePillTextActive]}>
+                    {label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+          <Text style={styles.helperText}>
+            Usa el modo del sistema o fuerza un estilo claro u oscuro.
+          </Text>
+        </View>
+
+        <View style={styles.card}>
           <Text style={styles.cardTitle}>Notificaciones</Text>
           <View style={styles.rowBetween}>
             <Text style={styles.cardText}>Push críticas</Text>
@@ -59,7 +88,7 @@ export default function SettingsScreen() {
               value={pushEnabled}
               onValueChange={setPushEnabled}
               trackColor={{ false: theme.colors.border, true: theme.colors.accentSoft }}
-              thumbColor={pushEnabled ? theme.colors.accent : "#C9BBA8"}
+              thumbColor={pushEnabled ? theme.colors.accent : "#F2C2C7"}
             />
           </View>
           <Text style={styles.helperText}>
@@ -75,7 +104,7 @@ export default function SettingsScreen() {
               value={lowConnection}
               onValueChange={setLowConnection}
               trackColor={{ false: theme.colors.border, true: theme.colors.accentSoft }}
-              thumbColor={lowConnection ? theme.colors.accent : "#C9BBA8"}
+              thumbColor={lowConnection ? theme.colors.accent : "#F2C2C7"}
             />
           </View>
           <Text style={styles.helperText}>
@@ -128,7 +157,8 @@ export default function SettingsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (theme: Theme) =>
+  StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: theme.colors.background,
@@ -159,6 +189,7 @@ const styles = StyleSheet.create({
     borderColor: theme.colors.border,
     padding: 14,
     gap: 10,
+    ...theme.effects.glassCard,
   },
   cardTitle: {
     color: theme.colors.text,
@@ -174,6 +205,33 @@ const styles = StyleSheet.create({
     color: theme.colors.textMuted,
     fontSize: 12,
     fontFamily: theme.fonts.body,
+  },
+  themeRow: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  themePill: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    borderRadius: theme.radius.pill,
+    paddingVertical: 8,
+    alignItems: "center",
+    backgroundColor: theme.colors.surfaceAlt,
+    ...theme.effects.glassPill,
+  },
+  themePillActive: {
+    borderColor: theme.colors.accent,
+    backgroundColor: theme.colors.accentSoft,
+  },
+  themePillText: {
+    color: theme.colors.textMuted,
+    fontSize: 12,
+    fontFamily: theme.fonts.body,
+  },
+  themePillTextActive: {
+    color: theme.colors.text,
+    fontFamily: theme.fonts.heading,
   },
   rowBetween: {
     flexDirection: "row",
@@ -193,6 +251,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 6,
     backgroundColor: theme.colors.surfaceAlt,
+    ...theme.effects.glassPill,
   },
   categoryPillActive: {
     borderColor: theme.colors.accent,
@@ -214,6 +273,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 6,
     backgroundColor: theme.colors.surfaceAlt,
+    ...theme.effects.glassPill,
   },
   selectAllText: {
     color: theme.colors.textMuted,
@@ -230,10 +290,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 6,
     backgroundColor: theme.colors.surfaceAlt,
+    ...theme.effects.glassPill,
   },
   signOutText: {
     color: theme.colors.text,
     fontSize: 12,
     fontFamily: theme.fonts.body,
   },
-});
+  });

@@ -11,15 +11,18 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { theme } from "../../lib/theme";
+import { useTheme } from "../../lib/theme";
+import type { Theme } from "../../lib/theme";
 import { CATEGORY_LABELS } from "../../lib/alerty/constants";
 import { useAlertyStore } from "../../lib/alerty/store";
-import { formatRelativeTime, getIntensityColor } from "../../lib/alerty/utils";
+import { formatRelativeTime, getCategoryColor } from "../../lib/alerty/utils";
 
 export default function AlertDetailScreen() {
   const router = useRouter();
+  const theme = useTheme();
   const { id } = useLocalSearchParams<{ id: string }>();
   const { alerts, voteAlert } = useAlertyStore();
+  const styles = useMemo(() => createStyles(theme), [theme]);
 
   const alert = useMemo(() => alerts.find((item) => item.id === id), [alerts, id]);
 
@@ -40,7 +43,7 @@ export default function AlertDetailScreen() {
     );
   }
 
-  const intensityColor = getIntensityColor(alert.createdAt);
+  const categoryColor = getCategoryColor(alert.category, theme);
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -54,8 +57,8 @@ export default function AlertDetailScreen() {
 
       <ScrollView contentContainerStyle={styles.container}>
         <View style={styles.categoryRow}>
-          <View style={[styles.categoryPill, { borderColor: intensityColor }]}>
-            <View style={[styles.categoryDot, { backgroundColor: intensityColor }]} />
+          <View style={[styles.categoryPill, { borderColor: categoryColor }]}>
+            <View style={[styles.categoryDot, { backgroundColor: categoryColor }]} />
             <Text style={styles.categoryText}>{CATEGORY_LABELS[alert.category]}</Text>
           </View>
           <Text style={styles.timeText}>{formatRelativeTime(alert.createdAt)}</Text>
@@ -128,7 +131,8 @@ export default function AlertDetailScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (theme: Theme) =>
+  StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: theme.colors.background,
@@ -152,6 +156,7 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.surface,
     alignItems: "center",
     justifyContent: "center",
+    ...theme.effects.glassPill,
   },
   title: {
     color: theme.colors.text,
@@ -178,6 +183,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 8,
     backgroundColor: theme.colors.surfaceAlt,
+    ...theme.effects.glassPill,
   },
   categoryDot: {
     width: 6,
@@ -212,6 +218,7 @@ const styles = StyleSheet.create({
     borderColor: theme.colors.border,
     padding: 12,
     gap: 6,
+    ...theme.effects.glassCard,
   },
   metaLabel: {
     color: theme.colors.textMuted,
@@ -232,6 +239,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: theme.colors.border,
     padding: 12,
+    ...theme.effects.glassCard,
   },
   avatar: {
     width: 44,
@@ -294,6 +302,7 @@ const styles = StyleSheet.create({
     borderColor: theme.colors.border,
     paddingVertical: 12,
     backgroundColor: theme.colors.surfaceAlt,
+    ...theme.effects.glassPill,
   },
   voteText: {
     color: theme.colors.text,
@@ -310,4 +319,4 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontFamily: theme.fonts.body,
   },
-});
+  });

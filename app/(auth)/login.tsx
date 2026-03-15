@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -11,12 +11,15 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import * as Linking from "expo-linking";
 import { LinearGradient } from "expo-linear-gradient";
 import { trackEvent } from "../../lib/analytics";
-import { theme } from "../../lib/theme";
+import { useTheme } from "../../lib/theme";
+import type { Theme } from "../../lib/theme";
 import { isSupabaseConfigured, supabase } from "../../lib/supabase";
 
 type Provider = "apple" | "google";
 
 export default function LoginScreen() {
+  const theme = useTheme();
+  const styles = useMemo(() => createStyles(theme), [theme]);
   const [loadingProvider, setLoadingProvider] = useState<Provider | null>(null);
 
   const handleSocialLogin = async (provider: Provider) => {
@@ -59,7 +62,11 @@ export default function LoginScreen() {
   return (
     <SafeAreaView style={styles.safeArea}>
       <LinearGradient
-        colors={["#F6F2EA", "#F1E6D5", "#F6F2EA"]}
+        colors={
+          theme.mode === "dark"
+            ? ["#10151C", "#0B0F14", "#0B0F14"]
+            : ["#FFF1F2", "#FFE3E6", "#FFF8F9"]
+        }
         style={styles.gradient}
       >
         <View style={styles.container}>
@@ -114,7 +121,8 @@ export default function LoginScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (theme: Theme) =>
+  StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: theme.colors.background,
@@ -160,6 +168,7 @@ const styles = StyleSheet.create({
     borderColor: theme.colors.border,
     padding: 18,
     gap: 12,
+    ...theme.effects.glassCard,
   },
   cardTitle: {
     color: theme.colors.text,
@@ -203,4 +212,4 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     textAlign: "center",
   },
-});
+  });
