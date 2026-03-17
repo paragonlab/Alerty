@@ -9,14 +9,16 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { AlertCard } from "../../components/AlertCard";
-import { theme } from "../../lib/theme";
 import { TIME_FILTERS } from "../../lib/alerty/constants";
+import { useAlertyTheme } from "../../lib/useAlertyTheme";
 import { useAlertyStore } from "../../lib/alerty/store";
 import { isAlertInWindow, shouldSuppressAlert } from "../../lib/alerty/utils";
 
 export default function FeedScreen() {
   const router = useRouter();
   const { alerts, timeFilter, setTimeFilter, activeCategories } = useAlertyStore();
+  const theme = useAlertyTheme();
+  const styles = createStyles(theme);
 
   const filteredAlerts = useMemo(
     () =>
@@ -108,7 +110,7 @@ export default function FeedScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (theme: any) => StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: theme.colors.background,

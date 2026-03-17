@@ -18,8 +18,10 @@
         "NSLocationWhenInUseUsageDescription": "Necesitamos tu ubicación para mostrar alertas cercanas y ubicar reportes.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "Permite alertas críticas cerca de tus zonas guardadas.",
         "NSPhotoLibraryUsageDescription": "Permite adjuntar fotos y videos a tus reportes.",
-        "NSCameraUsageDescription": "Permite capturar evidencia para tus reportes."
-      }
+        "NSCameraUsageDescription": "Permite capturar evidencia para tus reportes.",
+        "ITSAppUsesNonExemptEncryption": false
+      },
+      "bundleIdentifier": "com.mrparagon.alerty"
     },
     "android": {
       "adaptiveIcon": {
@@ -39,6 +41,12 @@
     "plugins": [
       "expo-router",
       "expo-font"
-    ]
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "48ceeed2-37d4-429a-b641-0f27fe474283"
+      }
+    }
   }
 }

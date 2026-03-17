@@ -23,6 +23,10 @@ export default function SettingsScreen() {
     activeCategories,
     toggleCategory,
     setCategoryDefaults,
+    themeMode,
+    setThemeMode,
+    showHeatmap,
+    setShowHeatmap,
   } = useAlertyStore();
 
   const allSelected = useMemo(
@@ -43,12 +47,30 @@ export default function SettingsScreen() {
     await supabase.auth.signOut();
   };
 
+  const isDark = themeMode === "darkHighVisibility";
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <ScrollView contentContainerStyle={styles.container}>
         <View style={styles.header}>
           <Text style={styles.title}>Ajustes</Text>
           <Text style={styles.subtitle}>Personaliza alertas y consumo.</Text>
+        </View>
+
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Apariencia</Text>
+          <View style={styles.rowBetween}>
+            <Text style={styles.cardText}>Modo Nocturno (Alta Visibilidad)</Text>
+            <Switch
+              value={isDark}
+              onValueChange={(val) => setThemeMode(val ? "darkHighVisibility" : "light")}
+              trackColor={{ false: theme.colors.border, true: theme.colors.accentSoft }}
+              thumbColor={isDark ? theme.colors.accent : "#C9BBA8"}
+            />
+          </View>
+          <Text style={styles.helperText}>
+            Colores neon de alto contraste para situaciones de poca luz.
+          </Text>
         </View>
 
         <View style={styles.card}>
@@ -80,6 +102,22 @@ export default function SettingsScreen() {
           </View>
           <Text style={styles.helperText}>
             Disminuye efectos del mapa y consumo de datos en zonas con mala señal.
+          </Text>
+        </View>
+
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Preferencias de Mapa</Text>
+          <View style={styles.rowBetween}>
+            <Text style={styles.cardText}>Mapa de Calor (Heatmap)</Text>
+            <Switch
+              value={showHeatmap}
+              onValueChange={setShowHeatmap}
+              trackColor={{ false: theme.colors.border, true: theme.colors.accentSoft }}
+              thumbColor={showHeatmap ? theme.colors.accent : "#C9BBA8"}
+            />
+          </View>
+          <Text style={styles.helperText}>
+            Visualiza zonas de alta actividad de reportes.
           </Text>
         </View>
 

@@ -1,9 +1,10 @@
 import { create } from "zustand";
-import type { AlertCategory, AlertItem, TimeFilter } from "./types";
-import { ALERT_CATEGORIES } from "./constants";
+import type { AlertCategory, AlertItem, AlertUpdate, TimeFilter } from "./types";
+import { ALERT_CATEGORIES, REPUTATION_LEVELS } from "./constants";
 import { baseAlerts, createRandomAlert } from "./mock";
 import { isSupabaseConfigured, supabase } from "../supabase";
 import type { RealtimeChannel } from "@supabase/supabase-js";
+import type { AlertUser } from "./types";
 
 type VoteType = "upvote" | "downvote";
 
@@ -17,9 +18,16 @@ type AlertyState = {
   demoInterval: ReturnType<typeof setInterval> | null;
   realtimeStarted: boolean;
   realtimeChannel: RealtimeChannel | null;
+  followingAlertIds: string[];
+  maxReportingDistance: number; // in km
+  sosActive: boolean;
+  showHeatmap: boolean;
+  sosWarningAccepted: boolean;
+  themeMode: "light" | "darkHighVisibility";
+  currentUser: AlertUser;
   startDemo: () => void;
   stopDemo: () => void;
-  startRealtime: () => void;
+  startRealtime: () => (() => void) | undefined;
   addAlert: (alert: AlertItem) => void;
   voteAlert: (id: string, vote: VoteType) => void;
   setTimeFilter: (filter: TimeFilter) => void;
@@ -28,6 +36,15 @@ type AlertyState = {
   setLowConnection: (value: boolean) => void;
   setPushEnabled: (value: boolean) => void;
   loadAlertsFromSupabase: () => Promise<void>;
+  toggleFollowAlert: (id: string) => void;
+  addUpdateToAlert: (alertId: string, content: string) => Promise<void>;
+  setMaxReportingDistance: (distance: number) => void;
+  setSOSActive: (active: boolean) => void;
+  setShowHeatmap: (show: boolean) => void;
+  setSosWarningAccepted: (accepted: boolean) => void;
+  setThemeMode: (mode: "light" | "darkHighVisibility") => void;
+  updateUserScore: (score: number) => void;
+  getReportingRange: () => number;
 };
 
 export const useAlertyStore = create<AlertyState>((set, get) => ({
@@ -40,6 +57,21 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
   demoInterval: null,
   realtimeStarted: false,
   realtimeChannel: null,
+  followingAlertIds: [],
+  maxReportingDistance: 2.0,
+  sosActive: false,
+  showHeatmap: false,
+  sosWarningAccepted: false,
+  themeMode: "light",
+  currentUser: {
+    id: "local-user",
+    username: "@DemoUser",
+    avatarUrl: null,
+    isVerified: false,
+    trustScore: 10,
+    level: "CIUDADANO",
+    followersCount: 0,
+  },
   startDemo: () => {
     const { demoStarted, demoInterval, alerts } = get();
     if (demoStarted) return;
@@ -71,7 +103,7 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
       { event: "INSERT", schema: "public", table: "alerts" },
       async (payload) => {
         const row = payload.new as any;
-        const { data: userData } = await supabase
+        const { data: userData } = await supabase!
           .from("users")
           .select("id,username,avatar_url,is_verified,trust_score,followers_count")
           .eq("id", row.user_id)
@@ -82,6 +114,7 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
           category: row.category,
           lat: row.lat,
           lng: row.lng,
+          title: row.title ?? undefined,
           description: row.description ?? undefined,
           createdAt: row.created_at,
           status: row.status ?? "active",
@@ -89,12 +122,14 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
           upvotes: 0,
           downvotes: 0,
           media: [],
+          updates: [],
           user: {
             id: userData?.id ?? row.user_id ?? "unknown",
             username: userData?.username ?? "@anon",
             avatarUrl: userData?.avatar_url ?? null,
             isVerified: Boolean(userData?.is_verified),
             trustScore: Number(userData?.trust_score ?? 0.5),
+            level: "CIUDADANO",
             followersCount: Number(userData?.followers_count ?? 0),
           },
         };
@@ -126,6 +161,42 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
 
     channel.on(
       "postgres_changes",
+      { event: "INSERT", schema: "public", table: "alert_updates" },
+      async (payload) => {
+        const row = payload.new as any;
+        const { data: userData } = await supabase!
+          .from("users")
+          .select("id,username,avatar_url,is_verified,trust_score,followers_count")
+          .eq("id", row.user_id)
+          .maybeSingle();
+
+        const update: AlertUpdate = {
+          id: row.id,
+          content: row.content,
+          createdAt: row.created_at,
+          user: {
+            id: userData?.id ?? row.user_id,
+            username: userData?.username ?? "@anon",
+            avatarUrl: userData?.avatar_url ?? null,
+            isVerified: Boolean(userData?.is_verified),
+            trustScore: Number(userData?.trust_score ?? 0.5),
+            level: "CIUDADANO",
+            followersCount: Number(userData?.followers_count ?? 0),
+          },
+        };
+
+        set((state) => ({
+          alerts: state.alerts.map((alert) =>
+            alert.id === row.alert_id
+              ? { ...alert, updates: [update, ...(alert.updates || [])] }
+              : alert
+          ),
+        }));
+      },
+    );
+
+    channel.on(
+      "postgres_changes",
       { event: "INSERT", schema: "public", table: "verifications" },
       (payload) => {
         const row = payload.new as any;
@@ -143,6 +214,11 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
 
     channel.subscribe();
     set({ realtimeStarted: true, realtimeChannel: channel });
+
+    return () => {
+      if (supabase) supabase.removeChannel(channel);
+      set({ realtimeStarted: false, realtimeChannel: null });
+    };
   },
   addAlert: (alert) => set((state) => ({ alerts: [alert, ...state.alerts] })),
   voteAlert: (id, vote) => {
@@ -160,7 +236,7 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
     void supabase.auth.getUser().then(({ data }) => {
       const userId = data.user?.id;
       if (!userId) return;
-      void supabase.from("verifications").insert({
+      void supabase!.from("verifications").insert({
         alert_id: id,
         user_id: userId,
         vote_type: vote,
@@ -182,13 +258,30 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
   setPushEnabled: (value) => set({ pushEnabled: value }),
   loadAlertsFromSupabase: async () => {
     if (!isSupabaseConfigured || !supabase) return;
+    
+    // Load follows first if logged in
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) {
+      const { data: follows } = await supabase
+        .from("alert_follows")
+        .select("alert_id")
+        .eq("user_id", user.id);
+      
+      if (follows) {
+        set({ followingAlertIds: follows.map(f => f.alert_id) });
+      }
+    }
+
     const { data } = await supabase
       .from("alerts")
-      .select(
-        "id,category,lat,lng,description,created_at,status,users(id,username,avatar_url,is_verified,trust_score,followers_count),media(id,media_url,media_type)"
-      )
+      .select(`
+        id,category,lat,lng,title,description,created_at,status,
+        users(id,username,avatar_url,is_verified,trust_score,followers_count),
+        media(id,media_url,media_type),
+        alert_updates(id,content,created_at,user_id,users(id,username,avatar_url,is_verified))
+      `)
       .order("created_at", { ascending: false })
-      .limit(120);
+      .limit(100);
 
     if (!data || data.length === 0) {
       set({ alerts: baseAlerts });
@@ -201,6 +294,7 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
       category: row.category,
       lat: row.lat,
       lng: row.lng,
+      title: row.title ?? undefined,
       description: row.description ?? undefined,
       createdAt: row.created_at,
       status: row.status ?? "active",
@@ -212,16 +306,149 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
         url: media.media_url,
         type: media.media_type,
       })),
+      updates: (row.alert_updates ?? []).map((upd: any) => ({
+        id: upd.id,
+        content: upd.content,
+        createdAt: upd.created_at,
+          user: {
+            id: upd.users?.id ?? upd.user_id,
+            username: upd.users?.username ?? "@anon",
+            avatarUrl: upd.users?.avatar_url ?? null,
+            isVerified: Boolean(upd.users?.is_verified),
+            trustScore: Number(upd.users?.trust_score ?? 0.5),
+            level: "CIUDADANO",
+            followersCount: Number(upd.users?.followers_count ?? 0),
+          },
+      })).sort((a: AlertUpdate, b: AlertUpdate) => 
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      ),
       user: {
         id: row.users?.id ?? "unknown",
         username: row.users?.username ?? "@anon",
         avatarUrl: row.users?.avatar_url ?? null,
         isVerified: Boolean(row.users?.is_verified),
         trustScore: Number(row.users?.trust_score ?? 0.5),
+        level: "CIUDADANO",
         followersCount: Number(row.users?.followers_count ?? 0),
       },
     }));
 
     set({ alerts: parsed });
+  },
+  toggleFollowAlert: async (id) => {
+    if (!isSupabaseConfigured || !supabase) {
+      set((state) => ({
+        followingAlertIds: state.followingAlertIds.includes(id)
+          ? state.followingAlertIds.filter((fid) => fid !== id)
+          : [...state.followingAlertIds, id],
+      }));
+      return;
+    }
+
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    const isFollowing = get().followingAlertIds.includes(id);
+
+    if (isFollowing) {
+      set((state) => ({ followingAlertIds: state.followingAlertIds.filter(fid => fid !== id) }));
+      await supabase.from("alert_follows").delete().eq("alert_id", id).eq("user_id", user.id);
+    } else {
+      set((state) => ({ followingAlertIds: [...state.followingAlertIds, id] }));
+      await supabase.from("alert_follows").insert({ alert_id: id, user_id: user.id });
+    }
+  },
+  addUpdateToAlert: async (alertId, content) => {
+    if (!isSupabaseConfigured || !supabase) {
+      set((state) => ({
+        alerts: state.alerts.map((alert) => {
+          if (alert.id !== alertId) return alert;
+          const newUpdate: AlertUpdate = {
+            id: `upd-${Date.now()}`,
+            content,
+            createdAt: new Date().toISOString(),
+            user: {
+          id: "local-user",
+          username: "@DemoUser",
+          avatarUrl: null,
+          isVerified: false,
+          trustScore: 0.1,
+          level: "CIUDADANO",
+          followersCount: 0,
+        },
+          };
+          return {
+            ...alert,
+            updates: [newUpdate, ...(alert.updates ?? [])],
+          };
+        }),
+      }));
+      return;
+    }
+
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    const { data, error } = await supabase
+      .from("alert_updates")
+      .insert({
+        alert_id: alertId,
+        user_id: user.id,
+        content: content,
+      })
+      .select("*, users(id,username,avatar_url,is_verified)")
+      .single();
+
+    if (error) {
+      console.error("Error adding update:", error);
+      return;
+    }
+
+    const newUpdate: AlertUpdate = {
+      id: data.id,
+      content: data.content,
+      createdAt: data.created_at,
+      user: {
+        id: data.users?.id ?? user.id,
+        username: data.users?.username ?? "@me",
+        avatarUrl: data.users?.avatar_url ?? null,
+        isVerified: Boolean(data.users?.is_verified),
+        trustScore: Number(data.users?.trust_score ?? 1.0),
+        level: (get().currentUser.level) || "CIUDADANO",
+        followersCount: Number(data.users?.followers_count ?? 0),
+      },
+    };
+
+    set((state) => ({
+      alerts: state.alerts.map((alert) =>
+        alert.id === alertId
+          ? { ...alert, updates: [newUpdate, ...(alert.updates ?? [])] }
+          : alert
+      ),
+    }));
+  },
+  setMaxReportingDistance: (distance) => set({ maxReportingDistance: distance }),
+  setSOSActive: (active) => set({ sosActive: active }),
+  setShowHeatmap: (show) => set({ showHeatmap: show }),
+  setSosWarningAccepted: (accepted) => set({ sosWarningAccepted: accepted }),
+  setThemeMode: (mode) => set({ themeMode: mode }),
+  updateUserScore: (score) => {
+    set((state) => {
+      const newScore = Math.max(0, Math.min(100, state.currentUser.trustScore + score));
+      let newLevel: string = "CIUDADANO";
+      
+      if (newScore >= REPUTATION_LEVELS.HEROE.minScore) newLevel = "HEROE";
+      else if (newScore >= REPUTATION_LEVELS.PROTECTOR.minScore) newLevel = "PROTECTOR";
+      else if (newScore >= REPUTATION_LEVELS.VIGIA.minScore) newLevel = "VIGIA";
+      
+      return {
+        currentUser: { ...state.currentUser, trustScore: newScore, level: newLevel }
+      };
+    });
+  },
+  getReportingRange: () => {
+    const { currentUser } = get();
+    const level = (currentUser.level as keyof typeof REPUTATION_LEVELS) || "CIUDADANO";
+    return REPUTATION_LEVELS[level].range;
   },
 }));

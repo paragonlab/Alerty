@@ -1,9 +1,10 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "../lib/theme";
-import { CATEGORY_LABELS } from "../lib/alerty/constants";
+import { CATEGORY_LABELS, REPUTATION_LEVELS } from "../lib/alerty/constants";
 import { formatRelativeTime, getIntensityColor } from "../lib/alerty/utils";
 import type { AlertItem } from "../lib/alerty/types";
+import { useAlertyTheme } from "../lib/useAlertyTheme";
 
 type AlertCardProps = {
   alert: AlertItem;
@@ -11,6 +12,8 @@ type AlertCardProps = {
 };
 
 export function AlertCard({ alert, onPress }: AlertCardProps) {
+  const theme = useAlertyTheme();
+  const styles = createStyles(theme);
   const color = getIntensityColor(alert.createdAt);
 
   return (
@@ -30,10 +33,22 @@ export function AlertCard({ alert, onPress }: AlertCardProps) {
       <View style={styles.metaRow}>
         <Text style={styles.metaText}>{alert.neighborhood ?? "Culiacán"}</Text>
         <View style={styles.metaDivider} />
-        <Text style={styles.metaText}>{alert.user.username}</Text>
-        {alert.user.isVerified ? (
-          <Ionicons name="checkmark-circle" size={14} color={theme.colors.mapVerified} />
-        ) : null}
+        <View style={styles.userSection}>
+          <Text style={styles.metaText}>{alert.user.username}</Text>
+          {alert.user.isVerified && (
+            <Ionicons name="checkmark-circle" size={12} color={theme.colors.accent} />
+          )}
+          {(() => {
+            const levelKey = (alert.user.level as keyof typeof REPUTATION_LEVELS) || "CIUDADANO";
+            const levelInfo = REPUTATION_LEVELS[levelKey];
+            return (
+              <View style={[styles.levelBadge, { backgroundColor: levelInfo.color + "15" }]}>
+                <Ionicons name={levelInfo.icon as any} size={8} color={levelInfo.color} />
+                <Text style={[styles.levelText, { color: levelInfo.color }]}>{levelInfo.label}</Text>
+              </View>
+            );
+          })()}
+        </View>
       </View>
 
       <View style={styles.footerRow}>
@@ -56,7 +71,7 @@ export function AlertCard({ alert, onPress }: AlertCardProps) {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (theme: any) => StyleSheet.create({
   card: {
     backgroundColor: theme.colors.surface,
     borderRadius: theme.radius.xl,
@@ -106,6 +121,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 6,
   },
+  userSection: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
   metaText: {
     color: theme.colors.textMuted,
     fontSize: 12,
@@ -116,6 +136,19 @@ const styles = StyleSheet.create({
     height: 4,
     borderRadius: 999,
     backgroundColor: theme.colors.border,
+  },
+  levelBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: 4,
+  },
+  levelText: {
+    fontSize: 9,
+    fontFamily: theme.fonts.heading,
+    textTransform: "uppercase",
   },
   footerRow: {
     flexDirection: "row",

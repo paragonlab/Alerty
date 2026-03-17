@@ -7,7 +7,8 @@ import {
   Text,
   View,
 } from "react-native";
-import MapView, { Marker } from "react-native-maps";
+import MapView, { Heatmap, Marker, PROVIDER_GOOGLE } from "react-native-maps";
+import { GlassView, GlassContainer } from "expo-glass-effect";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import * as Location from "expo-location";
@@ -15,9 +16,11 @@ import * as Haptics from "expo-haptics";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { GlowMarker } from "../../components/GlowMarker";
-import { theme } from "../../lib/theme";
+import { SOSButton } from "../../components/SOSButton";
 import { CULIACAN_CENTER } from "../../lib/alerty/constants";
+import { useAlertyTheme } from "../../lib/useAlertyTheme";
 import { useAlertyStore } from "../../lib/alerty/store";
+import { supabase } from "../../lib/supabase";
 import {
   formatRelativeTime,
   getIntensityColor,
@@ -32,7 +35,22 @@ export default function MapScreen() {
   const [locating, setLocating] = useState(false);
   const isWeb = Platform.OS === "web";
 
-  const { alerts, timeFilter, activeCategories, lowConnection } = useAlertyStore();
+  const { 
+    alerts, 
+    timeFilter, 
+    activeCategories, 
+    lowConnection, 
+    showHeatmap, 
+    setShowHeatmap,
+    sosWarningAccepted,
+    setSosWarningAccepted,
+    addAlert,
+    themeMode,
+    currentUser,
+  } = useAlertyStore();
+
+  const theme = useAlertyTheme();
+  const isDark = themeMode === "darkHighVisibility";
 
   const filteredAlerts = useMemo(
     () =>
@@ -45,6 +63,14 @@ export default function MapScreen() {
       ),
     [alerts, activeCategories, timeFilter],
   );
+
+  const heatmapPoints = useMemo(() => {
+    return filteredAlerts.map(alert => ({
+      latitude: alert.lat,
+      longitude: alert.lng,
+      weight: getPulseDuration(alert.createdAt) <= 1200 ? 3 : 1
+    }));
+  }, [filteredAlerts]);
 
   const criticalCount = useMemo(
     () => filteredAlerts.filter((alert) => getPulseDuration(alert.createdAt) <= 1200).length,
@@ -79,13 +105,15 @@ export default function MapScreen() {
     }
   };
 
+  const styles = createStyles(theme, themeMode);
+
   return (
     <SafeAreaView style={styles.safeArea}>
-      <View style={styles.container}>
+      <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
         {isWeb ? (
           <View style={styles.webMap}>
             <Ionicons name="map" size={28} color={theme.colors.textMuted} />
-            <Text style={styles.webMapText}>
+            <Text style={[styles.webMapText, { color: theme.colors.textMuted }]}>
               El mapa interactivo está disponible en iOS y Android.
             </Text>
           </View>
@@ -97,9 +125,24 @@ export default function MapScreen() {
             showsUserLocation
             showsMyLocationButton={false}
             pitchEnabled={false}
+            zoomEnabled={true}
             rotateEnabled={false}
+            provider={PROVIDER_GOOGLE}
+            userInterfaceStyle={isDark ? "dark" : "light"}
           >
-            {filteredAlerts.map((alert) => (
+            {showHeatmap && !isWeb && (
+              <Heatmap
+                points={heatmapPoints}
+                radius={40}
+                opacity={0.7}
+                gradient={{
+                  colors: [theme.colors.mapYellow, theme.colors.mapOrange, theme.colors.mapRed],
+                  startPoints: [0.2, 0.5, 0.8],
+                  colorMapSize: 256
+                }}
+              />
+            )}
+            {!showHeatmap && filteredAlerts.map((alert) => (
               <Marker
                 key={alert.id}
                 coordinate={{ latitude: alert.lat, longitude: alert.lng }}
@@ -110,6 +153,7 @@ export default function MapScreen() {
                 }}
               >
                 <GlowMarker
+                  category={alert.category}
                   color={getIntensityColor(alert.createdAt)}
                   duration={getPulseDuration(alert.createdAt)}
                   hasMedia={alert.media.length > 0}
@@ -121,17 +165,40 @@ export default function MapScreen() {
           </MapView>
         )}
 
+        {/* Top Header Overlays */}
         <LinearGradient
-          colors={["rgba(246,242,234,0.98)", "rgba(246,242,234,0.7)", "rgba(246,242,234,0)"]}
+          colors={[isDark ? "rgba(0,0,0,0.9)" : "rgba(246,242,234,0.98)", "transparent"]}
           style={styles.headerOverlay}
           pointerEvents="none"
         />
 
-        <View style={styles.headerCard}>
-          <View>
+        <GlassView 
+          colorScheme={isDark ? "dark" : "light"} 
+          glassEffectStyle="regular" 
+          tintColor={isDark ? "rgba(255, 82, 82, 0.05)" : "rgba(229, 57, 53, 0.05)"}
+          style={styles.headerCard}
+        >
+          <LinearGradient
+            colors={["rgba(255,255,255,0.15)", "rgba(255,255,255,0.05)", "transparent"]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={StyleSheet.absoluteFill}
+          />
+          <View style={{ flex: 1 }}>
             <Text style={styles.cityLabel}>Culiacán, Sinaloa</Text>
             <Text style={styles.subLabel}>Alertas verificadas en tiempo real</Text>
           </View>
+
+          <Pressable
+            style={styles.headerLocationButton}
+            onPress={handleCenterLocation}
+            disabled={locating}
+          >
+            <Ionicons name="locate" size={20} color={theme.colors.text} />
+          </Pressable>
+
+          <View style={styles.statSeparator} />
+
           <View style={styles.statWrap}>
             <Text style={styles.statValue}>{filteredAlerts.length}</Text>
             <Text style={styles.statLabel}>Activas</Text>
@@ -140,46 +207,42 @@ export default function MapScreen() {
             <Text style={styles.statValue}>{criticalCount}</Text>
             <Text style={styles.statLabel}>Críticas</Text>
           </View>
-        </View>
+        </GlassView>
 
+        {/* Floating overlays or other elements can go here if needed */}
+
+        {/* Live Ticker */}
         {filteredAlerts[0] ? (
-          <View style={styles.liveTicker}>
-            <Ionicons name="pulse" size={16} color={theme.colors.accent} />
+          <GlassView
+            colorScheme={isDark ? "dark" : "light"}
+            glassEffectStyle="regular"
+            tintColor="rgba(255, 255, 255, 0.02)"
+            style={styles.liveTicker}
+          >
+            <LinearGradient
+              colors={["rgba(255,255,255,0.1)", "transparent"]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 0.5, y: 0.5 }}
+              style={StyleSheet.absoluteFill}
+            />
+            <Ionicons name="pulse" size={16} color={theme.colors.reportAction} />
             <Text style={styles.liveText} numberOfLines={1}>
               Última alerta: {formatRelativeTime(filteredAlerts[0].createdAt)} · {filteredAlerts[0].description ?? "Sin descripción"}
             </Text>
-          </View>
+          </GlassView>
         ) : null}
-
-        <View style={styles.fabColumn}>
-          <Pressable
-            style={styles.fabPrimary}
-            onPress={() => router.push("/report")}
-          >
-            <Ionicons name="add" size={20} color={theme.colors.surface} />
-            <Text style={styles.fabText}>Reportar</Text>
-          </Pressable>
-          <Pressable
-            style={styles.fabSecondary}
-            onPress={handleCenterLocation}
-            disabled={locating}
-          >
-            <Ionicons name="locate" size={20} color={theme.colors.text} />
-          </Pressable>
-        </View>
       </View>
     </SafeAreaView>
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (theme: any, themeMode: string) => StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: theme.colors.background,
   },
   container: {
     flex: 1,
-    backgroundColor: theme.colors.background,
   },
   headerOverlay: {
     position: "absolute",
@@ -190,17 +253,54 @@ const styles = StyleSheet.create({
   },
   headerCard: {
     position: "absolute",
-    top: 16,
+    top: 54, // Adjusted for notch/safe area visibility
     left: 16,
     right: 16,
-    padding: 14,
+    padding: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
     borderRadius: theme.radius.xl,
-    backgroundColor: theme.colors.surface,
+    backgroundColor: themeMode === "light" ? "rgba(255,255,255,0.85)" : "rgba(18,18,18,0.8)",
+    overflow: "hidden",
+    borderWidth: 1.5,
+    borderColor: themeMode === "light" ? "rgba(255,255,255,0.5)" : "rgba(255,255,255,0.1)",
+    zIndex: 20,
+  },
+  headerLocationButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "rgba(0,0,0,0.05)",
+    alignItems: "center",
+    justifyContent: "center",
     borderWidth: 1,
     borderColor: theme.colors.border,
-    flexDirection: "row",
-    gap: 14,
+  },
+  statSeparator: {
+    width: 1,
+    height: 30,
+    backgroundColor: theme.colors.border,
+    opacity: 0.5,
+  },
+  heatmapToggleContainer: {
+    position: "absolute",
+    top: 96,
+    left: 16,
+    borderRadius: theme.radius.pill,
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+  },
+  heatmapButton: {
+    width: 44,
+    height: 44,
     alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: themeMode === "light" ? "rgba(255,255,255,0.7)" : "rgba(26,26,26,0.6)",
+  },
+  heatmapButtonActive: {
+    backgroundColor: theme.colors.reportAction,
   },
   cityLabel: {
     color: theme.colors.text,
@@ -219,7 +319,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: theme.radius.md,
-    backgroundColor: theme.colors.surfaceAlt,
+    backgroundColor: "rgba(0,0,0,0.05)",
     borderWidth: 1,
     borderColor: theme.colors.border,
   },
@@ -237,16 +337,17 @@ const styles = StyleSheet.create({
     position: "absolute",
     left: 16,
     right: 16,
-    bottom: 118,
+    bottom: 120,
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
     paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingVertical: 12,
     borderRadius: theme.radius.pill,
-    backgroundColor: theme.colors.surface,
+    backgroundColor: themeMode === "light" ? "rgba(255,255,255,0.85)" : "rgba(18,18,18,0.85)",
     borderWidth: 1,
     borderColor: theme.colors.border,
+    overflow: "hidden",
   },
   liveText: {
     flex: 1,
@@ -267,41 +368,5 @@ const styles = StyleSheet.create({
     fontFamily: theme.fonts.body,
     textAlign: "center",
     maxWidth: 220,
-  },
-  fabColumn: {
-    position: "absolute",
-    right: 16,
-    bottom: 24,
-    gap: 12,
-    alignItems: "flex-end",
-  },
-  fabPrimary: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    backgroundColor: theme.colors.accent,
-    borderRadius: theme.radius.pill,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.2,
-    shadowRadius: 10,
-    elevation: 5,
-  },
-  fabText: {
-    color: theme.colors.surface,
-    fontFamily: theme.fonts.heading,
-    fontSize: 14,
-  },
-  fabSecondary: {
-    width: 48,
-    height: 48,
-    borderRadius: theme.radius.pill,
-    backgroundColor: theme.colors.surface,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    alignItems: "center",
-    justifyContent: "center",
   },
 });

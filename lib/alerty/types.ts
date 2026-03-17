@@ -6,7 +6,7 @@ export type TimeFilter = (typeof TIME_FILTERS)[number];
 export type AlertMedia = {
   id: string;
   url: string;
-  type: "image" | "video";
+  type: "image" | "video" | "audio";
 };
 
 export type AlertUser = {
@@ -15,7 +15,16 @@ export type AlertUser = {
   avatarUrl?: string | null;
   isVerified: boolean;
   trustScore: number;
+  level: string;
   followersCount: number;
+};
+
+export type AlertUpdate = {
+  id: string;
+  content: string;
+  createdAt: string;
+  user: AlertUser;
+  media?: AlertMedia[];
 };
 
 export type AlertItem = {
@@ -24,6 +33,7 @@ export type AlertItem = {
   category: AlertCategory;
   lat: number;
   lng: number;
+  title?: string;
   description?: string;
   createdAt: string;
   status: "active" | "resolved";
@@ -31,4 +41,5 @@ export type AlertItem = {
   upvotes: number;
   downvotes: number;
   neighborhood?: string;
+  updates?: AlertUpdate[];
 };

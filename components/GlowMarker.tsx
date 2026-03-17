@@ -2,8 +2,11 @@ import { useEffect, useRef } from "react";
 import { StyleSheet, View, Animated, Easing } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "../lib/theme";
+import type { AlertCategory } from "../lib/alerty/types";
+import { CATEGORY_ICONS } from "../lib/alerty/constants";
 
 type GlowMarkerProps = {
+  category: AlertCategory;
   color: string;
   duration: number;
   hasMedia: boolean;
@@ -12,6 +15,7 @@ type GlowMarkerProps = {
 };
 
 export function GlowMarker({
+  category,
   color,
   duration,
   hasMedia,
@@ -63,7 +67,11 @@ export function GlowMarker({
         ]}
       />
       <View style={[styles.dot, { borderColor: color }]}>
-        <View style={[styles.inner, { backgroundColor: color }]} />
+        <Ionicons 
+          name={CATEGORY_ICONS[category] as any} 
+          size={10} 
+          color={color} 
+        />
       </View>
       <View style={styles.badgeRow}>
         {hasMedia ? (

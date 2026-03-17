@@ -15,6 +15,7 @@ export const ALERT_CATEGORIES = [
   "robo",
   "accidente",
   "zona segura",
+  "sos",
 ] as const;
 
 export const CATEGORY_LABELS: Record<(typeof ALERT_CATEGORIES)[number], string> = {
@@ -22,12 +23,35 @@ export const CATEGORY_LABELS: Record<(typeof ALERT_CATEGORIES)[number], string> 
   narcobloqueo: "Narcobloqueo",
   enfrentamiento: "Enfrentamiento",
   detonaciones: "Detonaciones",
-  bloqueo: "Bloqueo",
+  bloqueo: "Bloqueo Vial",
   captura: "Captura",
   robo: "Robo",
   accidente: "Accidente",
   "zona segura": "Zona segura",
+  sos: "EMERGENCIA SOS",
 };
+
+export const CATEGORY_ICONS: Record<(typeof ALERT_CATEGORIES)[number], string> = {
+  balacera: "warning",
+  narcobloqueo: "car-outline",
+  enfrentamiento: "warning-outline",
+  detonaciones: "volume-high-outline",
+  bloqueo: "nuclear-outline",
+  captura: "checkmark-circle-outline",
+  robo: "hand-right-outline",
+  accidente: "car-sport-outline",
+  "zona segura": "shield-checkmark-outline",
+  sos: "alert-circle",
+};
+
+export const REPUTATION_LEVELS = {
+  CIUDADANO: { label: "Ciudadano", minScore: 0, range: 2.0, color: "#666666", icon: "person" },
+  VIGIA: { label: "Vigía", minScore: 20, range: 5.0, color: "#2E7D32", icon: "eye" },
+  PROTECTOR: { label: "Protector", minScore: 50, range: 10.0, color: "#1565C0", icon: "shield" },
+  HEROE: { label: "Héroe Local", minScore: 80, range: 25.0, color: "#C62828", icon: "star" },
+} as const;
+
+export type ReputationLevel = keyof typeof REPUTATION_LEVELS;
 
 export const TIME_FILTERS = ["1h", "6h", "24h", "7d"] as const;
 
