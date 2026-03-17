@@ -7,7 +7,7 @@ import {
   Text,
   View,
 } from "react-native";
-import MapView, { Heatmap, Marker, PROVIDER_GOOGLE } from "react-native-maps";
+import MapView, { Heatmap, Marker, PROVIDER_GOOGLE } from "../../components/ExpoMapView";
 import { GlassView, GlassContainer } from "expo-glass-effect";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
