@@ -1,4 +1,4 @@
-import { ALERT_CATEGORIES, CULIACAN_NEIGHBORHOODS } from "./constants";
+import { ALERT_CATEGORIES, CULIACAN_NEIGHBORHOODS, REPUTATION_LEVELS } from "./constants";
 import type { AlertItem, AlertUser } from "./types";
 
 const randomPick = <T,>(values: readonly T[]): T =>
@@ -6,12 +6,23 @@ const randomPick = <T,>(values: readonly T[]): T =>
 
 const makeUser = (seed: number): AlertUser => {
   const verified = seed % 7 === 0;
+  const trustScore = verified ? 92 : 55 + (seed % 35);
+  const level =
+    trustScore >= REPUTATION_LEVELS.HEROE.minScore
+      ? "HEROE"
+      : trustScore >= REPUTATION_LEVELS.PROTECTOR.minScore
+        ? "PROTECTOR"
+        : trustScore >= REPUTATION_LEVELS.VIGIA.minScore
+          ? "VIGIA"
+          : "CIUDADANO";
+
   return {
     id: `user-${seed}`,
     username: verified ? `@LineaDirecta${seed}` : `@ciudadano${seed}`,
     avatarUrl: null,
     isVerified: verified,
-    trustScore: verified ? 0.92 : 0.55 + (seed % 35) / 100,
+    trustScore,
+    level,
     followersCount: verified ? 1200 + seed * 3 : 40 + seed * 2,
   };
 };
