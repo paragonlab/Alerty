@@ -24,6 +24,7 @@
       "bundleIdentifier": "com.mrparagon.alerty"
     },
     "android": {
+      "package": "com.mrparagon.alerty",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#F6F2EA"
