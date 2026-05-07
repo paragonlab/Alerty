@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import {
   Alert,
   Image,
@@ -50,8 +50,6 @@ export default function ReportScreen() {
   const isDark = themeMode === "darkHighVisibility";
   const styles = createStyles(theme, themeMode);
   const maxReportingDistance = getReportingRange();
-
-  const previewMedia = useMemo(() => media.slice(0, 3), [media]);
 
   const handlePickMedia = async () => {
     if (isWeb) {
@@ -355,63 +353,46 @@ export default function ReportScreen() {
           )}
         </View>
 
-        <View style={styles.sectionHeaderRow}>
-          <Text style={styles.sectionTitle}>Evidencia multimedia</Text>
-          <Pressable style={styles.mediaButton} onPress={handlePickMedia}>
-            <Ionicons name="images" size={16} color={theme.colors.text} />
-            <Text style={styles.mediaButtonText}>Adjuntar</Text>
-          </Pressable>
-        </View>
-
-        {media.length > 0 && (
-          <View style={styles.mediaRow}>
-            {previewMedia.map((item) => (
-              <Image key={item.id} source={{ uri: item.url }} style={styles.mediaThumb} />
-            ))}
-            {media.length > previewMedia.length && (
-              <View style={styles.moreMedia}>
-                <Text style={styles.moreMediaText}>+{media.length - previewMedia.length}</Text>
-              </View>
-            )}
-          </View>
-        )}
-
         <Text style={styles.sectionTitle}>Descripción</Text>
         <TextInput
           style={styles.textInput}
-          placeholder="Detalles adicionales (opcional)"
+          placeholder="Detalles adicionales sobre el incidente (opcional)"
           placeholderTextColor={theme.colors.textMuted}
           value={description}
           onChangeText={setDescription}
           multiline
         />
 
-        <Text style={styles.sectionTitle}>Evidencia (Fotos / Video / Voz)</Text>
+        <Text style={styles.sectionTitle}>Evidencia (fotos, video o voz)</Text>
         <View style={styles.mediaActions}>
           <Pressable style={styles.mediaActionBtn} onPress={handlePickMedia}>
-            <Ionicons name="images-outline" size={24} color={theme.colors.text} />
+            <Ionicons name="images-outline" size={22} color={theme.colors.text} />
             <Text style={styles.mediaActionText}>Galería</Text>
           </Pressable>
-          
-          <Pressable 
-            style={[styles.mediaActionBtn, isRecording && styles.mediaActionBtnActive]} 
+
+          <Pressable
+            style={[styles.mediaActionBtn, isRecording && styles.mediaActionBtnActive]}
             onLongPress={handleStartRecording}
             onPressOut={() => (isRecording ? handleStopRecording() : null)}
             delayLongPress={100}
           >
-            <Ionicons 
-              name={isRecording ? "stop-circle" : "mic-outline"} 
-              size={24} 
-              color={isRecording ? theme.colors.surface : theme.colors.text} 
+            <Ionicons
+              name={isRecording ? "stop-circle" : "mic-outline"}
+              size={22}
+              color={isRecording ? theme.colors.surface : theme.colors.text}
             />
             <Text style={[styles.mediaActionText, isRecording && styles.mediaActionTextActive]}>
-              {isRecording ? "Suelte para grabar" : "Hold para voz"}
+              {isRecording ? "Suelta para guardar" : "Mantén para voz"}
             </Text>
           </Pressable>
         </View>
 
         {media.length > 0 && (
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.mediaPreviewList}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.mediaPreviewList}
+          >
             {media.map((item) => (
               <View key={item.id} style={styles.mediaPreviewItem}>
                 {item.type === "audio" ? (
@@ -421,9 +402,9 @@ export default function ReportScreen() {
                 ) : (
                   <Image source={{ uri: item.url }} style={styles.mediaPreviewThumb} />
                 )}
-                <Pressable 
-                  style={styles.removeMedia} 
-                  onPress={() => setMedia(prev => prev.filter(m => m.id !== item.id))}
+                <Pressable
+                  style={styles.removeMedia}
+                  onPress={() => setMedia((prev) => prev.filter((m) => m.id !== item.id))}
                 >
                   <Ionicons name="close-circle" size={16} color={theme.colors.danger} />
                 </Pressable>
@@ -479,9 +460,9 @@ const createStyles = (theme: any, themeMode: string) => StyleSheet.create({
   },
   container: {
     paddingHorizontal: 16,
-    paddingBottom: 40,
+    paddingBottom: 60,
     paddingTop: 16,
-    gap: 20,
+    gap: 18,
   },
   formGroupGlass: {
     padding: 16,
@@ -570,52 +551,6 @@ const createStyles = (theme: any, themeMode: string) => StyleSheet.create({
   mapHint: {
     color: theme.colors.textMuted,
     fontSize: 11,
-    fontFamily: theme.fonts.body,
-  },
-  sectionHeaderRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 8,
-  },
-  mediaButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    borderRadius: theme.radius.pill,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    backgroundColor: theme.colors.surfaceAlt,
-  },
-  mediaButtonText: {
-    color: theme.colors.text,
-    fontSize: 12,
-    fontFamily: theme.fonts.body,
-  },
-  mediaRow: {
-    flexDirection: "row",
-    gap: 8,
-  },
-  mediaThumb: {
-    width: 80,
-    height: 80,
-    borderRadius: theme.radius.md,
-  },
-  moreMedia: {
-    width: 80,
-    height: 80,
-    borderRadius: theme.radius.md,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: theme.colors.surfaceAlt,
-  },
-  moreMediaText: {
-    color: theme.colors.textMuted,
-    fontSize: 12,
     fontFamily: theme.fonts.body,
   },
   textInputSingle: {

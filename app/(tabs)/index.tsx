@@ -209,7 +209,32 @@ export default function MapScreen() {
           </View>
         </GlassView>
 
-        {/* Floating overlays or other elements can go here if needed */}
+        {/* Heatmap Toggle */}
+        {!isWeb && (
+          <View style={styles.heatmapToggleContainer}>
+            <Pressable
+              style={[styles.heatmapButton, showHeatmap && styles.heatmapButtonActive]}
+              onPress={() => {
+                setShowHeatmap(!showHeatmap);
+                void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              }}
+            >
+              <Ionicons
+                name="flame"
+                size={18}
+                color={showHeatmap ? "#FFFFFF" : theme.colors.textMuted}
+              />
+            </Pressable>
+          </View>
+        )}
+
+        {/* Empty state overlay */}
+        {filteredAlerts.length === 0 && !isWeb && (
+          <View style={styles.emptyOverlay} pointerEvents="none">
+            <Ionicons name="shield-outline" size={28} color={theme.colors.textMuted} />
+            <Text style={styles.emptyText}>Sin alertas en esta área</Text>
+          </View>
+        )}
 
         {/* Live Ticker */}
         {filteredAlerts[0] ? (
@@ -368,5 +393,23 @@ const createStyles = (theme: any, themeMode: string) => StyleSheet.create({
     fontFamily: theme.fonts.body,
     textAlign: "center",
     maxWidth: 220,
+  },
+  emptyOverlay: {
+    position: "absolute",
+    alignSelf: "center",
+    bottom: 160,
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    borderRadius: theme.radius.pill,
+    backgroundColor: themeMode === "light" ? "rgba(255,255,255,0.92)" : "rgba(18,18,18,0.92)",
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+  },
+  emptyText: {
+    color: theme.colors.textMuted,
+    fontSize: 13,
+    fontFamily: theme.fonts.body,
   },
 });

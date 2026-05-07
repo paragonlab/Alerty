@@ -9,9 +9,9 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { theme } from "../../lib/theme";
-import { ALERT_CATEGORIES, CATEGORY_LABELS } from "../../lib/alerty/constants";
+import { ALERT_CATEGORIES, CATEGORY_LABELS, REPUTATION_LEVELS } from "../../lib/alerty/constants";
 import { useAlertyStore } from "../../lib/alerty/store";
+import { useAlertyTheme } from "../../lib/useAlertyTheme";
 import { supabase } from "../../lib/supabase";
 
 export default function SettingsScreen() {
@@ -27,7 +27,11 @@ export default function SettingsScreen() {
     setThemeMode,
     showHeatmap,
     setShowHeatmap,
+    currentUser,
   } = useAlertyStore();
+
+  const theme = useAlertyTheme();
+  const styles = createStyles(theme);
 
   const allSelected = useMemo(
     () => activeCategories.length === ALERT_CATEGORIES.length,
@@ -48,85 +52,121 @@ export default function SettingsScreen() {
   };
 
   const isDark = themeMode === "darkHighVisibility";
+  const levelKey = (currentUser.level as keyof typeof REPUTATION_LEVELS) || "CIUDADANO";
+  const levelInfo = REPUTATION_LEVELS[levelKey];
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <ScrollView contentContainerStyle={styles.container}>
+      <ScrollView
+        contentContainerStyle={styles.container}
+        showsVerticalScrollIndicator={false}
+      >
         <View style={styles.header}>
           <Text style={styles.title}>Ajustes</Text>
-          <Text style={styles.subtitle}>Personaliza alertas y consumo.</Text>
+          <Text style={styles.subtitle}>Personaliza tu experiencia en Alerty.</Text>
         </View>
 
+        {/* Account Card */}
+        <View style={styles.accountCard}>
+          <View style={styles.avatarCircle}>
+            <Ionicons name="person" size={26} color={theme.colors.textMuted} />
+          </View>
+          <View style={{ flex: 1, gap: 4 }}>
+            <Text style={styles.accountUsername}>{currentUser.username}</Text>
+            <View style={[styles.levelBadge, { backgroundColor: levelInfo.color + "22" }]}>
+              <Ionicons name={levelInfo.icon as any} size={10} color={levelInfo.color} />
+              <Text style={[styles.levelText, { color: levelInfo.color }]}>{levelInfo.label}</Text>
+            </View>
+          </View>
+          <Pressable style={styles.signOutButton} onPress={handleSignOut}>
+            <Ionicons name="log-out-outline" size={15} color={theme.colors.danger} />
+            <Text style={styles.signOutText}>Salir</Text>
+          </Pressable>
+        </View>
+
+        {/* Appearance */}
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>Apariencia</Text>
-          <View style={styles.rowBetween}>
-            <Text style={styles.cardText}>Modo Nocturno (Alta Visibilidad)</Text>
+          <View style={styles.cardHeader}>
+            <Ionicons name="contrast-outline" size={15} color={theme.colors.accent} />
+            <Text style={styles.cardTitle}>Apariencia</Text>
+          </View>
+          <View style={styles.settingRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.settingLabel}>Modo Nocturno (Alta Visibilidad)</Text>
+              <Text style={styles.helperText}>Neon de alto contraste para situaciones de poca luz.</Text>
+            </View>
             <Switch
               value={isDark}
               onValueChange={(val) => setThemeMode(val ? "darkHighVisibility" : "light")}
-              trackColor={{ false: theme.colors.border, true: theme.colors.accentSoft }}
+              trackColor={{ false: theme.colors.border, true: theme.colors.accent + "80" }}
               thumbColor={isDark ? theme.colors.accent : "#C9BBA8"}
             />
           </View>
-          <Text style={styles.helperText}>
-            Colores neon de alto contraste para situaciones de poca luz.
-          </Text>
         </View>
 
+        {/* Notifications */}
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>Notificaciones</Text>
-          <View style={styles.rowBetween}>
-            <Text style={styles.cardText}>Push críticas</Text>
+          <View style={styles.cardHeader}>
+            <Ionicons name="notifications-outline" size={15} color={theme.colors.accent} />
+            <Text style={styles.cardTitle}>Notificaciones</Text>
+          </View>
+          <View style={styles.settingRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.settingLabel}>Push críticas</Text>
+              <Text style={styles.helperText}>Avisos inmediatos si ocurre algo a menos de 2 km.</Text>
+            </View>
             <Switch
               value={pushEnabled}
               onValueChange={setPushEnabled}
-              trackColor={{ false: theme.colors.border, true: theme.colors.accentSoft }}
+              trackColor={{ false: theme.colors.border, true: theme.colors.accent + "80" }}
               thumbColor={pushEnabled ? theme.colors.accent : "#C9BBA8"}
             />
           </View>
-          <Text style={styles.helperText}>
-            Recibe avisos inmediatos si ocurre algo a menos de 2 km de tus zonas guardadas.
-          </Text>
         </View>
 
+        {/* Map */}
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>Modo baja conexión</Text>
-          <View style={styles.rowBetween}>
-            <Text style={styles.cardText}>Reducir animaciones</Text>
-            <Switch
-              value={lowConnection}
-              onValueChange={setLowConnection}
-              trackColor={{ false: theme.colors.border, true: theme.colors.accentSoft }}
-              thumbColor={lowConnection ? theme.colors.accent : "#C9BBA8"}
-            />
+          <View style={styles.cardHeader}>
+            <Ionicons name="map-outline" size={15} color={theme.colors.accent} />
+            <Text style={styles.cardTitle}>Mapa</Text>
           </View>
-          <Text style={styles.helperText}>
-            Disminuye efectos del mapa y consumo de datos en zonas con mala señal.
-          </Text>
-        </View>
-
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Preferencias de Mapa</Text>
-          <View style={styles.rowBetween}>
-            <Text style={styles.cardText}>Mapa de Calor (Heatmap)</Text>
+          <View style={styles.settingRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.settingLabel}>Mapa de Calor</Text>
+              <Text style={styles.helperText}>Visualiza zonas de alta actividad de reportes.</Text>
+            </View>
             <Switch
               value={showHeatmap}
               onValueChange={setShowHeatmap}
-              trackColor={{ false: theme.colors.border, true: theme.colors.accentSoft }}
+              trackColor={{ false: theme.colors.border, true: theme.colors.accent + "80" }}
               thumbColor={showHeatmap ? theme.colors.accent : "#C9BBA8"}
             />
           </View>
-          <Text style={styles.helperText}>
-            Visualiza zonas de alta actividad de reportes.
-          </Text>
+          <View style={styles.divider} />
+          <View style={styles.settingRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.settingLabel}>Modo baja conexión</Text>
+              <Text style={styles.helperText}>Reduce animaciones y consumo de datos en mala señal.</Text>
+            </View>
+            <Switch
+              value={lowConnection}
+              onValueChange={setLowConnection}
+              trackColor={{ false: theme.colors.border, true: theme.colors.accent + "80" }}
+              thumbColor={lowConnection ? theme.colors.accent : "#C9BBA8"}
+            />
+          </View>
         </View>
 
+        {/* Category Filters */}
         <View style={styles.card}>
-          <View style={styles.rowBetween}>
-            <Text style={styles.cardTitle}>Filtros por categoría</Text>
+          <View style={styles.cardHeaderRow}>
+            <View style={styles.cardHeader}>
+              <Ionicons name="filter-outline" size={15} color={theme.colors.accent} />
+              <Text style={styles.cardTitle}>Filtros por categoría</Text>
+            </View>
             <Pressable style={styles.selectAll} onPress={handleSelectAll}>
               <Text style={styles.selectAllText}>
-                {allSelected ? "Limpiar" : "Seleccionar todo"}
+                {allSelected ? "Limpiar" : "Todas"}
               </Text>
             </Pressable>
           </View>
@@ -147,42 +187,29 @@ export default function SettingsScreen() {
             })}
           </View>
         </View>
-
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Cuenta</Text>
-          <View style={styles.rowBetween}>
-            <View>
-              <Text style={styles.cardText}>Cuenta conectada</Text>
-              <Text style={styles.helperText}>Supabase / OAuth</Text>
-            </View>
-            <Pressable style={styles.signOutButton} onPress={handleSignOut}>
-              <Ionicons name="log-out-outline" size={16} color={theme.colors.text} />
-              <Text style={styles.signOutText}>Salir</Text>
-            </Pressable>
-          </View>
-        </View>
       </ScrollView>
     </SafeAreaView>
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (theme: any) => StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: theme.colors.background,
   },
   container: {
     paddingHorizontal: 16,
-    paddingBottom: 40,
-    gap: 14,
+    paddingBottom: 160,
+    paddingTop: 4,
+    gap: 12,
   },
   header: {
     marginTop: 8,
-    gap: 6,
+    gap: 4,
   },
   title: {
     color: theme.colors.text,
-    fontSize: 26,
+    fontSize: 28,
     fontFamily: theme.fonts.heading,
   },
   subtitle: {
@@ -190,34 +217,91 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontFamily: theme.fonts.body,
   },
+  accountCard: {
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.radius.xl,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    padding: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  avatarCircle: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: theme.colors.surfaceAlt,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  accountUsername: {
+    color: theme.colors.text,
+    fontSize: 16,
+    fontFamily: theme.fonts.heading,
+  },
+  levelBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    alignSelf: "flex-start",
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  levelText: {
+    fontSize: 10,
+    fontFamily: theme.fonts.heading,
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+  },
   card: {
     backgroundColor: theme.colors.surface,
     borderRadius: theme.radius.xl,
     borderWidth: 1,
     borderColor: theme.colors.border,
-    padding: 14,
-    gap: 10,
+    padding: 16,
+    gap: 14,
+  },
+  cardHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  cardHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
   },
   cardTitle: {
     color: theme.colors.text,
-    fontSize: 16,
+    fontSize: 15,
     fontFamily: theme.fonts.heading,
   },
-  cardText: {
+  settingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  settingLabel: {
     color: theme.colors.text,
     fontSize: 14,
     fontFamily: theme.fonts.body,
+    marginBottom: 2,
   },
   helperText: {
     color: theme.colors.textMuted,
     fontSize: 12,
     fontFamily: theme.fonts.body,
+    lineHeight: 17,
   },
-  rowBetween: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 10,
+  divider: {
+    height: 1,
+    backgroundColor: theme.colors.border,
+    opacity: 0.6,
   },
   categoryWrap: {
     flexDirection: "row",
@@ -228,8 +312,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: theme.colors.border,
     borderRadius: theme.radius.pill,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
     backgroundColor: theme.colors.surfaceAlt,
   },
   categoryPillActive: {
@@ -249,8 +333,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: theme.colors.border,
     borderRadius: theme.radius.pill,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
     backgroundColor: theme.colors.surfaceAlt,
   },
   selectAllText: {
@@ -263,15 +347,15 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 6,
     borderWidth: 1,
-    borderColor: theme.colors.border,
+    borderColor: theme.colors.danger + "50",
     borderRadius: theme.radius.pill,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    backgroundColor: theme.colors.surfaceAlt,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: theme.colors.danger + "12",
   },
   signOutText: {
-    color: theme.colors.text,
-    fontSize: 12,
-    fontFamily: theme.fonts.body,
+    color: theme.colors.danger,
+    fontSize: 13,
+    fontFamily: theme.fonts.heading,
   },
 });

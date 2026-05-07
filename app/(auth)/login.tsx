@@ -10,8 +10,9 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import * as Linking from "expo-linking";
 import { LinearGradient } from "expo-linear-gradient";
+import { Ionicons } from "@expo/vector-icons";
 import { trackEvent } from "../../lib/analytics";
-import { theme } from "../../lib/theme";
+import { lightTheme as theme } from "../../lib/theme";
 import { isSupabaseConfigured, supabase } from "../../lib/supabase";
 
 type Provider = "apple" | "google";
@@ -46,11 +47,11 @@ export default function LoginScreen() {
           event_type: "auth_oauth_failed",
           metadata: { provider, message: error.message },
         });
-        Alert.alert("Login error", error.message);
+        Alert.alert("Error al iniciar sesión", error.message);
       }
-    } catch (error) {
+    } catch {
       void trackEvent({ event_type: "auth_oauth_failed", metadata: { provider } });
-      Alert.alert("Login error", "No fue posible iniciar sesión.");
+      Alert.alert("Error al iniciar sesión", "No fue posible conectarse. Intenta de nuevo.");
     } finally {
       setLoadingProvider(null);
     }
@@ -59,16 +60,20 @@ export default function LoginScreen() {
   return (
     <SafeAreaView style={styles.safeArea}>
       <LinearGradient
-        colors={["#F6F2EA", "#F1E6D5", "#F6F2EA"]}
+        colors={["#F6F2EA", "#EFE4D2", "#F6F2EA"]}
         style={styles.gradient}
       >
         <View style={styles.container}>
           <View style={styles.header}>
-            <Text style={styles.brand}>Alerty</Text>
-            <Text style={styles.headline}>Seguridad comunitaria en tiempo real.</Text>
+            <View style={styles.brandRow}>
+              <View style={styles.brandIcon}>
+                <Ionicons name="alert-circle" size={28} color={theme.colors.accent} />
+              </View>
+              <Text style={styles.brand}>Alerty</Text>
+            </View>
+            <Text style={styles.headline}>Seguridad comunitaria{"\n"}en tiempo real.</Text>
             <Text style={styles.subheadline}>
-              Reporta, verifica y comparte alertas críticas en Culiacán para salvar vidas y
-              movernos mejor.
+              Reporta, verifica y comparte alertas críticas en Culiacán para movernos mejor y salvar vidas.
             </Text>
           </View>
 
@@ -77,35 +82,44 @@ export default function LoginScreen() {
             <Text style={styles.cardSubtitle}>
               Los reportes verificados ganan más visibilidad en el mapa.
             </Text>
+
             <Pressable
-              style={styles.primaryButton}
+              style={({ pressed }) => [styles.appleButton, pressed && styles.buttonPressed]}
               onPress={() => handleSocialLogin("apple")}
               disabled={Boolean(loadingProvider)}
             >
               {loadingProvider === "apple" ? (
-                <ActivityIndicator color={theme.colors.surface} />
+                <ActivityIndicator color="#FFFFFF" />
               ) : (
-                <Text style={styles.primaryButtonText}>Continuar con Apple</Text>
+                <>
+                  <Ionicons name="logo-apple" size={18} color="#FFFFFF" />
+                  <Text style={styles.appleButtonText}>Continuar con Apple</Text>
+                </>
               )}
             </Pressable>
 
             <Pressable
-              style={styles.secondaryButton}
+              style={({ pressed }) => [styles.googleButton, pressed && styles.buttonPressed]}
               onPress={() => handleSocialLogin("google")}
               disabled={Boolean(loadingProvider)}
             >
               {loadingProvider === "google" ? (
                 <ActivityIndicator color={theme.colors.text} />
               ) : (
-                <Text style={styles.secondaryButtonText}>Continuar con Google</Text>
+                <>
+                  <Ionicons name="logo-google" size={16} color={theme.colors.text} />
+                  <Text style={styles.googleButtonText}>Continuar con Google</Text>
+                </>
               )}
             </Pressable>
 
             {!isSupabaseConfigured ? (
-              <Text style={styles.demoNote}>
-                Modo demo activo: configura `EXPO_PUBLIC_SUPABASE_URL` y
-                `EXPO_PUBLIC_SUPABASE_ANON_KEY` para OAuth real.
-              </Text>
+              <View style={styles.demoNote}>
+                <Ionicons name="information-circle-outline" size={14} color={theme.colors.textMuted} />
+                <Text style={styles.demoNoteText}>
+                  Modo demo activo. Configura las variables de entorno de Supabase para OAuth real.
+                </Text>
+              </View>
             ) : null}
           </View>
         </View>
@@ -126,29 +140,44 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "space-between",
     paddingHorizontal: 22,
-    paddingBottom: 32,
-    paddingTop: 24,
+    paddingBottom: 36,
+    paddingTop: 28,
   },
   header: {
-    marginTop: 32,
+    marginTop: 24,
+    gap: 14,
+  },
+  brandRow: {
+    flexDirection: "row",
+    alignItems: "center",
     gap: 10,
   },
+  brandIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    backgroundColor: theme.colors.accent + "15",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: theme.colors.accent + "30",
+  },
   brand: {
-    fontSize: 54,
-    fontFamily: theme.fonts.heading,
-    letterSpacing: -1.2,
+    fontSize: 48,
+    fontFamily: "SpaceGrotesk_700Bold",
+    letterSpacing: -1.5,
     color: theme.colors.text,
   },
   headline: {
-    fontSize: 24,
-    fontFamily: theme.fonts.heading,
+    fontSize: 28,
+    fontFamily: "SpaceGrotesk_700Bold",
     color: theme.colors.text,
-    lineHeight: 30,
-    maxWidth: 320,
+    lineHeight: 34,
+    maxWidth: 300,
   },
   subheadline: {
     fontSize: 15,
-    fontFamily: theme.fonts.body,
+    fontFamily: "SpaceGrotesk_500Medium",
     color: theme.colors.textMuted,
     lineHeight: 22,
     maxWidth: 320,
@@ -158,49 +187,71 @@ const styles = StyleSheet.create({
     borderRadius: theme.radius.xxl,
     borderWidth: 1,
     borderColor: theme.colors.border,
-    padding: 18,
-    gap: 12,
+    padding: 20,
+    gap: 14,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.06,
+    shadowRadius: 16,
+    elevation: 3,
   },
   cardTitle: {
     color: theme.colors.text,
     fontSize: 18,
-    fontFamily: theme.fonts.heading,
+    fontFamily: "SpaceGrotesk_700Bold",
   },
   cardSubtitle: {
     color: theme.colors.textMuted,
     fontSize: 13,
-    fontFamily: theme.fonts.body,
+    fontFamily: "SpaceGrotesk_500Medium",
+    lineHeight: 19,
   },
-  primaryButton: {
-    height: 52,
+  appleButton: {
+    height: 54,
     borderRadius: theme.radius.pill,
-    backgroundColor: theme.colors.accent,
+    backgroundColor: "#1A1A1A",
     alignItems: "center",
     justifyContent: "center",
+    flexDirection: "row",
+    gap: 10,
   },
-  primaryButtonText: {
-    color: theme.colors.surface,
+  appleButtonText: {
+    color: "#FFFFFF",
     fontSize: 15,
-    fontFamily: theme.fonts.heading,
+    fontFamily: "SpaceGrotesk_700Bold",
   },
-  secondaryButton: {
-    height: 52,
+  googleButton: {
+    height: 54,
     borderRadius: theme.radius.pill,
-    borderWidth: 1,
+    borderWidth: 1.5,
     borderColor: theme.colors.border,
     backgroundColor: theme.colors.surfaceAlt,
     alignItems: "center",
     justifyContent: "center",
+    flexDirection: "row",
+    gap: 10,
   },
-  secondaryButtonText: {
+  googleButtonText: {
     color: theme.colors.text,
     fontSize: 15,
-    fontFamily: theme.fonts.heading,
+    fontFamily: "SpaceGrotesk_700Bold",
+  },
+  buttonPressed: {
+    opacity: 0.7,
   },
   demoNote: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 6,
+    backgroundColor: theme.colors.surfaceAlt,
+    borderRadius: theme.radius.md,
+    padding: 10,
+  },
+  demoNoteText: {
+    flex: 1,
     color: theme.colors.textMuted,
     fontSize: 12,
     lineHeight: 18,
-    textAlign: "center",
+    fontFamily: "SpaceGrotesk_400Regular",
   },
 });

@@ -1,7 +1,7 @@
 import { View, Alert } from "react-native";
 import { Tabs, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { theme } from "../../lib/theme";
+import { useAlertyTheme } from "../../lib/useAlertyTheme";
 import { useAlertyStore } from "../../lib/alerty/store";
 import * as Haptics from "expo-haptics";
 import * as Location from "expo-location";
@@ -12,15 +12,16 @@ import { useEffect } from "react";
 
 export default function TabLayout() {
   const router = useRouter();
+  const theme = useAlertyTheme();
   const isDark = useAlertyStore((state) => state.themeMode === "darkHighVisibility");
   const addAlert = useAlertyStore((state) => state.addAlert);
   const currentUser = useAlertyStore((state) => state.currentUser);
-  const { 
-    startDemo, 
-    loadAlertsFromSupabase, 
+  const {
+    startDemo,
+    loadAlertsFromSupabase,
     startRealtime,
     sosWarningAccepted,
-    setSosWarningAccepted
+    setSosWarningAccepted,
   } = useAlertyStore();
 
   const handleSOS = async () => {
@@ -31,7 +32,7 @@ export default function TabLayout() {
       if (status !== "granted") {
         Alert.alert(
           "Permiso de ubicación denegado",
-          "Para enviar una alerta SOS, necesitamos acceso a tu ubicación. Por favor, habilítalo en la configuración de tu dispositivo."
+          "Para enviar una alerta SOS, necesitamos acceso a tu ubicación. Por favor, habilítalo en la configuración de tu dispositivo.",
         );
         return;
       }
@@ -66,7 +67,7 @@ export default function TabLayout() {
 
       Alert.alert(
         "Alerta SOS enviada",
-        "Tu ubicación ha sido compartida como emergencia crítica y notificado a los usuarios más cercanos."
+        "Tu ubicación ha sido compartida como emergencia crítica y notificado a los usuarios más cercanos.",
       );
     };
 
@@ -76,14 +77,14 @@ export default function TabLayout() {
         "Esta función alertará a todos los usuarios cercanos de una emergencia real. ¿Es una emergencia legítima?",
         [
           { text: "Cancelar", style: "cancel" },
-          { 
-            text: "ENVIAR SOS", 
+          {
+            text: "ENVIAR SOS",
             onPress: () => {
               setSosWarningAccepted(true);
               void triggerSOS();
-            } 
-          }
-        ]
+            },
+          },
+        ],
       );
     } else {
       void triggerSOS();
@@ -100,27 +101,32 @@ export default function TabLayout() {
   }, [loadAlertsFromSupabase, startDemo, startRealtime]);
 
   return (
-    <View style={{ flex: 1 }}>
+    <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
       <Tabs
         screenOptions={{
           headerShown: false,
           tabBarStyle: {
             backgroundColor: theme.colors.surface,
             borderTopColor: theme.colors.border,
+            borderTopWidth: 1,
             height: 68,
             paddingBottom: 10,
             paddingTop: 8,
           },
           tabBarInactiveTintColor: theme.colors.textMuted,
           tabBarActiveTintColor: theme.colors.accent,
+          tabBarLabelStyle: {
+            fontFamily: "SpaceGrotesk_500Medium",
+            fontSize: 11,
+          },
         }}
       >
         <Tabs.Screen
           name="index"
           options={{
             title: "Mapa",
-            tabBarIcon: ({ color, size }) => (
-              <Ionicons name="map" color={color} size={size} />
+            tabBarIcon: ({ color, focused }) => (
+              <Ionicons name={focused ? "map" : "map-outline"} color={color} size={22} />
             ),
           }}
         />
@@ -128,8 +134,8 @@ export default function TabLayout() {
           name="feed"
           options={{
             title: "Feed",
-            tabBarIcon: ({ color, size }) => (
-              <Ionicons name="list" color={color} size={size} />
+            tabBarIcon: ({ color, focused }) => (
+              <Ionicons name={focused ? "list" : "list-outline"} color={color} size={22} />
             ),
           }}
         />
@@ -137,25 +143,30 @@ export default function TabLayout() {
           name="settings"
           options={{
             title: "Ajustes",
-            tabBarIcon: ({ color, size }) => (
-              <Ionicons name="settings-outline" color={color} size={size} />
+            tabBarIcon: ({ color, focused }) => (
+              <Ionicons
+                name={focused ? "settings" : "settings-outline"}
+                color={color}
+                size={22}
+              />
             ),
           }}
         />
       </Tabs>
 
-      {/* Unified Reportar Button (Floating at bottom-right) */}
-      <View style={{
-        position: 'absolute',
-        bottom: 90, // Elevated to clear the tab bar and be more ergonomic
-        right: 20,
-        zIndex: 100,
-      }}>
-        <SOSButton 
+      <View
+        style={{
+          position: "absolute",
+          bottom: 90,
+          right: 20,
+          zIndex: 100,
+        }}
+      >
+        <SOSButton
           active={true}
           compact={true}
           onPress={() => {
-            router.push('/report');
+            router.push("/report");
           }}
           onSOS={handleSOS}
         />
