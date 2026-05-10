@@ -14,7 +14,9 @@ import { TIME_FILTERS } from "../../lib/alerty/constants";
 import { useAlertyTheme } from "../../lib/useAlertyTheme";
 import { useAlertyStore } from "../../lib/alerty/store";
 import { isAlertInWindow, shouldSuppressAlert } from "../../lib/alerty/utils";
-import type { AlertItem } from "../../lib/alerty/types";
+import type { AlertItem, SponsoredZone } from "../../lib/alerty/types";
+import { mockSponsoredZones } from "../../lib/alerty/mock";
+import { AdCard } from "../../components/AdCard";
 
 export default function FeedScreen() {
   const router = useRouter();
@@ -50,17 +52,46 @@ export default function FeedScreen() {
     [filteredAlerts],
   );
 
+  // Mezclamos alertas y anuncios (1 anuncio cada 5 alertas)
+  const feedItems = useMemo(() => {
+    const items: (AlertItem | SponsoredZone)[] = [];
+    let adIndex = 0;
+    
+    filteredAlerts.forEach((alert, index) => {
+      items.push(alert);
+      // Insertar anuncio cada 5 alertas si hay anuncios disponibles
+      if ((index + 1) % 5 === 0 && mockSponsoredZones[adIndex]) {
+        items.push(mockSponsoredZones[adIndex]);
+        adIndex = (adIndex + 1) % mockSponsoredZones.length;
+      }
+    });
+    return items;
+  }, [filteredAlerts]);
+
   const renderItem = useCallback(
-    ({ item }: { item: AlertItem }) => (
-      <AlertCard
-        alert={item}
-        onPress={() => router.push(`/alert/${item.id}`)}
-      />
-    ),
+    ({ item }: { item: AlertItem | SponsoredZone }) => {
+      if ("category" in item) {
+        return (
+          <AlertCard
+            alert={item as AlertItem}
+            onPress={() => router.push(`/alert/${item.id}`)}
+          />
+        );
+      } else {
+        return (
+          <AdCard 
+            zone={item as SponsoredZone} 
+            onPress={() => {
+              router.push("/(tabs)");
+            }} 
+          />
+        );
+      }
+    },
     [router],
   );
 
-  const keyExtractor = useCallback((item: AlertItem) => item.id, []);
+  const keyExtractor = useCallback((item: AlertItem | SponsoredZone) => item.id, []);
 
   const ListHeader = (
     <View style={styles.listHeader}>
@@ -119,7 +150,7 @@ export default function FeedScreen() {
   return (
     <SafeAreaView style={styles.safeArea}>
       <FlatList
-        data={filteredAlerts}
+        data={feedItems}
         renderItem={renderItem}
         keyExtractor={keyExtractor}
         ListHeaderComponent={ListHeader}

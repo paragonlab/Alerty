@@ -13,6 +13,7 @@ import { ALERT_CATEGORIES, CATEGORY_LABELS, REPUTATION_LEVELS } from "../../lib/
 import { useAlertyStore } from "../../lib/alerty/store";
 import { useAlertyTheme } from "../../lib/useAlertyTheme";
 import { supabase } from "../../lib/supabase";
+import { useRouter } from "expo-router";
 
 export default function SettingsScreen() {
   const {
@@ -32,6 +33,7 @@ export default function SettingsScreen() {
 
   const theme = useAlertyTheme();
   const styles = createStyles(theme);
+  const router = useRouter();
 
   const allSelected = useMemo(
     () => activeCategories.length === ALERT_CATEGORIES.length,
@@ -84,6 +86,20 @@ export default function SettingsScreen() {
           </Pressable>
         </View>
 
+        {/* Premium Banner */}
+        {!currentUser.isPremium && (
+          <Pressable style={styles.premiumBanner} onPress={() => router.push("/premium")}>
+            <View style={styles.premiumIconWrap}>
+              <Ionicons name="shield-checkmark" size={24} color="#fff" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.premiumBannerTitle}>Alerty Plus</Text>
+              <Text style={styles.premiumBannerDesc}>Mejora para tener mapa de calor, alertas SMS y sin anuncios.</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color="#fff" />
+          </Pressable>
+        )}
+
         {/* Appearance */}
         <View style={styles.card}>
           <View style={styles.cardHeader}>
@@ -132,12 +148,23 @@ export default function SettingsScreen() {
           </View>
           <View style={styles.settingRow}>
             <View style={{ flex: 1 }}>
-              <Text style={styles.settingLabel}>Mapa de Calor</Text>
+              <Text style={styles.settingLabel}>
+                Mapa de Calor 
+                {!currentUser.isPremium && (
+                  <Text style={{ color: theme.colors.accent }}> (Plus)</Text>
+                )}
+              </Text>
               <Text style={styles.helperText}>Visualiza zonas de alta actividad de reportes.</Text>
             </View>
             <Switch
               value={showHeatmap}
-              onValueChange={setShowHeatmap}
+              onValueChange={(val) => {
+                if (!currentUser.isPremium) {
+                  router.push("/premium");
+                  return;
+                }
+                setShowHeatmap(val);
+              }}
               trackColor={{ false: theme.colors.border, true: theme.colors.accent + "80" }}
               thumbColor={showHeatmap ? theme.colors.accent : "#C9BBA8"}
             />
@@ -264,6 +291,39 @@ const createStyles = (theme: any) => StyleSheet.create({
     borderColor: theme.colors.border,
     padding: 16,
     gap: 14,
+  },
+  premiumBanner: {
+    backgroundColor: theme.colors.accent,
+    borderRadius: theme.radius.xl,
+    padding: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    shadowColor: theme.colors.accent,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+  premiumIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "rgba(255,255,255,0.2)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  premiumBannerTitle: {
+    color: "#fff",
+    fontSize: 16,
+    fontFamily: theme.fonts.heading,
+  },
+  premiumBannerDesc: {
+    color: "rgba(255,255,255,0.8)",
+    fontSize: 12,
+    fontFamily: theme.fonts.body,
+    marginTop: 2,
+    lineHeight: 16,
   },
   cardHeader: {
     flexDirection: "row",

@@ -18,6 +18,7 @@ import { useRouter } from "expo-router";
 import { GlowMarker } from "../../components/GlowMarker";
 import { SOSButton } from "../../components/SOSButton";
 import { CULIACAN_CENTER } from "../../lib/alerty/constants";
+import { mockSponsoredZones } from "../../lib/alerty/mock";
 import { useAlertyTheme } from "../../lib/useAlertyTheme";
 import { useAlertyStore } from "../../lib/alerty/store";
 import { supabase } from "../../lib/supabase";
@@ -160,6 +161,34 @@ export default function MapScreen() {
                   isVerified={alert.user.isVerified}
                   lowConnection={lowConnection}
                 />
+                />
+              </Marker>
+            ))}
+            
+            {/* Zonas Patrocinadas */}
+            {!showHeatmap && mockSponsoredZones.map((zone) => (
+              <Marker
+                key={zone.id}
+                coordinate={{ latitude: zone.lat, longitude: zone.lng }}
+                tracksViewChanges={false}
+                onPress={() => {
+                  void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  Alert.alert(
+                    zone.type === "refugio" ? "🛡️ Zona Segura" : "⭐ Patrocinado", 
+                    `${zone.name}\n\n${zone.description}`
+                  );
+                }}
+              >
+                <View style={[
+                  styles.sponsorMarker, 
+                  zone.type === "refugio" ? styles.sponsorRefugio : styles.sponsorAnuncio
+                ]}>
+                  <Ionicons 
+                    name={zone.type === "refugio" ? "shield-checkmark" : "star"} 
+                    size={16} 
+                    color="#fff" 
+                  />
+                </View>
               </Marker>
             ))}
           </MapView>
@@ -301,6 +330,26 @@ const createStyles = (theme: any, themeMode: string) => StyleSheet.create({
     justifyContent: "center",
     borderWidth: 1,
     borderColor: theme.colors.border,
+  },
+  sponsorMarker: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2,
+    borderColor: "#fff",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 3,
+    elevation: 4,
+  },
+  sponsorRefugio: {
+    backgroundColor: theme.colors.success,
+  },
+  sponsorAnuncio: {
+    backgroundColor: theme.colors.accent,
   },
   statSeparator: {
     width: 1,

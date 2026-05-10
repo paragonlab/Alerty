@@ -9,11 +9,16 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import * as Linking from "expo-linking";
+import * as WebBrowser from "expo-web-browser";
+import { makeRedirectUri } from "expo-auth-session";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { trackEvent } from "../../lib/analytics";
 import { lightTheme as theme } from "../../lib/theme";
 import { isSupabaseConfigured, supabase } from "../../lib/supabase";
+
+// Completa la sesión si la app se abre desde el browser (requerido por Expo)
+WebBrowser.maybeCompleteAuthSession();
 
 type Provider = "apple" | "google";
 
@@ -32,13 +37,19 @@ export default function LoginScreen() {
     try {
       setLoadingProvider(provider);
       void trackEvent({ event_type: "auth_oauth_started", metadata: { provider } });
-      const redirectTo = Linking.createURL("/");
 
-      const { error } = await supabase.auth.signInWithOAuth({
+      // En Expo Go usamos el scheme de exp:// con el host del tunnel.
+      // Usamos makeRedirectUri que detecta automáticamente si estamos en Expo Go o build
+      const redirectTo = makeRedirectUri({
+        path: "auth-callback",
+      });
+      console.log("🔗 URL de redirección enviada a Supabase:", redirectTo);
+
+      const { data, error } = await supabase.auth.signInWithOAuth({
         provider,
         options: {
           redirectTo,
-          skipBrowserRedirect: false,
+          skipBrowserRedirect: true, // Nos encargamos de abrir el browser manualmente
         },
       });
 
@@ -48,6 +59,22 @@ export default function LoginScreen() {
           metadata: { provider, message: error.message },
         });
         Alert.alert("Error al iniciar sesión", error.message);
+        return;
+      }
+
+      // Abrimos el URL de OAuth en el in-app browser (soluciona el problema de no regresar)
+      if (data?.url) {
+        const result = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
+        
+        if (result.type === "success" && result.url) {
+          console.log("✅ Retorno a la app exitoso:", result.url);
+          // Si el WebBrowser intercepta la URL, la parseamos aquí mismo
+          const codeMatch = result.url.match(/code=([^&]+)/);
+          if (codeMatch) {
+            console.log("🎟️ Intercambiando código por sesión (WebBrowser)...");
+            await supabase.auth.exchangeCodeForSession(codeMatch[1]);
+          }
+        }
       }
     } catch {
       void trackEvent({ event_type: "auth_oauth_failed", metadata: { provider } });
@@ -56,6 +83,7 @@ export default function LoginScreen() {
       setLoadingProvider(null);
     }
   };
+
 
   return (
     <SafeAreaView style={styles.safeArea}>

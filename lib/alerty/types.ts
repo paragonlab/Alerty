@@ -17,6 +17,12 @@ export type AlertUser = {
   trustScore: number;
   level: string;
   followersCount: number;
+  themeMode?: "light" | "darkHighVisibility";
+  pushEnabled?: boolean;
+  lowConnection?: boolean;
+  activeCategories?: string[];
+  showHeatmap?: boolean;
+  isPremium?: boolean;
 };
 
 export type AlertUpdate = {
@@ -42,4 +48,14 @@ export type AlertItem = {
   downvotes: number;
   neighborhood?: string;
   updates?: AlertUpdate[];
+};
+
+export type SponsoredZone = {
+  id: string;
+  name: string;
+  description: string;
+  lat: number;
+  lng: number;
+  logoUrl?: string;
+  type: "refugio" | "anuncio";
 };

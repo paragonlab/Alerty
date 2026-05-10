@@ -45,6 +45,15 @@ type AlertyState = {
   setThemeMode: (mode: "light" | "darkHighVisibility") => void;
   updateUserScore: (score: number) => void;
   getReportingRange: () => number;
+  loadUserProfile: () => Promise<void>;
+};
+
+const syncPreference = async (key: string, value: any) => {
+  if (!isSupabaseConfigured || !supabase) return;
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session?.user) return;
+  
+  await supabase.from("users").update({ [key]: value }).eq("id", session.user.id);
 };
 
 export const useAlertyStore = create<AlertyState>((set, get) => ({
@@ -247,15 +256,60 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
   toggleCategory: (category) =>
     set((state) => {
       const isActive = state.activeCategories.includes(category);
-      return {
-        activeCategories: isActive
-          ? state.activeCategories.filter((item) => item !== category)
-          : [...state.activeCategories, category],
-      };
+      const newCategories = isActive
+        ? state.activeCategories.filter((item) => item !== category)
+        : [...state.activeCategories, category];
+      syncPreference("active_categories", newCategories);
+      return { activeCategories: newCategories };
     }),
-  setCategoryDefaults: (categories) => set({ activeCategories: categories }),
-  setLowConnection: (value) => set({ lowConnection: value }),
-  setPushEnabled: (value) => set({ pushEnabled: value }),
+  setCategoryDefaults: (categories) => {
+    set({ activeCategories: categories });
+    syncPreference("active_categories", categories);
+  },
+  setLowConnection: (value) => {
+    set({ lowConnection: value });
+    syncPreference("low_connection", value);
+  },
+  setPushEnabled: (value) => {
+    set({ pushEnabled: value });
+    syncPreference("push_enabled", value);
+  },
+  loadUserProfile: async () => {
+    if (!isSupabaseConfigured || !supabase) return;
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user) return;
+
+    const { data } = await supabase
+      .from("users")
+      .select("*")
+      .eq("id", session.user.id)
+      .single();
+
+    if (data) {
+      set((state) => ({
+        currentUser: {
+          ...state.currentUser,
+          id: data.id,
+          username: data.username,
+          avatarUrl: data.avatar_url,
+          isVerified: Boolean(data.is_verified),
+          trustScore: Number(data.trust_score),
+          followersCount: Number(data.followers_count),
+          themeMode: data.theme_mode,
+          pushEnabled: data.push_enabled,
+          lowConnection: data.low_connection,
+          activeCategories: data.active_categories,
+          showHeatmap: data.show_heatmap,
+          isPremium: data.is_premium,
+        },
+        themeMode: data.theme_mode ?? state.themeMode,
+        pushEnabled: data.push_enabled ?? state.pushEnabled,
+        lowConnection: data.low_connection ?? state.lowConnection,
+        activeCategories: data.active_categories ?? state.activeCategories,
+        showHeatmap: data.show_heatmap ?? state.showHeatmap,
+      }));
+    }
+  },
   loadAlertsFromSupabase: async () => {
     if (!isSupabaseConfigured || !supabase) return;
     
@@ -429,9 +483,15 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
   },
   setMaxReportingDistance: (distance) => set({ maxReportingDistance: distance }),
   setSOSActive: (active) => set({ sosActive: active }),
-  setShowHeatmap: (show) => set({ showHeatmap: show }),
+  setShowHeatmap: (show) => {
+    set({ showHeatmap: show });
+    syncPreference("show_heatmap", show);
+  },
   setSosWarningAccepted: (accepted) => set({ sosWarningAccepted: accepted }),
-  setThemeMode: (mode) => set({ themeMode: mode }),
+  setThemeMode: (mode) => {
+    set({ themeMode: mode });
+    syncPreference("theme_mode", mode);
+  },
   updateUserScore: (score) => {
     set((state) => {
       const newScore = Math.max(0, Math.min(100, state.currentUser.trustScore + score));
