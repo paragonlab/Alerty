@@ -44,3 +44,9 @@ yarn-error.*
 # local tooling
 .local/
 .expo-home/
+
+# Secrets and Keys
+Keys/
+apple_gen.js
+apple_gen.rb
+.env
