@@ -161,7 +161,6 @@ export default function MapScreen() {
                   isVerified={alert.user.isVerified}
                   lowConnection={lowConnection}
                 />
-                />
               </Marker>
             ))}
             

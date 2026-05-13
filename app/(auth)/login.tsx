@@ -2,6 +2,7 @@ import { useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -38,18 +39,20 @@ export default function LoginScreen() {
       setLoadingProvider(provider);
       void trackEvent({ event_type: "auth_oauth_started", metadata: { provider } });
 
-      // En Expo Go usamos el scheme de exp:// con el host del tunnel.
-      // Usamos makeRedirectUri que detecta automáticamente si estamos en Expo Go o build
-      const redirectTo = makeRedirectUri({
-        path: "auth-callback",
-      });
-      console.log("🔗 URL de redirección enviada a Supabase:", redirectTo);
+      const isWeb = Platform.OS === "web";
+
+      // scheme: "alerty" genera exp+alerty://auth-callback en Expo Go
+      // y alerty://auth-callback en build de producción.
+      // En web genera la URL del servidor actual.
+      const redirectTo = makeRedirectUri({ scheme: "alerty", path: "auth-callback" });
 
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider,
         options: {
           redirectTo,
-          skipBrowserRedirect: true, // Nos encargamos de abrir el browser manualmente
+          // En web dejamos que Supabase redirija directamente.
+          // En nativo abrimos el browser manualmente para poder interceptar el callback.
+          skipBrowserRedirect: !isWeb,
         },
       });
 
@@ -62,16 +65,12 @@ export default function LoginScreen() {
         return;
       }
 
-      // Abrimos el URL de OAuth en el in-app browser (soluciona el problema de no regresar)
-      if (data?.url) {
+      // Solo en nativo abrimos el WebBrowser in-app
+      if (!isWeb && data?.url) {
         const result = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
-        
         if (result.type === "success" && result.url) {
-          console.log("✅ Retorno a la app exitoso:", result.url);
-          // Si el WebBrowser intercepta la URL, la parseamos aquí mismo
           const codeMatch = result.url.match(/code=([^&]+)/);
           if (codeMatch) {
-            console.log("🎟️ Intercambiando código por sesión (WebBrowser)...");
             await supabase.auth.exchangeCodeForSession(codeMatch[1]);
           }
         }

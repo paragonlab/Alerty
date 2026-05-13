@@ -10,306 +10,497 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import Svg, { Circle } from "react-native-svg";
 import { LinearGradient } from "expo-linear-gradient";
-import { GlassView } from "expo-glass-effect";
 import { useAlertyTheme } from "../lib/useAlertyTheme";
+import { useAlertyStore } from "../lib/alerty/store";
 
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
-// AnimatedGlassView removed to avoid potential creation issues in Hermis
 
 type SOSButtonProps = {
-  /** Triggered when long-press completes successfully */
   onSOS: () => void;
-  /** Triggered on single tap */
   onPress?: () => void;
   active?: boolean;
   compact?: boolean;
 };
 
-const RADIUS = 36;
-const STROKE = 6;
-const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
+const RING_RADIUS = 42;
+const RING_STROKE = 7;
+const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
+
+// Burst particle positions (8 directions)
+const BURST_ANGLES = [0, 45, 90, 135, 180, 225, 270, 315];
+const BURST_RADIUS = 48;
 
 export function SOSButton({ onSOS, onPress, active, compact }: SOSButtonProps) {
   const theme = useAlertyTheme();
+  const themeMode = useAlertyStore((s) => s.themeMode);
+  const isDark = themeMode === "darkHighVisibility";
+
   const [isPressing, setIsPressing] = useState(false);
-  const scaleAnim = useMemo(() => new Animated.Value(1), []);
-  const progressAnim = useMemo(() => new Animated.Value(0), []);
-  const glowAnim = useMemo(() => new Animated.Value(1), []);
-  const flashAnim = useMemo(() => new Animated.Value(0), []); // New flash state
-  const [progressValue, setProgressValue] = useState(0);
+  const [isActivated, setIsActivated] = useState(false);
   const isPressingRef = useRef(false);
 
-  useEffect(() => {
-    isPressingRef.current = isPressing;
-    
-    let hapticTimeout: ReturnType<typeof setTimeout> | null = null;
-    
-    const playProgressiveHaptics = (progress: number) => {
-      if (!isPressingRef.current) return;
-      
-      // Start with Light, move to Medium as we progress
-      const style = progress < 0.6 
-        ? Haptics.ImpactFeedbackStyle.Light 
-        : Haptics.ImpactFeedbackStyle.Medium;
-        
-      void Haptics.impactAsync(style);
-      
-      // Frequency increases as progress increases (from 250ms down to 80ms)
-      const frequency = Math.max(80, 250 - progress * 170);
-      
-      hapticTimeout = setTimeout(() => {
-        playProgressiveHaptics(progressValue);
-      }, frequency);
-    };
+  // Animations
+  const auraAnim   = useMemo(() => new Animated.Value(0), []);
+  const glowAnim   = useMemo(() => new Animated.Value(0), []);
+  const radarAnim  = useMemo(() => new Animated.Value(0), []);
+  const wave1Anim  = useMemo(() => new Animated.Value(0), []);
+  const wave2Anim  = useMemo(() => new Animated.Value(0), []);
+  const wave3Anim  = useMemo(() => new Animated.Value(0), []);
+  const scaleAnim  = useMemo(() => new Animated.Value(1), []);
+  const progressAnim = useMemo(() => new Animated.Value(0), []);
+  const burstAnim  = useMemo(() => new Animated.Value(0), []);
+  const diodeAnim  = useMemo(() => new Animated.Value(0), []);
+  const [progressValue, setProgressValue] = useState(0);
 
-    if (isPressing) {
-      playProgressiveHaptics(0);
-    }
-    
-    return () => {
-      if (hapticTimeout) clearTimeout(hapticTimeout);
-    };
-  }, [isPressing]);
+  const wave2LoopRef = useRef<Animated.CompositeAnimation | null>(null);
+  const wave3LoopRef = useRef<Animated.CompositeAnimation | null>(null);
+  const isMounted = useRef(true);
 
+  // Idle animations
   useEffect(() => {
-    // Pulse animation for the glow
-    Animated.loop(
+    isMounted.current = true;
+
+    // Aura: slowest breathing
+    const auraLoop = Animated.loop(
       Animated.sequence([
-        Animated.timing(glowAnim, {
-          toValue: 1.4,
-          duration: 1500,
-          useNativeDriver: true,
-        }),
-        Animated.timing(glowAnim, {
-          toValue: 1,
-          duration: 1500,
-          useNativeDriver: true,
-        }),
+        Animated.timing(auraAnim, { toValue: 1, duration: 2400, useNativeDriver: true }),
+        Animated.timing(auraAnim, { toValue: 0, duration: 2400, useNativeDriver: true }),
       ])
-    ).start();
+    );
+
+    // Mid glow breathing
+    const glowLoop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(glowAnim, { toValue: 1, duration: 1500, useNativeDriver: true }),
+        Animated.timing(glowAnim, { toValue: 0, duration: 1500, useNativeDriver: true }),
+      ])
+    );
+
+    // Radar rotation (9s full spin)
+    const radarLoop = Animated.loop(
+      Animated.timing(radarAnim, { toValue: 1, duration: 9000, useNativeDriver: true })
+    );
+
+    // Waves — staggered starts
+    const makeWaveLoop = (anim: Animated.Value) =>
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(anim, { toValue: 1, duration: 2400, useNativeDriver: true }),
+          Animated.timing(anim, { toValue: 0, duration: 0, useNativeDriver: true }),
+        ])
+      );
+
+    const wave1Loop = makeWaveLoop(wave1Anim);
+    wave1Loop.start();
+
+    const t2 = setTimeout(() => {
+      if (!isMounted.current) return;
+      wave2Anim.setValue(0);
+      wave2LoopRef.current = makeWaveLoop(wave2Anim);
+      wave2LoopRef.current.start();
+    }, 800);
+
+    const t3 = setTimeout(() => {
+      if (!isMounted.current) return;
+      wave3Anim.setValue(0);
+      wave3LoopRef.current = makeWaveLoop(wave3Anim);
+      wave3LoopRef.current.start();
+    }, 1600);
+
+    // LED diode blink
+    const diodeLoop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(diodeAnim, { toValue: 1, duration: 160, useNativeDriver: true }),
+        Animated.timing(diodeAnim, { toValue: 0.2, duration: 160, useNativeDriver: true }),
+        Animated.delay(1280),
+        Animated.timing(diodeAnim, { toValue: 1, duration: 160, useNativeDriver: true }),
+        Animated.timing(diodeAnim, { toValue: 0.2, duration: 160, useNativeDriver: true }),
+        Animated.delay(400),
+      ])
+    );
+
+    auraLoop.start();
+    glowLoop.start();
+    radarLoop.start();
+    diodeLoop.start();
+
+    return () => {
+      isMounted.current = false;
+      auraLoop.stop();
+      glowLoop.stop();
+      radarLoop.stop();
+      wave1Anim.stopAnimation();
+      wave2Anim.stopAnimation();
+      wave3Anim.stopAnimation();
+      diodeAnim.stopAnimation();
+      clearTimeout(t2);
+      clearTimeout(t3);
+      wave2LoopRef.current?.stop();
+      wave3LoopRef.current?.stop();
+    };
   }, []);
 
-  const handlePressIn = () => {
-    setIsPressing(true);
-    // Inflate effect + Start filling
-    Animated.parallel([
-      Animated.spring(scaleAnim, {
-        toValue: 1.5,
-        friction: 3,
-        useNativeDriver: true,
-      }),
-      Animated.timing(progressAnim, {
-        toValue: 1,
-        duration: 2000,
-        useNativeDriver: false,
-      }),
-    ]).start();
-  };
-
-  const handlePressOut = () => {
-    setIsPressing(false);
-    // Deflate and smooth "decompression" reset
-    Animated.parallel([
-      Animated.spring(scaleAnim, {
-        toValue: 1,
-        friction: 7,
-        useNativeDriver: true,
-      }),
-      Animated.timing(progressAnim, {
-        toValue: 0,
-        duration: 500, // Smooth reset instead of instant or generic 300
-        useNativeDriver: false,
-      }),
-    ]).start();
-  };
-
-  // Listen to progress once. Use ref to check isPressing state.
+  // Progress listener
   useEffect(() => {
-    const listenerId = progressAnim.addListener(({ value }) => {
+    const id = progressAnim.addListener(({ value }) => {
       setProgressValue(value);
       if (value >= 0.99 && isPressingRef.current) {
         progressAnim.setValue(0);
         handlePressOut();
-        
-        // Final activation sequence
         void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        
-        // Trigger Flash
-        Animated.sequence([
-          Animated.timing(flashAnim, { toValue: 1, duration: 50, useNativeDriver: true }),
-          Animated.timing(flashAnim, { toValue: 0, duration: 400, useNativeDriver: true }),
-        ]).start();
-        
+        triggerActivated();
         onSOS();
       }
     });
+    return () => progressAnim.removeListener(id);
+  }, []);
 
-    return () => {
-      progressAnim.removeAllListeners();
+  // Haptics while pressing
+  useEffect(() => {
+    isPressingRef.current = isPressing;
+    if (!isPressing) return;
+
+    let timeout: ReturnType<typeof setTimeout> | null = null;
+    const tick = (progress: number) => {
+      if (!isPressingRef.current) return;
+      void Haptics.impactAsync(
+        progress < 0.6 ? Haptics.ImpactFeedbackStyle.Light : Haptics.ImpactFeedbackStyle.Medium
+      );
+      const freq = Math.max(80, 250 - progress * 170);
+      timeout = setTimeout(() => tick(progressValue), freq);
     };
-  }, []); // Only once for stability
+    tick(0);
+    return () => { if (timeout) clearTimeout(timeout); };
+  }, [isPressing]);
+
+  function handlePressIn() {
+    setIsPressing(true);
+    Animated.parallel([
+      Animated.spring(scaleAnim, { toValue: 1.45, friction: 3, useNativeDriver: true }),
+      Animated.timing(progressAnim, { toValue: 1, duration: 2000, useNativeDriver: false }),
+    ]).start();
+  }
+
+  function handlePressOut() {
+    setIsPressing(false);
+    Animated.parallel([
+      Animated.spring(scaleAnim, { toValue: 1, friction: 7, useNativeDriver: true }),
+      Animated.timing(progressAnim, { toValue: 0, duration: 500, useNativeDriver: false }),
+    ]).start();
+  }
+
+  function triggerActivated() {
+    setIsActivated(true);
+    Animated.sequence([
+      Animated.timing(burstAnim, { toValue: 1, duration: 500, useNativeDriver: true }),
+      Animated.timing(burstAnim, { toValue: 0, duration: 400, useNativeDriver: true }),
+    ]).start();
+    setTimeout(() => {
+      if (isMounted.current) setIsActivated(false);
+    }, 2200);
+  }
+
+  // Interpolations
+  const auraScale = auraAnim.interpolate({ inputRange: [0, 1], outputRange: [0.92, 1.08] });
+  const auraOpacity = auraAnim.interpolate({ inputRange: [0, 1], outputRange: [0.55, 0.9] });
+
+  const glowScale = glowAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 1.12] });
+  const glowOpacity = glowAnim.interpolate({ inputRange: [0, 1], outputRange: [0.85, 1] });
+
+  const radarRotation = radarAnim.interpolate({ inputRange: [0, 1], outputRange: ["0deg", "360deg"] });
+
+  const w1Scale = wave1Anim.interpolate({ inputRange: [0, 1], outputRange: [1, 2.5] });
+  const w1Opacity = wave1Anim.interpolate({ inputRange: [0, 0.5, 1], outputRange: [0.8, 0.15, 0] });
+  const w2Scale = wave2Anim.interpolate({ inputRange: [0, 1], outputRange: [1, 2.5] });
+  const w2Opacity = wave2Anim.interpolate({ inputRange: [0, 0.5, 1], outputRange: [0.8, 0.15, 0] });
+  const w3Scale = wave3Anim.interpolate({ inputRange: [0, 1], outputRange: [1, 2.5] });
+  const w3Opacity = wave3Anim.interpolate({ inputRange: [0, 0.5, 1], outputRange: [0.8, 0.15, 0] });
 
   const strokeDashoffset = progressAnim.interpolate({
     inputRange: [0, 1],
-    outputRange: [CIRCUMFERENCE, 0],
+    outputRange: [RING_CIRCUMFERENCE, 0],
   });
 
-  // Calculate tint manually to avoid Animated prop issue in Hermis
-  const activeTint = `rgba(255, 82, 82, ${0.1 + progressValue * 0.5})`;
+  const diodeColor = isPressing ? "#FFEA00" : isActivated ? "#00FF41" : "#00FF41";
+  const diodeOpacity = diodeAnim.interpolate({ inputRange: [0, 1], outputRange: [0.2, 1] });
 
-  const styles = useMemo(() => createStyles(theme), [theme]);
+  const sosColor = "#FF1A1A";
+  const sos_lo = "#B30000";
+
+  // Core gradient colors shift on press/activated
+  const coreGradientStart = isActivated ? "#FFFFFF" : isPressing ? "#FFF2EE" : "#FFB7A0";
+  const coreGradientEnd = isActivated ? sosColor : isPressing ? sos_lo : sos_lo;
+
+  const coreIcon = isActivated ? "checkmark" : "alert-circle";
+
+  const styles = useMemo(() => createStyles(theme, isDark), [theme, isDark]);
 
   return (
     <View style={[styles.container, compact && styles.compactContainer]}>
+      {/* Layer 1: Aura */}
       <Animated.View
         style={[
-          styles.glow,
-          compact && styles.compactGlow,
+          styles.aura,
+          { transform: [{ scale: auraScale }], opacity: auraOpacity },
+        ]}
+      />
+
+      {/* Layer 2: Mid glow */}
+      <Animated.View
+        style={[
+          styles.glowMid,
+          { transform: [{ scale: glowScale }], opacity: glowOpacity },
+        ]}
+      />
+
+      {/* Layer 3: Waves */}
+      {[w1Scale, w2Scale, w3Scale].map((wScale, i) => {
+        const wOpacity = [w1Opacity, w2Opacity, w3Opacity][i];
+        return (
+          <Animated.View
+            key={i}
+            style={[
+              styles.wave,
+              { transform: [{ scale: wScale }], opacity: isPressing ? Animated.multiply(wOpacity, 1.4) as any : wOpacity },
+            ]}
+          />
+        );
+      })}
+
+      {/* Layer 4: Radar ring */}
+      <Animated.View
+        style={[
+          styles.radar,
           {
-            transform: [{ 
-              scale: isPressing 
-                ? glowAnim.interpolate({
-                    inputRange: [1, 1.4],
-                    outputRange: [1, 1 + progressValue * 0.8] 
-                  })
-                : glowAnim // Breathing effect when idle
-            }],
-            opacity: isPressing ? 0.6 + progressValue * 0.4 : 0.4,
+            transform: [{ rotate: radarRotation }],
+            borderStyle: isPressing ? "solid" : "dashed",
+            borderColor: isPressing ? "rgba(255,255,255,0.45)" : "rgba(255,255,255,0.28)",
           },
         ]}
       />
-      
-      <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
-        <Svg width={(RADIUS + STROKE) * 2} height={(RADIUS + STROKE) * 2} style={styles.svg}>
-          {/* Background circle */}
+
+      {/* Progress ring SVG */}
+      <Animated.View style={[styles.ringWrapper, { transform: [{ scale: scaleAnim }] }]}>
+        <Svg
+          width={(RING_RADIUS + RING_STROKE) * 2}
+          height={(RING_RADIUS + RING_STROKE) * 2}
+          style={StyleSheet.absoluteFill}
+        >
           <Circle
-            cx={RADIUS + STROKE}
-            cy={RADIUS + STROKE}
-            r={RADIUS}
-            stroke={isPressing ? "rgba(255,255,255,0.6)" : "rgba(255,255,255,0.4)"}
-            strokeWidth={STROKE}
+            cx={RING_RADIUS + RING_STROKE}
+            cy={RING_RADIUS + RING_STROKE}
+            r={RING_RADIUS}
+            stroke="rgba(255,255,255,0.22)"
+            strokeWidth={RING_STROKE}
             fill="transparent"
           />
-          {/* Progress circle */}
           <AnimatedCircle
-            cx={RADIUS + STROKE}
-            cy={RADIUS + STROKE}
-            r={RADIUS}
-            stroke={theme.colors.accent}
-            strokeWidth={STROKE + 2}
-            strokeDasharray={CIRCUMFERENCE}
+            cx={RING_RADIUS + RING_STROKE}
+            cy={RING_RADIUS + RING_STROKE}
+            r={RING_RADIUS}
+            stroke="#ffffff"
+            strokeWidth={RING_STROKE + 2}
+            strokeDasharray={RING_CIRCUMFERENCE}
             strokeDashoffset={strokeDashoffset}
             strokeLinecap="round"
             fill="transparent"
             rotation="-90"
-            origin={`${RADIUS + STROKE}, ${RADIUS + STROKE}`}
+            origin={`${RING_RADIUS + RING_STROKE}, ${RING_RADIUS + RING_STROKE}`}
           />
         </Svg>
 
+        {/* LED diode */}
+        <Animated.View
+          style={[
+            styles.diode,
+            { backgroundColor: diodeColor, shadowColor: diodeColor, opacity: diodeOpacity },
+          ]}
+        />
+
+        {/* Layer 5: Core */}
         <Pressable
           onPressIn={handlePressIn}
           onPressOut={handlePressOut}
           onPress={onPress}
           style={styles.pressable}
         >
-          <Animated.View style={[StyleSheet.absoluteFill, { transform: [{ scale: scaleAnim }] }]}>
-            <View style={styles.solidButton}>
-              <Ionicons name="alert-circle" size={38} color="white" />
-              <Text style={styles.label}>REPORTAR</Text>
-            </View>
-          </Animated.View>
-          
-          {/* Flash Overlay */}
-          <Animated.View 
-            pointerEvents="none"
-            style={[
-              StyleSheet.absoluteFill,
-              {
-                backgroundColor: 'white',
-                borderRadius: 36,
-                opacity: flashAnim,
-              }
-            ]} 
-          />
+          <LinearGradient
+            colors={[coreGradientStart, sosColor, coreGradientEnd]}
+            locations={[0, 0.42, 1]}
+            start={{ x: 0.35, y: 0.28 }}
+            end={{ x: 0.65, y: 0.72 }}
+            style={styles.core}
+          >
+            {/* Highlight shimmer */}
+            <View style={styles.coreHighlight} />
+            {/* Shadow depth */}
+            <View style={styles.coreShadow} />
+            <Ionicons
+              name={coreIcon as any}
+              size={isActivated ? 34 : 38}
+              color={isActivated ? sosColor : "white"}
+              style={styles.coreIcon}
+            />
+          </LinearGradient>
         </Pressable>
       </Animated.View>
+
+      {/* Burst particles */}
+      {BURST_ANGLES.map((angle, i) => {
+        const rad = (angle * Math.PI) / 180;
+        const tx = burstAnim.interpolate({ inputRange: [0, 1], outputRange: [0, Math.sin(rad) * BURST_RADIUS] });
+        const ty = burstAnim.interpolate({ inputRange: [0, 1], outputRange: [0, -Math.cos(rad) * BURST_RADIUS] });
+        const op = burstAnim.interpolate({ inputRange: [0, 0.5, 1], outputRange: [1, 0.5, 0] });
+        return (
+          <Animated.View
+            key={i}
+            style={[
+              styles.particle,
+              { transform: [{ translateX: tx }, { translateY: ty }], opacity: op },
+            ]}
+          />
+        );
+      })}
 
       {!compact && (
         <View style={styles.hintContainer}>
           <Text style={styles.hintTitle}>LLAMADA DE EMERGENCIA</Text>
-          <Text style={styles.hintSub}>Mantenlo presionado para avisar a todos</Text>
+          <Text style={[styles.hintSub, { color: theme.colors.surface }]}>
+            Mantenlo presionado para avisar a todos
+          </Text>
         </View>
       )}
     </View>
   );
 }
 
-const createStyles = (theme: any) => StyleSheet.create({
+const createStyles = (theme: any, isDark: boolean) => StyleSheet.create({
   container: {
     alignItems: "center",
     justifyContent: "center",
-    width: 100,
-    height: 140,
+    width: 150,
+    height: 180,
   },
   compactContainer: {
-    height: 80,
+    height: 90,
   },
-  glow: {
+  // Layer 1: Aura
+  aura: {
     position: "absolute",
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: theme.colors.mapRed,
-    top: 20,
-    shadowColor: theme.colors.mapRed,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.8,
-    shadowRadius: 15,
+    width: 140,
+    height: 140,
+    borderRadius: 999,
+    backgroundColor: "rgba(255,26,26,0.38)",
   },
-  compactGlow: {
-    top: 10,
-  },
-  svg: {
+  // Layer 2: Mid glow
+  glowMid: {
     position: "absolute",
-    top: -STROKE,
-    left: -STROKE,
+    width: 108,
+    height: 108,
+    borderRadius: 999,
+    backgroundColor: "rgba(255,26,26,0.28)",
+  },
+  // Layer 3: Waves
+  wave: {
+    position: "absolute",
+    width: 88,
+    height: 88,
+    borderRadius: 999,
+    borderWidth: 2,
+    borderColor: "#FF1A1A",
+    backgroundColor: "transparent",
+  },
+  // Layer 4: Radar
+  radar: {
+    position: "absolute",
+    width: 100,
+    height: 100,
+    borderRadius: 999,
+    borderWidth: 1.5,
+  },
+  // SVG ring wrapper
+  ringWrapper: {
+    width: (RING_RADIUS + RING_STROKE) * 2,
+    height: (RING_RADIUS + RING_STROKE) * 2,
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 2,
   },
   pressable: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-  },
-  solidButton: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    justifyContent: "center",
-    alignItems: "center",
+    width: 84,
+    height: 84,
+    borderRadius: 999,
     overflow: "hidden",
-    borderWidth: 2,
-    borderColor: "rgba(255, 255, 255, 0.4)",
-    backgroundColor: "#FF0000", // Solid bright alert red
-    elevation: 8,
-    shadowColor: "black",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 10,
   },
-  label: {
-    color: theme.colors.surface,
-    fontSize: 12,
-    fontFamily: theme.fonts.heading,
-    marginTop: -2,
-    fontWeight: "bold",
+  core: {
+    width: 84,
+    height: 84,
+    borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2,
+    borderColor: "rgba(255,255,255,0.55)",
+    shadowColor: "#FF1A1A",
+    shadowOffset: { width: 0, height: 14 },
+    shadowOpacity: 0.7,
+    shadowRadius: 18,
+    elevation: 12,
+    overflow: "hidden",
+  },
+  coreHighlight: {
+    position: "absolute",
+    top: 6,
+    left: "16%",
+    right: "16%",
+    height: 22,
+    backgroundColor: "rgba(255,255,255,0.45)",
+    borderRadius: 999,
+  },
+  coreShadow: {
+    position: "absolute",
+    bottom: 8,
+    right: 8,
+    width: 36,
+    height: 28,
+    backgroundColor: "rgba(0,0,0,0.22)",
+    borderRadius: 999,
+  },
+  coreIcon: {
+    position: "relative",
+    zIndex: 2,
+  },
+  diode: {
+    position: "absolute",
+    top: RING_STROKE + 8,
+    width: 5,
+    height: 5,
+    borderRadius: 999,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 1,
+    shadowRadius: 4,
+    elevation: 4,
+    zIndex: 5,
+  },
+  particle: {
+    position: "absolute",
+    width: 6,
+    height: 6,
+    borderRadius: 999,
+    backgroundColor: "#FF1A1A",
+    shadowColor: "#FF1A1A",
+    shadowOpacity: 1,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 0 },
+    zIndex: 1,
   },
   hintContainer: {
-    marginTop: 12,
+    marginTop: 14,
     alignItems: "center",
     backgroundColor: "rgba(0,0,0,0.6)",
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 8,
-    width: 140,
+    width: 150,
   },
   hintTitle: {
     color: "#FF5252",
@@ -319,7 +510,6 @@ const createStyles = (theme: any) => StyleSheet.create({
     letterSpacing: 1,
   },
   hintSub: {
-    color: theme.colors.surface,
     fontSize: 9,
     fontFamily: theme.fonts.body,
     marginTop: 2,
