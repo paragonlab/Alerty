@@ -15,12 +15,14 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import * as Location from "expo-location";
 import { Audio } from "expo-av";
+import * as FileSystem from "expo-file-system/legacy";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useAlertyTheme } from "../../lib/useAlertyTheme";
 import { GlassView, GlassContainer } from "expo-glass-effect";
 import { LinearGradient } from "expo-linear-gradient";
 import { CATEGORY_ICONS, CATEGORY_LABELS, REPUTATION_LEVELS } from "../../lib/alerty/constants";
 import { useAlertyStore } from "../../lib/alerty/store";
+import { Sounds } from "../../lib/sounds";
 import { calculateDistance, formatRelativeTime, getIntensityColor } from "../../lib/alerty/utils";
 import type { AlertUpdate } from "../../lib/alerty/types";
 
@@ -28,7 +30,7 @@ import type { AlertUpdate } from "../../lib/alerty/types";
 export default function AlertDetailScreen() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { alerts, voteAlert, followingAlertIds, toggleFollowAlert, addUpdateToAlert, getReportingRange, themeMode } = useAlertyStore();
+  const { alerts, voteAlert, votedAlerts, followingAlertIds, toggleFollowAlert, addUpdateToAlert, getReportingRange, themeMode } = useAlertyStore();
   const theme = useAlertyTheme();
   const isDark = themeMode === "darkHighVisibility";
   const styles = createStyles(theme, themeMode);
@@ -43,8 +45,18 @@ export default function AlertDetailScreen() {
   function AudioPlayer({ uri }: { uri: string }) {
     const [sound, setSound] = useState<Audio.Sound | null>(null);
     const [isPlaying, setIsPlaying] = useState(false);
+    const [unavailable, setUnavailable] = useState(false);
+
+    const isLocal = uri.startsWith("/") || uri.startsWith("file://");
 
     async function playSound() {
+      if (unavailable) return;
+
+      if (isLocal) {
+        const info = await FileSystem.getInfoAsync(uri);
+        if (!info.exists) { setUnavailable(true); return; }
+      }
+
       if (sound) {
         if (isPlaying) {
           await sound.pauseAsync();
@@ -56,16 +68,26 @@ export default function AlertDetailScreen() {
         return;
       }
 
-      const { sound: newSound } = await Audio.Sound.createAsync({ uri });
-      setSound(newSound);
-      setIsPlaying(true);
-      await newSound.playAsync();
-      
-      newSound.setOnPlaybackStatusUpdate((status) => {
-        if (status.isLoaded && status.didJustFinish) {
-          setIsPlaying(false);
-        }
-      });
+      try {
+        const { sound: newSound } = await Audio.Sound.createAsync({ uri });
+        setSound(newSound);
+        setIsPlaying(true);
+        await newSound.playAsync();
+        newSound.setOnPlaybackStatusUpdate((status) => {
+          if (status.isLoaded && status.didJustFinish) setIsPlaying(false);
+        });
+      } catch {
+        setUnavailable(true);
+      }
+    }
+
+    if (unavailable) {
+      return (
+        <View style={[styles.audioPlayer, { backgroundColor: theme.colors.surfaceAlt, borderColor: theme.colors.border }]}>
+          <Ionicons name="mic-off-outline" size={20} color={theme.colors.textMuted} />
+          <Text style={[styles.audioText, { color: theme.colors.textMuted }]}>Audio no disponible</Text>
+        </View>
+      );
     }
 
     return (
@@ -229,26 +251,52 @@ export default function AlertDetailScreen() {
         ) : null}
 
         <View style={styles.voteRow}>
-          <Pressable
-            style={styles.voteButton}
-            onPress={() => {
-              voteAlert(alert.id, "upvote");
-              void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-            }}
-          >
-            <Ionicons name="thumbs-up-outline" size={16} color={theme.colors.text} />
-            <Text style={styles.voteText}>Es real · {alert.upvotes}</Text>
-          </Pressable>
-          <Pressable
-            style={styles.voteButton}
-            onPress={() => {
-              voteAlert(alert.id, "downvote");
-              void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-            }}
-          >
-            <Ionicons name="thumbs-down-outline" size={16} color={theme.colors.text} />
-            <Text style={styles.voteText}>Falsa · {alert.downvotes}</Text>
-          </Pressable>
+          {(() => {
+            const myVote = votedAlerts[alert.id];
+            const voted = Boolean(myVote);
+            return (
+              <>
+                <Pressable
+                  style={[styles.voteButton, myVote === "upvote" && styles.voteButtonActive]}
+                  onPress={() => {
+                    if (voted) return;
+                    void Sounds.tap();
+                    voteAlert(alert.id, "upvote");
+                    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  }}
+                  disabled={voted}
+                >
+                  <Ionicons
+                    name={myVote === "upvote" ? "thumbs-up" : "thumbs-up-outline"}
+                    size={16}
+                    color={myVote === "upvote" ? theme.colors.success : theme.colors.text}
+                  />
+                  <Text style={[styles.voteText, myVote === "upvote" && { color: theme.colors.success }]}>
+                    Es real · {alert.upvotes}
+                  </Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.voteButton, myVote === "downvote" && styles.voteButtonDanger]}
+                  onPress={() => {
+                    if (voted) return;
+                    void Sounds.tap();
+                    voteAlert(alert.id, "downvote");
+                    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  }}
+                  disabled={voted}
+                >
+                  <Ionicons
+                    name={myVote === "downvote" ? "thumbs-down" : "thumbs-down-outline"}
+                    size={16}
+                    color={myVote === "downvote" ? theme.colors.danger : theme.colors.text}
+                  />
+                  <Text style={[styles.voteText, myVote === "downvote" && { color: theme.colors.danger }]}>
+                    Falsa · {alert.downvotes}
+                  </Text>
+                </Pressable>
+              </>
+            );
+          })()}
         </View>
 
         <View style={styles.threadSection}>
@@ -300,7 +348,16 @@ export default function AlertDetailScreen() {
                 <View style={styles.timelineLine} />
               </View>
               <View style={styles.threadContent}>
-                <Text style={styles.threadUser}>{alert.user.username} <Text style={styles.threadAction}>Reportó el incidente</Text></Text>
+                <View style={styles.threadUserRow}>
+                  <Text style={styles.threadUser}>{alert.user.username}</Text>
+                  {alert.user.isVerified && (
+                    <Ionicons name="checkmark-circle" size={12} color={theme.colors.accent} />
+                  )}
+                  {alert.user.isPremium && (
+                    <Ionicons name="star" size={12} color="#F59E0B" />
+                  )}
+                  <Text style={styles.threadAction}>Reportó el incidente</Text>
+                </View>
                 <Text style={styles.threadTime}>{formatRelativeTime(alert.createdAt)}</Text>
               </View>
             </View>
@@ -316,6 +373,9 @@ export default function AlertDetailScreen() {
                     <Text style={styles.threadUser}>{update.user.username}</Text>
                     {update.user.isVerified && (
                       <Ionicons name="checkmark-circle" size={12} color={theme.colors.accent} />
+                    )}
+                    {update.user.isPremium && (
+                      <Ionicons name="star" size={12} color="#F59E0B" />
                     )}
                     {(() => {
                       const levelKey = (update.user.level as keyof typeof REPUTATION_LEVELS) || "CIUDADANO";
@@ -535,6 +595,14 @@ const createStyles = (theme: any, themeMode: string) => StyleSheet.create({
     borderColor: theme.colors.border,
     paddingVertical: 14,
     backgroundColor: theme.colors.surface,
+  },
+  voteButtonActive: {
+    borderColor: theme.colors.success,
+    backgroundColor: theme.colors.success + "18",
+  },
+  voteButtonDanger: {
+    borderColor: theme.colors.danger,
+    backgroundColor: theme.colors.danger + "18",
   },
   voteText: {
     color: theme.colors.text,

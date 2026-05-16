@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { AlertCategory, AlertItem, AlertUpdate, TimeFilter } from "./types";
+import type { AlertCategory, AlertItem, AlertUpdate, SponsoredZone, TimeFilter } from "./types";
 import { ALERT_CATEGORIES, REPUTATION_LEVELS } from "./constants";
 import { baseAlerts, createRandomAlert } from "./mock";
 import { isSupabaseConfigured, supabase } from "../supabase";
@@ -19,6 +19,7 @@ type AlertyState = {
   realtimeStarted: boolean;
   realtimeChannel: RealtimeChannel | null;
   followingAlertIds: string[];
+  votedAlerts: Record<string, "upvote" | "downvote">;
   maxReportingDistance: number; // in km
   sosActive: boolean;
   showHeatmap: boolean;
@@ -46,6 +47,10 @@ type AlertyState = {
   updateUserScore: (score: number) => void;
   getReportingRange: () => number;
   loadUserProfile: () => Promise<void>;
+  updateUsername: (newUsername: string) => Promise<{ error: string | null }>;
+  recomputeVerifiedStatus: () => void;
+  sponsoredZones: SponsoredZone[];
+  loadSponsoredZones: () => Promise<void>;
 };
 
 const syncPreference = async (key: string, value: any) => {
@@ -67,6 +72,7 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
   realtimeStarted: false,
   realtimeChannel: null,
   followingAlertIds: [],
+  votedAlerts: {},
   maxReportingDistance: 2.0,
   sosActive: false,
   showHeatmap: false,
@@ -81,6 +87,7 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
     level: "CIUDADANO",
     followersCount: 0,
   },
+  sponsoredZones: [],
   startDemo: () => {
     const { demoStarted, demoInterval, alerts } = get();
     if (demoStarted) return;
@@ -230,16 +237,37 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
     };
   },
   addAlert: (alert) => set((state) => ({ alerts: [alert, ...state.alerts] })),
+  recomputeVerifiedStatus: () => {
+    const { alerts, currentUser } = get();
+    const myAlerts = alerts.filter((a) => a.user.id === currentUser.id);
+    if (myAlerts.length < 10) return;
+
+    const totalUpvotes = myAlerts.reduce((acc, a) => acc + a.upvotes, 0);
+    const totalVotes = myAlerts.reduce((acc, a) => acc + a.upvotes + a.downvotes, 0);
+    const ratio = totalVotes > 0 ? totalUpvotes / totalVotes : 0;
+
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const recentFalse = myAlerts.some(
+      (a) => new Date(a.createdAt) > thirtyDaysAgo && a.downvotes > a.upvotes,
+    );
+
+    const isVerified = ratio >= 0.7 && !recentFalse;
+    if (isVerified !== currentUser.isVerified) {
+      set((state) => ({ currentUser: { ...state.currentUser, isVerified } }));
+    }
+  },
   voteAlert: (id, vote) => {
+    if (get().votedAlerts[id]) return;
+
     set((state) => ({
+      votedAlerts: { ...state.votedAlerts, [id]: vote },
       alerts: state.alerts.map((alert) => {
         if (alert.id !== id) return alert;
-        if (vote === "upvote") {
-          return { ...alert, upvotes: alert.upvotes + 1 };
-        }
+        if (vote === "upvote") return { ...alert, upvotes: alert.upvotes + 1 };
         return { ...alert, downvotes: alert.downvotes + 1 };
       }),
     }));
+    get().recomputeVerifiedStatus();
 
     if (!isSupabaseConfigured || !supabase) return;
     void supabase.auth.getUser().then(({ data }) => {
@@ -310,6 +338,53 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
       }));
     }
   },
+  loadSponsoredZones: async () => {
+    if (!isSupabaseConfigured || !supabase) return;
+    const { data, error } = await supabase
+      .from("sponsored_zones")
+      .select("id,name,description,lat,lng,type,logo_url")
+      .eq("status", "active");
+    if (error || !data) return;
+    const zones: SponsoredZone[] = data.map((row: any) => ({
+      id: row.id,
+      name: row.name,
+      description: row.description,
+      lat: row.lat,
+      lng: row.lng,
+      type: row.type,
+      logoUrl: row.logo_url ?? undefined,
+    }));
+    set({ sponsoredZones: zones });
+  },
+  updateUsername: async (newUsername) => {
+    if (!isSupabaseConfigured || !supabase) return { error: "Sin conexión" };
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user) return { error: "No autenticado" };
+
+    if (!/^@[a-zA-Z0-9_]{3,19}$/.test(newUsername)) {
+      return { error: "Usa @ + 3-19 letras, números o _" };
+    }
+
+    const { data: existing } = await supabase
+      .from("users")
+      .select("id")
+      .eq("username", newUsername)
+      .maybeSingle();
+    if (existing && existing.id !== session.user.id) {
+      return { error: "Ese nombre ya está en uso" };
+    }
+
+    const { error } = await supabase
+      .from("users")
+      .update({ username: newUsername })
+      .eq("id", session.user.id);
+    if (error) return { error: "No se pudo guardar. Intenta de nuevo." };
+
+    set((state) => ({
+      currentUser: { ...state.currentUser, username: newUsername },
+    }));
+    return { error: null };
+  },
   loadAlertsFromSupabase: async () => {
     if (!isSupabaseConfigured || !supabase) return;
     
@@ -324,15 +399,26 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
       if (follows) {
         set({ followingAlertIds: follows.map(f => f.alert_id) });
       }
+
+      const { data: myVotes } = await supabase
+        .from("verifications")
+        .select("alert_id, vote_type")
+        .eq("user_id", user.id);
+
+      if (myVotes) {
+        const votedAlerts: Record<string, "upvote" | "downvote"> = {};
+        myVotes.forEach((v: any) => { votedAlerts[v.alert_id] = v.vote_type; });
+        set({ votedAlerts });
+      }
     }
 
     const { data } = await supabase
       .from("alerts")
       .select(`
         id,category,lat,lng,title,description,created_at,status,
-        users(id,username,avatar_url,is_verified,trust_score,followers_count),
+        users(id,username,avatar_url,is_verified,is_premium,trust_score,followers_count),
         media(id,media_url,media_type),
-        alert_updates(id,content,created_at,user_id,users(id,username,avatar_url,is_verified))
+        alert_updates(id,content,created_at,user_id,users(id,username,avatar_url,is_verified,is_premium))
       `)
       .order("created_at", { ascending: false })
       .limit(100);
@@ -369,6 +455,7 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
             username: upd.users?.username ?? "@anon",
             avatarUrl: upd.users?.avatar_url ?? null,
             isVerified: Boolean(upd.users?.is_verified),
+            isPremium: Boolean(upd.users?.is_premium),
             trustScore: Number(upd.users?.trust_score ?? 0.5),
             level: "CIUDADANO",
             followersCount: Number(upd.users?.followers_count ?? 0),
@@ -381,6 +468,7 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
         username: row.users?.username ?? "@anon",
         avatarUrl: row.users?.avatar_url ?? null,
         isVerified: Boolean(row.users?.is_verified),
+        isPremium: Boolean(row.users?.is_premium),
         trustScore: Number(row.users?.trust_score ?? 0.5),
         level: "CIUDADANO",
         followersCount: Number(row.users?.followers_count ?? 0),
@@ -388,6 +476,7 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
     }));
 
     set({ alerts: parsed });
+    get().recomputeVerifiedStatus();
   },
   toggleFollowAlert: async (id) => {
     if (!isSupabaseConfigured || !supabase) {

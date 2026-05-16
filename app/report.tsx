@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Alert,
   Image,
@@ -16,9 +16,11 @@ import { GlassView, GlassContainer } from "expo-glass-effect";
 import { LinearGradient } from "expo-linear-gradient";
 import * as ImagePicker from "expo-image-picker";
 import * as Haptics from "expo-haptics";
+import { Sounds } from "../lib/sounds";
 import * as Location from "expo-location";
 import { Ionicons } from "@expo/vector-icons";
 import { Audio } from "expo-av";
+import * as FileSystem from "expo-file-system/legacy";
 import { useRouter } from "expo-router";
 import { useAlertyTheme } from "../lib/useAlertyTheme";
 import { ALERT_CATEGORIES, CATEGORY_ICONS, CATEGORY_LABELS, CULIACAN_CENTER } from "../lib/alerty/constants";
@@ -40,16 +42,38 @@ export default function ReportScreen() {
   const [media, setMedia] = useState<AlertMedia[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [locating, setLocating] = useState(false);
+  const [mapExpanded, setMapExpanded] = useState(false);
+  const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [locationDenied, setLocationDenied] = useState(false);
   const [recording, setRecording] = useState<Audio.Recording | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [audioUri, setAudioUri] = useState<string | null>(null);
+  const [playingId, setPlayingId] = useState<string | null>(null);
+  const soundRef = useRef<Audio.Sound | null>(null);
   const isWeb = Platform.OS === "web";
   
-  const { addAlert, getReportingRange, currentUser, themeMode } = useAlertyStore();
+  const { addAlert, currentUser, themeMode } = useAlertyStore();
+
+  useEffect(() => {
+    // Cargar ubicación del usuario al abrir el formulario
+    (async () => {
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== "granted") { setLocationDenied(true); return; }
+        const current = await Location.getCurrentPositionAsync({});
+        const coords = { latitude: current.coords.latitude, longitude: current.coords.longitude };
+        setUserLocation(coords);
+        setLocation(coords);
+        mapRef.current?.animateToRegion({ ...coords, latitudeDelta: 0.008, longitudeDelta: 0.008 });
+      } catch {}
+    })();
+    return () => {
+      soundRef.current?.stopAsync().then(() => soundRef.current?.unloadAsync());
+    };
+  }, []);
   const theme = useAlertyTheme();
   const isDark = themeMode === "darkHighVisibility";
   const styles = createStyles(theme, themeMode);
-  const maxReportingDistance = getReportingRange();
 
   const handlePickMedia = async () => {
     if (isWeb) {
@@ -82,6 +106,14 @@ export default function ReportScreen() {
   const handleStartRecording = async () => {
     try {
       if (isWeb) return;
+
+      // Clean up any leftover recording object before starting a new one
+      if (recording) {
+        try { await recording.stopAndUnloadAsync(); } catch {}
+        setRecording(null);
+        setIsRecording(false);
+      }
+
       const { status } = await Audio.requestPermissionsAsync();
       if (status !== "granted") {
         Alert.alert("Permiso", "Necesitamos acceso al micrófono para grabar el reporte.");
@@ -93,14 +125,15 @@ export default function ReportScreen() {
         playsInSilentModeIOS: true,
       });
 
-      const { recording } = await Audio.Recording.createAsync(
+      const { recording: newRecording } = await Audio.Recording.createAsync(
         Audio.RecordingOptionsPresets.HIGH_QUALITY
       );
-      setRecording(recording);
+      setRecording(newRecording);
       setIsRecording(true);
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     } catch (err) {
       console.error("Failed to start recording", err);
+      setIsRecording(false);
     }
   };
 
@@ -109,20 +142,50 @@ export default function ReportScreen() {
     try {
       setIsRecording(false);
       await recording.stopAndUnloadAsync();
-      const uri = recording.getURI();
-      setAudioUri(uri);
-      if (uri) {
-        setMedia(prev => [...prev, {
-          id: `audio-${Date.now()}`,
-          url: uri,
-          type: "audio"
-        }]);
-      }
+      const tmpUri = recording.getURI();
       setRecording(null);
+
+      if (tmpUri) {
+        // Copy out of Caches to documentDirectory so iOS doesn't evict it
+        const filename = `recording-${Date.now()}.m4a`;
+        const destUri = `${FileSystem.documentDirectory}${filename}`;
+        await FileSystem.copyAsync({ from: tmpUri, to: destUri });
+
+        setAudioUri(destUri);
+        setMedia(prev => [...prev, { id: `audio-${Date.now()}`, url: destUri, type: "audio" }]);
+      }
+
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (err) {
       console.error("Failed to stop recording", err);
     }
+  };
+
+  const handlePlayAudio = async (id: string, uri: string) => {
+    if (playingId === id) {
+      await soundRef.current?.stopAsync();
+      await soundRef.current?.unloadAsync();
+      soundRef.current = null;
+      setPlayingId(null);
+      return;
+    }
+
+    if (soundRef.current) {
+      await soundRef.current.stopAsync();
+      await soundRef.current.unloadAsync();
+      soundRef.current = null;
+    }
+
+    const { sound } = await Audio.Sound.createAsync({ uri });
+    soundRef.current = sound;
+    setPlayingId(id);
+    await sound.playAsync();
+    sound.setOnPlaybackStatusUpdate((status) => {
+      if (status.isLoaded && status.didJustFinish) {
+        setPlayingId(null);
+        soundRef.current = null;
+      }
+    });
   };
 
   const handleSubmit = async () => {
@@ -133,26 +196,36 @@ export default function ReportScreen() {
 
     setSubmitting(true);
 
-    // Verify distance
+    // Verificar proximidad: el usuario debe estar a ≤500m del incidente
+    const MAX_REPORT_DISTANCE_KM = 0.5;
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status === "granted") {
         const current = await Location.getCurrentPositionAsync({});
-        const distance = calculateDistance(
+        const distanceKm = calculateDistance(
           current.coords.latitude,
           current.coords.longitude,
           location.latitude,
           location.longitude
         );
+        const distanceM = Math.round(distanceKm * 1000);
 
-        if (distance > maxReportingDistance) {
+        if (distanceKm > MAX_REPORT_DISTANCE_KM) {
           Alert.alert(
-            "Fuera de rango",
-            `Debes estar a menos de ${maxReportingDistance}km del incidente para reportarlo. (Distancia actual: ${distance.toFixed(2)}km)`
+            "Debes estar en el lugar",
+            `Solo puedes publicar si estás a menos de 500m del incidente para confirmar que ocurrió.\n\nTu distancia actual: ${distanceM}m`,
+            [{ text: "Entendido" }]
           );
           setSubmitting(false);
           return;
         }
+      } else {
+        Alert.alert(
+          "Ubicación requerida",
+          "Necesitamos acceso a tu ubicación para verificar que estás en el lugar del incidente."
+        );
+        setSubmitting(false);
+        return;
       }
     } catch (err) {
       console.warn("Could not verify location for proximity check", err);
@@ -198,16 +271,23 @@ export default function ReportScreen() {
         if (error) {
           console.warn("Supabase insert failed", error);
         } else if (alertRow && media.length > 0) {
-          await supabase.from("media").insert(
-            media.map((item) => ({
-              alert_id: alertRow.id,
-              media_url: item.url,
-              media_type: item.type,
-            })),
+          // Only insert remote URLs — local paths aren't accessible by other devices
+          const remoteMedia = media.filter(
+            (item) => !item.url.startsWith("/") && !item.url.startsWith("file://"),
           );
+          if (remoteMedia.length > 0) {
+            await supabase.from("media").insert(
+              remoteMedia.map((item) => ({
+                alert_id: alertRow.id,
+                media_url: item.url,
+                media_type: item.type,
+              })),
+            );
+          }
         }
       }
 
+      void Sounds.success();
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       router.back();
     } catch (error) {
@@ -226,21 +306,37 @@ export default function ReportScreen() {
         return;
       }
       const current = await Location.getCurrentPositionAsync({});
-      setLocation({
-        latitude: current.coords.latitude,
-        longitude: current.coords.longitude,
-      });
-      mapRef.current?.animateToRegion({
-        latitude: current.coords.latitude,
-        longitude: current.coords.longitude,
-        latitudeDelta: 0.02,
-        longitudeDelta: 0.02,
-      });
+      const coords = { latitude: current.coords.latitude, longitude: current.coords.longitude };
+      setUserLocation(coords);
+      setLocation(coords);
+      mapRef.current?.animateToRegion({ ...coords, latitudeDelta: 0.008, longitudeDelta: 0.008 });
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     } catch (error) {
       Alert.alert("Ubicación", "No se pudo obtener tu ubicación.");
     } finally {
       setLocating(false);
+    }
+  };
+
+  const handlePinDragEnd = (coord: { latitude: number; longitude: number }) => {
+    if (!userLocation) {
+      setLocation(coord);
+      return;
+    }
+    const distKm = calculateDistance(
+      userLocation.latitude, userLocation.longitude,
+      coord.latitude, coord.longitude
+    );
+    if (distKm > 0.5) {
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      setLocation(userLocation);
+      mapRef.current?.animateToRegion({
+        ...userLocation,
+        latitudeDelta: 0.008,
+        longitudeDelta: 0.008,
+      });
+    } else {
+      setLocation(coord);
     }
   };
 
@@ -266,9 +362,10 @@ export default function ReportScreen() {
       </GlassView>
 
       <ScrollView contentContainerStyle={styles.container}>
-        <GlassView 
-          colorScheme={isDark ? "dark" : "light"} 
-          glassEffectStyle="regular" 
+        {/* 1. Tipo de alerta */}
+        <GlassView
+          colorScheme={isDark ? "dark" : "light"}
+          glassEffectStyle="regular"
           style={styles.formGroupGlass}
         >
           <LinearGradient
@@ -285,12 +382,12 @@ export default function ReportScreen() {
                 <Pressable
                   key={item}
                   style={[styles.categoryPill, active && styles.categoryPillActive]}
-                  onPress={() => setCategory(item)}
+                  onPress={() => { void Sounds.tap(); setCategory(item); }}
                 >
-                  <Ionicons 
-                    name={CATEGORY_ICONS[item] as any} 
-                    size={14} 
-                    color={active ? theme.colors.text : theme.colors.textMuted} 
+                  <Ionicons
+                    name={CATEGORY_ICONS[item] as any}
+                    size={14}
+                    color={active ? theme.colors.text : theme.colors.textMuted}
                   />
                   <Text style={[styles.categoryText, active && styles.categoryTextActive]}>
                     {CATEGORY_LABELS[item]}
@@ -299,77 +396,15 @@ export default function ReportScreen() {
               );
             })}
           </View>
-
-          <Text style={[styles.sectionTitle, { marginTop: 16 }]}>Título *</Text>
-          <TextInput
-            style={styles.textInputSingle}
-            placeholder="Ej: Balacera en zona centro"
-            placeholderTextColor={theme.colors.textMuted}
-            value={title}
-            onChangeText={setTitle}
-            maxLength={100}
-          />
         </GlassView>
 
-        <Text style={styles.sectionTitle}>Ubicación exacta</Text>
-        <View style={styles.mapCard}>
-          {isWeb ? (
-            <View style={styles.webMap}>
-              <Ionicons name="map" size={24} color={theme.colors.textMuted} />
-              <Text style={styles.webMapText}>
-                Ajuste de ubicación disponible en la app móvil.
-              </Text>
-            </View>
-          ) : (
-            <>
-              <MapView
-                ref={mapRef}
-                style={StyleSheet.absoluteFill}
-                provider={PROVIDER_GOOGLE}
-                initialRegion={{
-                  latitude: location.latitude,
-                  longitude: location.longitude,
-                  latitudeDelta: 0.02,
-                  longitudeDelta: 0.02,
-                }}
-              >
-                <Marker
-                  coordinate={location}
-                  draggable
-                  onDragEnd={(event) => setLocation(event.nativeEvent.coordinate)}
-                />
-              </MapView>
-              <View style={styles.mapOverlay}>
-                <Text style={styles.mapHint}>Arrastra el pin para ajustar</Text>
-              </View>
-              <Pressable
-                style={styles.locationButton}
-                onPress={handleUseMyLocation}
-                disabled={locating}
-              >
-                <Ionicons name="locate" size={16} color={theme.colors.text} />
-              </Pressable>
-            </>
-          )}
-        </View>
-
-        <Text style={styles.sectionTitle}>Descripción</Text>
-        <TextInput
-          style={styles.textInput}
-          placeholder="Detalles adicionales sobre el incidente (opcional)"
-          placeholderTextColor={theme.colors.textMuted}
-          value={description}
-          onChangeText={setDescription}
-          multiline
-        />
-
+        {/* 2. Evidencia */}
         <Text style={styles.sectionTitle}>Evidencia (fotos, video o voz)</Text>
         <View style={styles.mediaActions}>
           <Pressable style={styles.mediaActionBtn} onPress={handlePickMedia}>
             <Ionicons name="images-outline" size={22} color={theme.colors.text} />
             <Text style={styles.mediaActionText}>Galería</Text>
           </Pressable>
-
           <Pressable
             style={[styles.mediaActionBtn, isRecording && styles.mediaActionBtnActive]}
             onLongPress={handleStartRecording}
@@ -388,17 +423,17 @@ export default function ReportScreen() {
         </View>
 
         {media.length > 0 && (
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            style={styles.mediaPreviewList}
-          >
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.mediaPreviewList}>
             {media.map((item) => (
               <View key={item.id} style={styles.mediaPreviewItem}>
                 {item.type === "audio" ? (
-                  <View style={styles.audioPreview}>
-                    <Ionicons name="mic" size={20} color={theme.colors.accent} />
-                  </View>
+                  <Pressable style={styles.audioPreview} onPress={() => handlePlayAudio(item.id, item.url)}>
+                    <Ionicons
+                      name={playingId === item.id ? "stop-circle" : "play-circle"}
+                      size={28}
+                      color={theme.colors.accent}
+                    />
+                  </Pressable>
                 ) : (
                   <Image source={{ uri: item.url }} style={styles.mediaPreviewThumb} />
                 )}
@@ -413,12 +448,95 @@ export default function ReportScreen() {
           </ScrollView>
         )}
 
+        {/* 3. Título */}
+        <Text style={styles.sectionTitle}>Título *</Text>
+        <TextInput
+          style={styles.textInputSingle}
+          placeholder="Ej: Balacera en zona centro"
+          placeholderTextColor={theme.colors.textMuted}
+          value={title}
+          onChangeText={setTitle}
+          maxLength={100}
+        />
+
+        {/* 4. Ubicación */}
+        <Text style={styles.sectionTitle}>Ubicación exacta</Text>
+        <View style={[styles.mapCard, mapExpanded && styles.mapCardExpanded]}>
+          {isWeb ? (
+            <View style={styles.webMap}>
+              <Ionicons name="map" size={24} color={theme.colors.textMuted} />
+              <Text style={styles.webMapText}>
+                Ajuste de ubicación disponible en la app móvil.
+              </Text>
+            </View>
+          ) : (
+            <>
+              <MapView
+                ref={mapRef}
+                style={StyleSheet.absoluteFill}
+                provider={Platform.OS === "android" ? PROVIDER_GOOGLE : undefined}
+                initialRegion={{
+                  latitude: location.latitude,
+                  longitude: location.longitude,
+                  latitudeDelta: 0.008,
+                  longitudeDelta: 0.008,
+                }}
+              >
+                <Marker
+                  coordinate={location}
+                  draggable
+                  onDragEnd={(event) => handlePinDragEnd(event.nativeEvent.coordinate)}
+                />
+              </MapView>
+              <View style={styles.mapOverlay}>
+                <Text style={styles.mapHint}>Arrastra el pin · máx 500m de ti</Text>
+              </View>
+              <Pressable
+                style={styles.locationButton}
+                onPress={handleUseMyLocation}
+                disabled={locating}
+              >
+                <Ionicons name="locate" size={16} color={theme.colors.text} />
+              </Pressable>
+              <Pressable
+                style={styles.expandButton}
+                onPress={() => setMapExpanded((v) => !v)}
+              >
+                <Ionicons
+                  name={mapExpanded ? "contract-outline" : "expand-outline"}
+                  size={16}
+                  color={theme.colors.text}
+                />
+              </Pressable>
+            </>
+          )}
+        </View>
+
+        {/* 5. Descripción */}
+        <Text style={styles.sectionTitle}>Descripción</Text>
+        <TextInput
+          style={styles.textInput}
+          placeholder="Detalles adicionales sobre el incidente (opcional)"
+          placeholderTextColor={theme.colors.textMuted}
+          value={description}
+          onChangeText={setDescription}
+          multiline
+        />
+
+        {locationDenied && (
+          <Text style={styles.locationWarning}>
+            Activa la ubicación en ajustes del dispositivo para poder publicar.
+          </Text>
+        )}
+
         <Pressable
-          style={[styles.submitButton, submitting && styles.submitButtonDisabled]}
+          style={[styles.submitButton, (!userLocation || submitting) && styles.submitButtonDisabled]}
           onPress={handleSubmit}
-          disabled={submitting}
+          disabled={!userLocation || submitting}
         >
-          <Text style={styles.submitText}>{submitting ? "Enviando..." : "Publicar alerta"}</Text>
+          <Text style={styles.submitText}>
+            {submitting ? "Enviando..." : !userLocation ? "Ubicación no disponible" : "Publicar alerta"}
+          </Text>
         </Pressable>
       </ScrollView>
     </SafeAreaView>
@@ -511,6 +629,22 @@ const createStyles = (theme: any, themeMode: string) => StyleSheet.create({
     overflow: "hidden",
     borderWidth: 1,
     borderColor: theme.colors.border,
+  },
+  mapCardExpanded: {
+    height: 360,
+  },
+  expandButton: {
+    position: "absolute",
+    top: 10,
+    left: 10,
+    width: 36,
+    height: 36,
+    borderRadius: theme.radius.pill,
+    backgroundColor: themeMode === "light" ? "rgba(255,255,255,0.9)" : "rgba(18,18,18,0.9)",
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    alignItems: "center",
+    justifyContent: "center",
   },
   mapOverlay: {
     position: "absolute",
@@ -647,6 +781,13 @@ const createStyles = (theme: any, themeMode: string) => StyleSheet.create({
   },
   submitButtonDisabled: {
     opacity: 0.6,
+  },
+  locationWarning: {
+    color: theme.colors.danger,
+    fontSize: 13,
+    fontFamily: theme.fonts.body,
+    textAlign: "center",
+    marginTop: 8,
   },
   submitText: {
     color: theme.colors.surface,

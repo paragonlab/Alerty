@@ -92,29 +92,3 @@ export const createRandomAlert = (): AlertItem => {
   };
 };
 
-export const mockSponsoredZones: import("./types").SponsoredZone[] = [
-  {
-    id: "sponsor-1",
-    name: "Farmacias del Ahorro - Centro",
-    description: "Zona Segura Activa. Personal capacitado y circuito cerrado. Abierto 24h.",
-    lat: 24.8080,
-    lng: -107.3945,
-    type: "refugio",
-  },
-  {
-    id: "sponsor-2",
-    name: "Plaza Forum Culiacán",
-    description: "Refugio seguro patrocinado. Cuenta con seguridad privada y protocolos de emergencia.",
-    lat: 24.8142,
-    lng: -107.4042,
-    type: "refugio",
-  },
-  {
-    id: "sponsor-3",
-    name: "Gasolinera Chevron Tres Ríos",
-    description: "Área iluminada con vigilancia. Negocio operando con normalidad.",
-    lat: 24.8210,
-    lng: -107.4100,
-    type: "anuncio",
-  }
-];

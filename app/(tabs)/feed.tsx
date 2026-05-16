@@ -15,12 +15,11 @@ import { useAlertyTheme } from "../../lib/useAlertyTheme";
 import { useAlertyStore } from "../../lib/alerty/store";
 import { isAlertInWindow, shouldSuppressAlert } from "../../lib/alerty/utils";
 import type { AlertItem, SponsoredZone } from "../../lib/alerty/types";
-import { mockSponsoredZones } from "../../lib/alerty/mock";
 import { AdCard } from "../../components/AdCard";
 
 export default function FeedScreen() {
   const router = useRouter();
-  const { alerts, timeFilter, setTimeFilter, activeCategories } = useAlertyStore();
+  const { alerts, timeFilter, setTimeFilter, activeCategories, sponsoredZones } = useAlertyStore();
   const theme = useAlertyTheme();
   const styles = createStyles(theme);
 
@@ -56,17 +55,16 @@ export default function FeedScreen() {
   const feedItems = useMemo(() => {
     const items: (AlertItem | SponsoredZone)[] = [];
     let adIndex = 0;
-    
+
     filteredAlerts.forEach((alert, index) => {
       items.push(alert);
-      // Insertar anuncio cada 5 alertas si hay anuncios disponibles
-      if ((index + 1) % 5 === 0 && mockSponsoredZones[adIndex]) {
-        items.push(mockSponsoredZones[adIndex]);
-        adIndex = (adIndex + 1) % mockSponsoredZones.length;
+      if ((index + 1) % 5 === 0 && sponsoredZones[adIndex]) {
+        items.push(sponsoredZones[adIndex]);
+        adIndex = (adIndex + 1) % sponsoredZones.length;
       }
     });
     return items;
-  }, [filteredAlerts]);
+  }, [filteredAlerts, sponsoredZones]);
 
   const renderItem = useCallback(
     ({ item }: { item: AlertItem | SponsoredZone }) => {

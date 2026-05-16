@@ -52,9 +52,11 @@ export function AlertCard({ alert, onPress }: AlertCardProps) {
             {alert.user.isVerified && (
               <Ionicons name="checkmark-circle" size={12} color={theme.colors.accent} />
             )}
-            <View style={[styles.levelBadge, { backgroundColor: levelInfo.color + "18" }]}>
-              <Ionicons name={levelInfo.icon as any} size={8} color={levelInfo.color} />
-              <Text style={[styles.levelText, { color: levelInfo.color }]}>{levelInfo.label}</Text>
+            {alert.user.isPremium && (
+              <Ionicons name="star" size={12} color="#F59E0B" />
+            )}
+            <View style={[styles.levelBadge, { backgroundColor: levelInfo.color + "22" }]}>
+              <Ionicons name={levelInfo.icon as any} size={10} color={levelInfo.color} />
             </View>
           </View>
         </View>
@@ -172,18 +174,10 @@ const createStyles = (theme: any) => StyleSheet.create({
     backgroundColor: theme.colors.border,
   },
   levelBadge: {
-    flexDirection: "row",
     alignItems: "center",
-    gap: 3,
-    paddingHorizontal: 5,
-    paddingVertical: 2,
-    borderRadius: 4,
-  },
-  levelText: {
-    fontSize: 9,
-    fontFamily: theme.fonts.heading,
-    textTransform: "uppercase",
-    letterSpacing: 0.2,
+    justifyContent: "center",
+    padding: 3,
+    borderRadius: 999,
   },
   footerRow: {
     flexDirection: "row",

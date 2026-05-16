@@ -1,15 +1,17 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import {
+  ActivityIndicator,
   Pressable,
   ScrollView,
   StyleSheet,
   Switch,
   Text,
+  TextInput,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { ALERT_CATEGORIES, CATEGORY_LABELS, REPUTATION_LEVELS } from "../../lib/alerty/constants";
+import { ALERT_CATEGORIES, CATEGORY_LABELS, getLevelProgress } from "../../lib/alerty/constants";
 import { useAlertyStore } from "../../lib/alerty/store";
 import { useAlertyTheme } from "../../lib/useAlertyTheme";
 import { supabase } from "../../lib/supabase";
@@ -29,11 +31,17 @@ export default function SettingsScreen() {
     showHeatmap,
     setShowHeatmap,
     currentUser,
+    updateUsername,
   } = useAlertyStore();
 
   const theme = useAlertyTheme();
   const styles = createStyles(theme);
   const router = useRouter();
+
+  const [editingUsername, setEditingUsername] = useState(false);
+  const [usernameInput, setUsernameInput] = useState("");
+  const [usernameError, setUsernameError] = useState<string | null>(null);
+  const [savingUsername, setSavingUsername] = useState(false);
 
   const allSelected = useMemo(
     () => activeCategories.length === ALERT_CATEGORIES.length,
@@ -53,9 +61,38 @@ export default function SettingsScreen() {
     await supabase.auth.signOut();
   };
 
+  const handleStartEditUsername = () => {
+    setUsernameInput(currentUser.username.replace(/^@/, ""));
+    setUsernameError(null);
+    setEditingUsername(true);
+  };
+
+  const handleCancelEditUsername = () => {
+    setEditingUsername(false);
+    setUsernameError(null);
+    setUsernameInput("");
+  };
+
+  const handleUsernameChange = (text: string) => {
+    // strip any @ the user pastes — el prefijo es fijo
+    setUsernameInput(text.replace(/@/g, ""));
+  };
+
+  const handleSaveUsername = async () => {
+    setSavingUsername(true);
+    setUsernameError(null);
+    const { error } = await updateUsername("@" + usernameInput.trim());
+    if (error) {
+      setUsernameError(error);
+    } else {
+      setEditingUsername(false);
+      setUsernameInput("");
+    }
+    setSavingUsername(false);
+  };
+
   const isDark = themeMode === "darkHighVisibility";
-  const levelKey = (currentUser.level as keyof typeof REPUTATION_LEVELS) || "CIUDADANO";
-  const levelInfo = REPUTATION_LEVELS[levelKey];
+  const levelProgress = getLevelProgress(Number(currentUser.trustScore ?? 0));
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -70,20 +107,129 @@ export default function SettingsScreen() {
 
         {/* Account Card */}
         <View style={styles.accountCard}>
-          <View style={styles.avatarCircle}>
-            <Ionicons name="person" size={26} color={theme.colors.textMuted} />
+          <View style={styles.accountTop}>
+            <View style={styles.avatarCircle}>
+              <Ionicons name="person" size={26} color={theme.colors.textMuted} />
+            </View>
+            <View style={{ flex: 1, gap: 4 }}>
+              {editingUsername ? (
+                <View style={styles.usernameInputRow}>
+                  <Text style={styles.usernamePrefix}>@</Text>
+                  <TextInput
+                    value={usernameInput}
+                    onChangeText={handleUsernameChange}
+                    style={styles.usernameInput}
+                    autoFocus
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    editable={!savingUsername}
+                    maxLength={19}
+                    placeholder="miNombre"
+                    placeholderTextColor={theme.colors.textMuted}
+                  />
+                </View>
+              ) : (
+                <View style={styles.usernameRow}>
+                  <Text style={styles.accountUsername}>{currentUser.username}</Text>
+                  {currentUser.isVerified && (
+                    <Ionicons name="checkmark-circle" size={16} color={theme.colors.accent} />
+                  )}
+                  {currentUser.isPremium && (
+                    <Ionicons name="star" size={16} color="#F59E0B" />
+                  )}
+                  <Pressable
+                    onPress={handleStartEditUsername}
+                    hitSlop={8}
+                    style={styles.editIconButton}
+                  >
+                    <Ionicons name="pencil-outline" size={14} color={theme.colors.textMuted} />
+                  </Pressable>
+                </View>
+              )}
+              <View style={[styles.levelBadge, { backgroundColor: levelProgress.current.color + "22" }]}>
+                <Ionicons name={levelProgress.current.icon as any} size={10} color={levelProgress.current.color} />
+                <Text style={[styles.levelText, { color: levelProgress.current.color }]}>
+                  {levelProgress.current.label}
+                </Text>
+              </View>
+            </View>
+            {!editingUsername && (
+              <Pressable style={styles.signOutButton} onPress={handleSignOut}>
+                <Ionicons name="log-out-outline" size={15} color={theme.colors.danger} />
+                <Text style={styles.signOutText}>Salir</Text>
+              </Pressable>
+            )}
           </View>
-          <View style={{ flex: 1, gap: 4 }}>
-            <Text style={styles.accountUsername}>{currentUser.username}</Text>
-            <View style={[styles.levelBadge, { backgroundColor: levelInfo.color + "22" }]}>
-              <Ionicons name={levelInfo.icon as any} size={10} color={levelInfo.color} />
-              <Text style={[styles.levelText, { color: levelInfo.color }]}>{levelInfo.label}</Text>
+
+          {editingUsername && (
+            <View style={styles.editActions}>
+              {usernameError ? (
+                <Text style={styles.usernameError}>{usernameError}</Text>
+              ) : (
+                <Text style={styles.usernameHint}>3-19 letras, números o _</Text>
+              )}
+              <View style={styles.editButtonsRow}>
+                <Pressable
+                  style={styles.cancelButton}
+                  onPress={handleCancelEditUsername}
+                  disabled={savingUsername}
+                >
+                  <Text style={styles.cancelButtonText}>Cancelar</Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.saveButton, savingUsername && styles.saveButtonDisabled]}
+                  onPress={handleSaveUsername}
+                  disabled={savingUsername}
+                >
+                  {savingUsername ? (
+                    <ActivityIndicator size="small" color="#FFFFFF" />
+                  ) : (
+                    <Text style={styles.saveButtonText}>Guardar</Text>
+                  )}
+                </Pressable>
+              </View>
+            </View>
+          )}
+        </View>
+
+        {/* Level Progress Card */}
+        <View style={styles.levelCard}>
+          <View style={styles.levelHeader}>
+            <View style={[styles.levelIconWrap, { backgroundColor: levelProgress.current.color + "22" }]}>
+              <Ionicons
+                name={levelProgress.current.icon as any}
+                size={18}
+                color={levelProgress.current.color}
+              />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.levelCardLabel}>{levelProgress.current.label}</Text>
+              <Text style={styles.levelCardScore}>
+                {Number(currentUser.trustScore ?? 0)} pts de reputación
+              </Text>
             </View>
           </View>
-          <Pressable style={styles.signOutButton} onPress={handleSignOut}>
-            <Ionicons name="log-out-outline" size={15} color={theme.colors.danger} />
-            <Text style={styles.signOutText}>Salir</Text>
-          </Pressable>
+
+          {levelProgress.next ? (
+            <>
+              <View style={styles.progressTrack}>
+                <View
+                  style={[
+                    styles.progressFill,
+                    {
+                      width: `${Math.max(4, levelProgress.progress * 100)}%`,
+                      backgroundColor: levelProgress.current.color,
+                    },
+                  ]}
+                />
+              </View>
+              <Text style={styles.progressHint}>
+                {levelProgress.pointsToNext} pts para {levelProgress.next.label}
+              </Text>
+            </>
+          ) : (
+            <Text style={styles.progressHint}>Has alcanzado el nivel máximo.</Text>
+          )}
         </View>
 
         {/* Premium Banner */}
@@ -250,9 +396,133 @@ const createStyles = (theme: any) => StyleSheet.create({
     borderWidth: 1,
     borderColor: theme.colors.border,
     padding: 16,
+    gap: 12,
+  },
+  accountTop: {
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
+  },
+  usernameRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  editIconButton: {
+    padding: 2,
+  },
+  usernameInputRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.accent,
+    paddingVertical: 2,
+  },
+  usernamePrefix: {
+    color: theme.colors.textMuted,
+    fontSize: 16,
+    fontFamily: theme.fonts.heading,
+  },
+  usernameInput: {
+    flex: 1,
+    color: theme.colors.text,
+    fontSize: 16,
+    fontFamily: theme.fonts.heading,
+    padding: 0,
+  },
+  editActions: {
+    gap: 10,
+  },
+  usernameHint: {
+    color: theme.colors.textMuted,
+    fontSize: 12,
+    fontFamily: theme.fonts.body,
+  },
+  usernameError: {
+    color: theme.colors.danger,
+    fontSize: 12,
+    fontFamily: theme.fonts.body,
+  },
+  editButtonsRow: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    gap: 8,
+  },
+  cancelButton: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: theme.radius.pill,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surfaceAlt,
+  },
+  cancelButtonText: {
+    color: theme.colors.textMuted,
+    fontSize: 13,
+    fontFamily: theme.fonts.heading,
+  },
+  saveButton: {
+    paddingHorizontal: 18,
+    paddingVertical: 8,
+    borderRadius: theme.radius.pill,
+    backgroundColor: theme.colors.accent,
+    minWidth: 80,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  saveButtonDisabled: {
+    opacity: 0.6,
+  },
+  saveButtonText: {
+    color: "#FFFFFF",
+    fontSize: 13,
+    fontFamily: theme.fonts.heading,
+  },
+  levelCard: {
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.radius.xl,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    padding: 16,
+    gap: 12,
+  },
+  levelHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  levelIconWrap: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  levelCardLabel: {
+    color: theme.colors.text,
+    fontSize: 15,
+    fontFamily: theme.fonts.heading,
+  },
+  levelCardScore: {
+    color: theme.colors.textMuted,
+    fontSize: 12,
+    fontFamily: theme.fonts.body,
+    marginTop: 2,
+  },
+  progressTrack: {
+    height: 6,
+    borderRadius: 999,
+    backgroundColor: theme.colors.surfaceAlt,
+    overflow: "hidden",
+  },
+  progressFill: {
+    height: "100%",
+    borderRadius: 999,
+  },
+  progressHint: {
+    color: theme.colors.textMuted,
+    fontSize: 12,
+    fontFamily: theme.fonts.body,
   },
   avatarCircle: {
     width: 52,

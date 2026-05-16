@@ -14,7 +14,8 @@ export const supabase =
           storage: AsyncStorage,
           autoRefreshToken: true,
           persistSession: true,
-          detectSessionInUrl: true,
+          detectSessionInUrl: false,
+          flowType: "implicit",
         },
       })
     : null;

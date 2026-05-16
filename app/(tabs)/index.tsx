@@ -18,7 +18,6 @@ import { useRouter } from "expo-router";
 import { GlowMarker } from "../../components/GlowMarker";
 import { SOSButton } from "../../components/SOSButton";
 import { CULIACAN_CENTER } from "../../lib/alerty/constants";
-import { mockSponsoredZones } from "../../lib/alerty/mock";
 import { useAlertyTheme } from "../../lib/useAlertyTheme";
 import { useAlertyStore } from "../../lib/alerty/store";
 import { supabase } from "../../lib/supabase";
@@ -36,18 +35,19 @@ export default function MapScreen() {
   const [locating, setLocating] = useState(false);
   const isWeb = Platform.OS === "web";
 
-  const { 
-    alerts, 
-    timeFilter, 
-    activeCategories, 
-    lowConnection, 
-    showHeatmap, 
+  const {
+    alerts,
+    timeFilter,
+    activeCategories,
+    lowConnection,
+    showHeatmap,
     setShowHeatmap,
     sosWarningAccepted,
     setSosWarningAccepted,
     addAlert,
     themeMode,
     currentUser,
+    sponsoredZones,
   } = useAlertyStore();
 
   const theme = useAlertyTheme();
@@ -128,7 +128,7 @@ export default function MapScreen() {
             pitchEnabled={false}
             zoomEnabled={true}
             rotateEnabled={false}
-            provider={PROVIDER_GOOGLE}
+            provider={Platform.OS === "android" ? PROVIDER_GOOGLE : undefined}
             userInterfaceStyle={isDark ? "dark" : "light"}
           >
             {showHeatmap && !isWeb && (
@@ -165,7 +165,7 @@ export default function MapScreen() {
             ))}
             
             {/* Zonas Patrocinadas */}
-            {!showHeatmap && mockSponsoredZones.map((zone) => (
+            {!showHeatmap && sponsoredZones.map((zone) => (
               <Marker
                 key={zone.id}
                 coordinate={{ latitude: zone.lat, longitude: zone.lng }}

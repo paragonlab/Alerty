@@ -57,39 +57,31 @@ export default function RootLayout() {
     const handleDeepLink = async (event: { url: string }) => {
       if (!supabase) return;
       const url = event.url;
-      console.log("🔗 Deep Link recibido:", url);
-      
-      // Extraemos el code de la URL
+
       const codeMatch = url.match(/code=([^&]+)/);
       const accessMatch = url.match(/access_token=([^&]+)/);
       const refreshMatch = url.match(/refresh_token=([^&]+)/);
 
       if (codeMatch) {
         const code = codeMatch[1];
-        console.log("🎟️ Intercambiando código por sesión...");
         const { data, error } = await supabase.auth.exchangeCodeForSession(code);
         if (data?.session) {
-          console.log("✅ Sesión obtenida con éxito:", data.session.user.email);
           setHasSession(true);
         }
         if (error) {
-          console.error("❌ Error en intercambio OAuth:", error.message);
+          console.error("OAuth exchange error:", error.message);
         }
       } else if (accessMatch && refreshMatch) {
-        console.log("🎟️ Restaurando sesión con tokens...");
         const { data, error } = await supabase.auth.setSession({
           access_token: accessMatch[1],
           refresh_token: refreshMatch[1],
         });
         if (data?.session) {
-          console.log("✅ Sesión obtenida con éxito:", data.session.user.email);
           setHasSession(true);
         }
         if (error) {
-          console.error("❌ Error seteando sesión:", error.message);
+          console.error("OAuth session error:", error.message);
         }
-      } else {
-        console.log("ℹ️ El link no contiene un código de sesión (code=) ni access_token");
       }
     };
 
@@ -105,7 +97,7 @@ export default function RootLayout() {
       listener.subscription.unsubscribe();
       subscription.remove();
     };
-  }, [router]);
+  }, []);
 
   const { alerts } = useAlertyStore();
   const lastSOSRef = useRef<string | null>(null);
@@ -202,6 +194,12 @@ export default function RootLayout() {
         />
         <Stack.Screen
           name="alert/[id]"
+          options={{
+            headerShown: false,
+          }}
+        />
+        <Stack.Screen
+          name="business"
           options={{
             headerShown: false,
           }}

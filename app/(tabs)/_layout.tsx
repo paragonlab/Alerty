@@ -4,6 +4,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useAlertyTheme } from "../../lib/useAlertyTheme";
 import { useAlertyStore } from "../../lib/alerty/store";
 import * as Haptics from "expo-haptics";
+import { Sounds } from "../../lib/sounds";
 import * as Location from "expo-location";
 import { SOSButton } from "../../components/SOSButton";
 import { supabase } from "../../lib/supabase";
@@ -19,6 +20,7 @@ export default function TabLayout() {
   const {
     startDemo,
     loadAlertsFromSupabase,
+    loadSponsoredZones,
     startRealtime,
     sosWarningAccepted,
     setSosWarningAccepted,
@@ -26,6 +28,7 @@ export default function TabLayout() {
 
   const handleSOS = async () => {
     const triggerSOS = async () => {
+      void Sounds.sos();
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
 
       const { status } = await Location.requestForegroundPermissionsAsync();
@@ -94,11 +97,12 @@ export default function TabLayout() {
   useEffect(() => {
     if (isSupabaseConfigured) {
       void loadAlertsFromSupabase();
+      void loadSponsoredZones();
       startRealtime();
     } else {
       startDemo();
     }
-  }, [loadAlertsFromSupabase, startDemo, startRealtime]);
+  }, [loadAlertsFromSupabase, loadSponsoredZones, startDemo, startRealtime]);
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
@@ -166,6 +170,7 @@ export default function TabLayout() {
           active={true}
           compact={true}
           onPress={() => {
+            void Sounds.tap();
             router.push("/report");
           }}
           onSOS={handleSOS}

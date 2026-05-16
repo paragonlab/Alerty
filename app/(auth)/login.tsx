@@ -69,9 +69,22 @@ export default function LoginScreen() {
       if (!isWeb && data?.url) {
         const result = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
         if (result.type === "success" && result.url) {
-          const codeMatch = result.url.match(/code=([^&]+)/);
+          const url = result.url;
+          const codeMatch = url.match(/[?&]code=([^&]+)/);
+          const accessMatch = url.match(/[#&]access_token=([^&]+)/);
+          const refreshMatch = url.match(/[#&]refresh_token=([^&]+)/);
+
           if (codeMatch) {
-            await supabase.auth.exchangeCodeForSession(codeMatch[1]);
+            const { error } = await supabase.auth.exchangeCodeForSession(codeMatch[1]);
+            if (error) Alert.alert("Error al iniciar sesión", error.message);
+          } else if (accessMatch && refreshMatch) {
+            const { error } = await supabase.auth.setSession({
+              access_token: accessMatch[1],
+              refresh_token: refreshMatch[1],
+            });
+            if (error) Alert.alert("Error al iniciar sesión", error.message);
+          } else {
+            Alert.alert("Error al iniciar sesión", "Respuesta de autenticación inválida.");
           }
         }
       }

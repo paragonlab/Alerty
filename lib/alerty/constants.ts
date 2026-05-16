@@ -53,6 +53,34 @@ export const REPUTATION_LEVELS = {
 
 export type ReputationLevel = keyof typeof REPUTATION_LEVELS;
 
+export const getLevelProgress = (score: number) => {
+  const levels = Object.entries(REPUTATION_LEVELS).sort(
+    (a, b) => a[1].minScore - b[1].minScore,
+  ) as [ReputationLevel, (typeof REPUTATION_LEVELS)[ReputationLevel]][];
+
+  let currentIdx = 0;
+  for (let i = 0; i < levels.length; i++) {
+    if (score >= levels[i][1].minScore) currentIdx = i;
+  }
+
+  const [currentKey, current] = levels[currentIdx];
+  const nextEntry = levels[currentIdx + 1] ?? null;
+  const nextKey = nextEntry?.[0] ?? null;
+  const next = nextEntry?.[1] ?? null;
+
+  const pointsIntoLevel = score - current.minScore;
+  const pointsForNext = next ? next.minScore - current.minScore : 0;
+
+  return {
+    currentKey,
+    current,
+    nextKey,
+    next,
+    progress: next ? Math.min(1, pointsIntoLevel / pointsForNext) : 1,
+    pointsToNext: next ? Math.max(0, next.minScore - score) : 0,
+  };
+};
+
 export const TIME_FILTERS = ["1h", "6h", "24h", "7d"] as const;
 
 export const CULIACAN_NEIGHBORHOODS = [
