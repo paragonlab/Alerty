@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
   FlatList,
   Pressable,
@@ -10,6 +10,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { AlertCard } from "../../components/AlertCard";
+import { VideoReelsList } from "../../components/VideoReelsList";
 import { TIME_FILTERS } from "../../lib/alerty/constants";
 import { useAlertyTheme } from "../../lib/useAlertyTheme";
 import { useAlertyStore } from "../../lib/alerty/store";
@@ -22,6 +23,7 @@ export default function FeedScreen() {
   const { alerts, timeFilter, setTimeFilter, activeCategories, sponsoredZones } = useAlertyStore();
   const theme = useAlertyTheme();
   const styles = createStyles(theme);
+  const [viewMode, setViewMode] = useState<"list" | "reels">("list");
 
   const filteredAlerts = useMemo(
     () =>
@@ -33,6 +35,11 @@ export default function FeedScreen() {
           !shouldSuppressAlert(alert),
       ),
     [alerts, activeCategories, timeFilter],
+  );
+
+  const videoAlerts = useMemo(
+    () => filteredAlerts.filter((a) => a.media.some((m) => m.type === "video")),
+    [filteredAlerts],
   );
 
   const total24h = useMemo(
@@ -51,7 +58,6 @@ export default function FeedScreen() {
     [filteredAlerts],
   );
 
-  // Mezclamos alertas y anuncios (1 anuncio cada 5 alertas)
   const feedItems = useMemo(() => {
     const items: (AlertItem | SponsoredZone)[] = [];
     let adIndex = 0;
@@ -77,11 +83,9 @@ export default function FeedScreen() {
         );
       } else {
         return (
-          <AdCard 
-            zone={item as SponsoredZone} 
-            onPress={() => {
-              router.push("/(tabs)");
-            }} 
+          <AdCard
+            zone={item as SponsoredZone}
+            onPress={() => { router.push("/(tabs)"); }}
           />
         );
       }
@@ -97,6 +101,15 @@ export default function FeedScreen() {
         <View style={styles.titleRow}>
           <Text style={styles.title}>Feed</Text>
           <View style={styles.liveDot} />
+          <View style={{ flex: 1 }} />
+          <Pressable
+            style={styles.toggleButton}
+            onPress={() => setViewMode("reels")}
+            hitSlop={10}
+          >
+            <Ionicons name="videocam-outline" size={20} color={theme.colors.textMuted} />
+            <Text style={styles.toggleLabel}>Reels</Text>
+          </Pressable>
         </View>
         <Text style={styles.subtitle}>Reportes en tiempo real de la comunidad.</Text>
       </View>
@@ -144,6 +157,36 @@ export default function FeedScreen() {
       </Text>
     </View>
   );
+
+  if (viewMode === "reels") {
+    return (
+      <View style={styles.reelsRoot}>
+        <SafeAreaView edges={["top"]} style={styles.reelsTopBar}>
+          <Text style={styles.reelsTitle}>Videos</Text>
+          <Pressable
+            style={styles.toggleButton}
+            onPress={() => setViewMode("list")}
+            hitSlop={10}
+          >
+            <Ionicons name="list-outline" size={20} color="rgba(255,255,255,0.75)" />
+            <Text style={styles.reelsToggleLabel}>Lista</Text>
+          </Pressable>
+        </SafeAreaView>
+
+        {videoAlerts.length === 0 ? (
+          <View style={styles.emptyReels}>
+            <Ionicons name="videocam-off-outline" size={52} color="rgba(255,255,255,0.2)" />
+            <Text style={styles.emptyReelsTitle}>Sin videos en este período</Text>
+            <Text style={styles.emptyReelsSubtitle}>
+              Cambia el filtro de tiempo o publica una alerta con video.
+            </Text>
+          </View>
+        ) : (
+          <VideoReelsList alerts={videoAlerts} />
+        )}
+      </View>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -195,6 +238,22 @@ const createStyles = (theme: any) => StyleSheet.create({
     borderRadius: 4,
     backgroundColor: theme.colors.accent,
     marginTop: 4,
+  },
+  toggleButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface,
+  },
+  toggleLabel: {
+    color: theme.colors.textMuted,
+    fontSize: 12,
+    fontFamily: theme.fonts.body,
   },
   subtitle: {
     color: theme.colors.textMuted,
@@ -268,5 +327,48 @@ const createStyles = (theme: any) => StyleSheet.create({
     fontFamily: theme.fonts.body,
     textAlign: "center",
     lineHeight: 20,
+  },
+  // Reels mode
+  reelsRoot: {
+    flex: 1,
+    backgroundColor: "#000",
+  },
+  reelsTopBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 20,
+    paddingBottom: 12,
+    backgroundColor: "rgba(0,0,0,0.85)",
+  },
+  reelsTitle: {
+    color: "white",
+    fontSize: 22,
+    fontFamily: theme.fonts.heading,
+  },
+  reelsToggleLabel: {
+    color: "rgba(255,255,255,0.75)",
+    fontSize: 12,
+    fontFamily: theme.fonts.body,
+  },
+  emptyReels: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 16,
+    padding: 32,
+  },
+  emptyReelsTitle: {
+    color: "rgba(255,255,255,0.75)",
+    fontSize: 20,
+    fontFamily: theme.fonts.heading,
+    textAlign: "center",
+  },
+  emptyReelsSubtitle: {
+    color: "rgba(255,255,255,0.35)",
+    fontSize: 14,
+    fontFamily: theme.fonts.body,
+    textAlign: "center",
+    lineHeight: 21,
   },
 });

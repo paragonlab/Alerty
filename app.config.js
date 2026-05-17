@@ -64,6 +64,7 @@ module.exports = {
       },
     ],
     "expo-image-picker",
+    "expo-camera",
     "expo-av",
     "expo-web-browser",
   ],

@@ -19,10 +19,11 @@ import * as Haptics from "expo-haptics";
 import { Sounds } from "../lib/sounds";
 import * as Location from "expo-location";
 import { Ionicons } from "@expo/vector-icons";
-import { Audio } from "expo-av";
+import { Audio, Video, ResizeMode } from "expo-av";
 import * as FileSystem from "expo-file-system/legacy";
 import { useRouter } from "expo-router";
 import { useAlertyTheme } from "../lib/useAlertyTheme";
+import { CameraCapture, type CaptureResult } from "../components/CameraCapture";
 import { ALERT_CATEGORIES, CATEGORY_ICONS, CATEGORY_LABELS, CULIACAN_CENTER } from "../lib/alerty/constants";
 import { useAlertyStore } from "../lib/alerty/store";
 import type { AlertCategory, AlertItem, AlertMedia } from "../lib/alerty/types";
@@ -43,6 +44,7 @@ export default function ReportScreen() {
   const [submitting, setSubmitting] = useState(false);
   const [locating, setLocating] = useState(false);
   const [mapExpanded, setMapExpanded] = useState(false);
+  const [showCamera, setShowCamera] = useState(false);
   const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   const [locationDenied, setLocationDenied] = useState(false);
   const [recording, setRecording] = useState<Audio.Recording | null>(null);
@@ -74,6 +76,13 @@ export default function ReportScreen() {
   const theme = useAlertyTheme();
   const isDark = themeMode === "darkHighVisibility";
   const styles = createStyles(theme, themeMode);
+
+  const handleCameraCapture = (result: CaptureResult) => {
+    setMedia((prev) => [
+      ...prev,
+      { id: `capture-${Date.now()}`, url: result.uri, type: result.type },
+    ]);
+  };
 
   const handlePickMedia = async () => {
     if (isWeb) {
@@ -401,6 +410,13 @@ export default function ReportScreen() {
         {/* 2. Evidencia */}
         <Text style={styles.sectionTitle}>Evidencia (fotos, video o voz)</Text>
         <View style={styles.mediaActions}>
+          <Pressable
+            style={[styles.mediaActionBtn, styles.mediaActionBtnCamera]}
+            onPress={() => setShowCamera(true)}
+          >
+            <Ionicons name="camera" size={22} color={theme.colors.surface} />
+            <Text style={[styles.mediaActionText, { color: theme.colors.surface }]}>Cámara</Text>
+          </Pressable>
           <Pressable style={styles.mediaActionBtn} onPress={handlePickMedia}>
             <Ionicons name="images-outline" size={22} color={theme.colors.text} />
             <Text style={styles.mediaActionText}>Galería</Text>
@@ -434,6 +450,14 @@ export default function ReportScreen() {
                       color={theme.colors.accent}
                     />
                   </Pressable>
+                ) : item.type === "video" ? (
+                  <Video
+                    source={{ uri: item.url }}
+                    style={styles.mediaPreviewThumb}
+                    resizeMode={ResizeMode.COVER}
+                    useNativeControls
+                    shouldPlay={false}
+                  />
                 ) : (
                   <Image source={{ uri: item.url }} style={styles.mediaPreviewThumb} />
                 )}
@@ -539,6 +563,12 @@ export default function ReportScreen() {
           </Text>
         </Pressable>
       </ScrollView>
+
+      <CameraCapture
+        visible={showCamera}
+        onClose={() => setShowCamera(false)}
+        onCapture={handleCameraCapture}
+      />
     </SafeAreaView>
   );
 }
@@ -724,6 +754,10 @@ const createStyles = (theme: any, themeMode: string) => StyleSheet.create({
     borderColor: theme.colors.border,
     paddingVertical: 14,
     borderRadius: theme.radius.xl,
+  },
+  mediaActionBtnCamera: {
+    backgroundColor: theme.colors.accent,
+    borderColor: theme.colors.accent,
   },
   mediaActionBtnActive: {
     backgroundColor: theme.colors.danger,

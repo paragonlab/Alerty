@@ -14,7 +14,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import * as Location from "expo-location";
-import { Audio } from "expo-av";
+import { Audio, Video, ResizeMode } from "expo-av";
 import * as FileSystem from "expo-file-system/legacy";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useAlertyTheme } from "../../lib/useAlertyTheme";
@@ -234,15 +234,16 @@ export default function AlertDetailScreen() {
                 <View key={item.id} style={styles.mediaContainer}>
                   {item.type === "audio" ? (
                     <AudioPlayer uri={item.url} />
+                  ) : item.type === "video" ? (
+                    <Video
+                      source={{ uri: item.url }}
+                      style={styles.mediaVideo}
+                      resizeMode={ResizeMode.CONTAIN}
+                      useNativeControls
+                      shouldPlay={false}
+                    />
                   ) : (
-                    <>
-                      <Image source={{ uri: item.url }} style={styles.mediaThumb} />
-                      {item.type === "video" && (
-                        <View style={styles.videoOverlay}>
-                          <Ionicons name="play-circle" size={32} color="white" />
-                        </View>
-                      )}
-                    </>
+                    <Image source={{ uri: item.url }} style={styles.mediaThumb} />
                   )}
                 </View>
               ))}
@@ -560,6 +561,12 @@ const createStyles = (theme: any, themeMode: string) => StyleSheet.create({
   mediaThumb: {
     width: "100%",
     height: "100%",
+  },
+  mediaVideo: {
+    width: "100%",
+    height: 220,
+    borderRadius: theme.radius.xl,
+    backgroundColor: "#000",
   },
   audioPlayer: {
     flexDirection: "row",
