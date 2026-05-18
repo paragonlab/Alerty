@@ -51,6 +51,10 @@ type AlertyState = {
   recomputeVerifiedStatus: () => void;
   sponsoredZones: SponsoredZone[];
   loadSponsoredZones: () => Promise<void>;
+  feedViewMode: "list" | "reels";
+  setFeedViewMode: (mode: "list" | "reels") => void;
+  unreadAlerts: number;
+  clearUnreadAlerts: () => void;
 };
 
 const syncPreference = async (key: string, value: any) => {
@@ -88,6 +92,10 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
     followersCount: 0,
   },
   sponsoredZones: [],
+  feedViewMode: "list",
+  setFeedViewMode: (mode) => set({ feedViewMode: mode }),
+  unreadAlerts: 3,
+  clearUnreadAlerts: () => set({ unreadAlerts: 0 }),
   startDemo: () => {
     const { demoStarted, demoInterval, alerts } = get();
     if (demoStarted) return;

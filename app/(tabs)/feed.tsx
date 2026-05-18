@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo } from "react";
 import {
   FlatList,
   Pressable,
@@ -20,10 +20,9 @@ import { AdCard } from "../../components/AdCard";
 
 export default function FeedScreen() {
   const router = useRouter();
-  const { alerts, timeFilter, setTimeFilter, activeCategories, sponsoredZones } = useAlertyStore();
+  const { alerts, timeFilter, setTimeFilter, activeCategories, sponsoredZones, feedViewMode: viewMode, setFeedViewMode: setViewMode } = useAlertyStore();
   const theme = useAlertyTheme();
   const styles = createStyles(theme);
-  const [viewMode, setViewMode] = useState<"list" | "reels">("list");
 
   const filteredAlerts = useMemo(
     () =>
@@ -101,15 +100,6 @@ export default function FeedScreen() {
         <View style={styles.titleRow}>
           <Text style={styles.title}>Feed</Text>
           <View style={styles.liveDot} />
-          <View style={{ flex: 1 }} />
-          <Pressable
-            style={styles.toggleButton}
-            onPress={() => setViewMode("reels")}
-            hitSlop={10}
-          >
-            <Ionicons name="videocam-outline" size={20} color={theme.colors.textMuted} />
-            <Text style={styles.toggleLabel}>Reels</Text>
-          </Pressable>
         </View>
         <Text style={styles.subtitle}>Reportes en tiempo real de la comunidad.</Text>
       </View>
@@ -161,46 +151,54 @@ export default function FeedScreen() {
   if (viewMode === "reels") {
     return (
       <View style={styles.reelsRoot}>
-        <SafeAreaView edges={["top"]} style={styles.reelsTopBar}>
-          <Text style={styles.reelsTitle}>Videos</Text>
-          <Pressable
-            style={styles.toggleButton}
-            onPress={() => setViewMode("list")}
-            hitSlop={10}
-          >
-            <Ionicons name="list-outline" size={20} color="rgba(255,255,255,0.75)" />
-            <Text style={styles.reelsToggleLabel}>Lista</Text>
-          </Pressable>
-        </SafeAreaView>
-
         {videoAlerts.length === 0 ? (
-          <View style={styles.emptyReels}>
-            <Ionicons name="videocam-off-outline" size={52} color="rgba(255,255,255,0.2)" />
-            <Text style={styles.emptyReelsTitle}>Sin videos en este período</Text>
-            <Text style={styles.emptyReelsSubtitle}>
-              Cambia el filtro de tiempo o publica una alerta con video.
-            </Text>
-          </View>
+          <SafeAreaView style={styles.emptyReelsContainer}>
+            <Pressable onPress={() => setViewMode("list")} style={styles.reelsBackBtn} hitSlop={10}>
+              <Ionicons name="chevron-back" size={20} color="rgba(255,255,255,0.75)" />
+              <Text style={styles.reelsBackLabel}>Volver</Text>
+            </Pressable>
+            <View style={styles.emptyReels}>
+              <Ionicons name="videocam-off-outline" size={52} color="rgba(255,255,255,0.2)" />
+              <Text style={styles.emptyReelsTitle}>Sin videos en este período</Text>
+              <Text style={styles.emptyReelsSubtitle}>
+                Cambia el filtro de tiempo o publica una alerta con video.
+              </Text>
+            </View>
+          </SafeAreaView>
         ) : (
-          <VideoReelsList alerts={videoAlerts} />
+          <VideoReelsList alerts={videoAlerts} onClose={() => setViewMode("list")} />
         )}
       </View>
     );
   }
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <FlatList
-        data={feedItems}
-        renderItem={renderItem}
-        keyExtractor={keyExtractor}
-        ListHeaderComponent={ListHeader}
-        ListEmptyComponent={ListEmpty}
-        contentContainerStyle={styles.container}
-        showsVerticalScrollIndicator={false}
-        ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
-      />
-    </SafeAreaView>
+    <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
+      <SafeAreaView style={styles.safeArea}>
+        <FlatList
+          data={feedItems}
+          renderItem={renderItem}
+          keyExtractor={keyExtractor}
+          ListHeaderComponent={ListHeader}
+          ListEmptyComponent={ListEmpty}
+          contentContainerStyle={styles.container}
+          showsVerticalScrollIndicator={false}
+          ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
+        />
+      </SafeAreaView>
+      <View style={styles.modePillWrap} pointerEvents="box-none">
+        <View style={styles.modePill} pointerEvents="auto">
+          <View style={[styles.modePillBtn, styles.modePillBtnActive]}>
+            <Ionicons name="list" size={13} color="#fff" />
+            <Text style={[styles.modePillText, { color: "#fff" }]}>LISTA</Text>
+          </View>
+          <Pressable style={styles.modePillBtn} onPress={() => setViewMode("reels")}>
+            <Ionicons name="film" size={13} color="rgba(255,255,255,0.45)" />
+            <Text style={styles.modePillText}>REELS</Text>
+          </Pressable>
+        </View>
+      </View>
+    </View>
   );
 }
 
@@ -227,6 +225,49 @@ const createStyles = (theme: any) => StyleSheet.create({
     alignItems: "center",
     gap: 10,
   },
+  modePillWrap: {
+    position: "absolute",
+    bottom: 18,
+    left: 0,
+    right: 0,
+    alignItems: "center",
+    zIndex: 30,
+  },
+  modePill: {
+    flexDirection: "row",
+    padding: 4,
+    backgroundColor: "rgba(10,10,10,0.82)",
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.12)",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.35,
+    shadowRadius: 12,
+    elevation: 12,
+  },
+  modePillBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 999,
+  },
+  modePillBtnActive: {
+    backgroundColor: "#FF4500",
+    shadowColor: "#FF4500",
+    shadowOpacity: 0.45,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+  },
+  modePillText: {
+    fontSize: 11,
+    fontWeight: "700" as const,
+    letterSpacing: 1.1,
+    color: "rgba(255,255,255,0.45)",
+    fontFamily: "SpaceGrotesk_700Bold",
+  },
   title: {
     color: theme.colors.text,
     fontSize: 28,
@@ -238,22 +279,6 @@ const createStyles = (theme: any) => StyleSheet.create({
     borderRadius: 4,
     backgroundColor: theme.colors.accent,
     marginTop: 4,
-  },
-  toggleButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    backgroundColor: theme.colors.surface,
-  },
-  toggleLabel: {
-    color: theme.colors.textMuted,
-    fontSize: 12,
-    fontFamily: theme.fonts.body,
   },
   subtitle: {
     color: theme.colors.textMuted,
@@ -330,25 +355,25 @@ const createStyles = (theme: any) => StyleSheet.create({
   },
   // Reels mode
   reelsRoot: {
-    flex: 1,
-    backgroundColor: "#000",
+    position: "absolute",
+    top: 0, left: 0, right: 0, bottom: -100,
+    zIndex: 100,
+    backgroundColor: "#090909",
   },
-  reelsTopBar: {
+  emptyReelsContainer: {
+    flex: 1,
+    backgroundColor: "#090909",
+  },
+  reelsBackBtn: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 20,
-    paddingBottom: 12,
-    backgroundColor: "rgba(0,0,0,0.85)",
+    gap: 6,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
   },
-  reelsTitle: {
-    color: "white",
-    fontSize: 22,
-    fontFamily: theme.fonts.heading,
-  },
-  reelsToggleLabel: {
+  reelsBackLabel: {
     color: "rgba(255,255,255,0.75)",
-    fontSize: 12,
+    fontSize: 14,
     fontFamily: theme.fonts.body,
   },
   emptyReels: {
