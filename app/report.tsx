@@ -13,7 +13,6 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-import { CameraView, useCameraPermissions, useMicrophonePermissions } from "expo-camera";
 import * as ImagePicker from "expo-image-picker";
 import * as Haptics from "expo-haptics";
 import * as Location from "expo-location";
@@ -24,6 +23,7 @@ import { ALERT_CATEGORIES, CATEGORY_ICONS, CATEGORY_LABELS, CULIACAN_CENTER } fr
 import { useAlertyStore } from "../lib/alerty/store";
 import { Sounds } from "../lib/sounds";
 import { supabase } from "../lib/supabase";
+import { uploadMediaBatch } from "../lib/upload";
 import type { AlertCategory, AlertMedia } from "../lib/alerty/types";
 import { calculateDistance } from "../lib/alerty/utils";
 
@@ -81,16 +81,10 @@ export default function ReportScreen() {
   const [submitting, setSubmitting] = useState(false);
   const [recording, setRecording] = useState<Audio.Recording | null>(null);
   const [isRecording, setIsRecording] = useState(false);
-  const [isVideoRecording, setIsVideoRecording] = useState(false);
   const [recSeconds, setRecSeconds] = useState(0);
   const recIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const waveAnims = useRef(Array.from({ length: 18 }, () => new Animated.Value(0.06))).current;
   const waveLoopsRef = useRef<Animated.CompositeAnimation[]>([]);
-  const cameraRef = useRef<CameraView>(null);
-  const [facing, setFacing] = useState<"back" | "front">("back");
-  const [cameraReady, setCameraReady] = useState(false);
-  const [camPerm, requestCamPerm] = useCameraPermissions();
-  const [micPerm, requestMicPerm] = useMicrophonePermissions();
 
   // Animations
   const recDotAnim = useRef(new Animated.Value(1)).current;
@@ -133,15 +127,8 @@ export default function ReportScreen() {
       if (recIntervalRef.current) clearInterval(recIntervalRef.current);
       waveLoopsRef.current.forEach((l) => l.stop());
       recording?.stopAndUnloadAsync().catch(() => {});
-      cameraRef.current?.stopRecording();
     };
   }, []);
-
-  useEffect(() => {
-    if (step !== 1 || captureMode === "voice") return;
-    if (camPerm && !camPerm.granted && camPerm.canAskAgain) requestCamPerm();
-    if (micPerm && !micPerm.granted && micPerm.canAskAgain) requestMicPerm();
-  }, [step, captureMode, camPerm?.granted, micPerm?.granted]);
 
   useEffect(() => {
     if (step !== 4) return;
@@ -215,42 +202,29 @@ export default function ReportScreen() {
       return;
     }
 
-    if (!cameraRef.current || !cameraReady) return;
-
-    if (captureMode === "photo") {
-      try {
-        const pic = await cameraRef.current.takePictureAsync({ quality: 0.85 });
-        if (pic?.uri) {
-          setMedia((prev) => [...prev, { id: `pic-${Date.now()}`, url: pic.uri, type: "image" }]);
-          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-          setStep(2);
-        }
-      } catch (e) {
-        console.error("takePicture", e);
-      }
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    if (status !== "granted") {
+      Alert.alert("Permiso", "Necesitamos acceso a la cámara para capturar evidencia.");
       return;
     }
-
-    // Video mode — toggle recording
-    if (isVideoRecording) {
-      cameraRef.current.stopRecording();
-    } else {
-      setIsVideoRecording(true);
-      setRecSeconds(0);
-      recIntervalRef.current = setInterval(() => setRecSeconds((s) => s + 1), 1000);
-      try {
-        const result = await cameraRef.current.recordAsync({ maxDuration: 60 });
-        if (recIntervalRef.current) { clearInterval(recIntervalRef.current); recIntervalRef.current = null; }
-        setIsVideoRecording(false);
-        if (result?.uri) {
-          setMedia((prev) => [...prev, { id: `vid-${Date.now()}`, url: result.uri, type: "video" }]);
-          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-          setStep(2);
-        }
-      } catch {
-        if (recIntervalRef.current) { clearInterval(recIntervalRef.current); recIntervalRef.current = null; }
-        setIsVideoRecording(false);
+    try {
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: captureMode === "video" ? "videos" : "images",
+        quality: 0.85,
+        videoMaxDuration: 60,
+      });
+      if (!result.canceled) {
+        const picked: AlertMedia[] = result.assets.map((a) => ({
+          id: `cap-${Date.now()}`,
+          url: a.uri,
+          type: (a.type === "video" ? "video" : "image") as "image" | "video",
+        }));
+        setMedia((prev) => [...prev, ...picked]);
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        if (step === 1) setStep(2);
       }
+    } catch {
+      await handleGallery();
     }
   }
 
@@ -337,15 +311,39 @@ export default function ReportScreen() {
     try {
       if (supabase) {
         const { data: ud } = await supabase.auth.getUser();
-        await supabase.from("alerts").insert({
-          user_id: ud.user?.id,
-          category,
-          lat: userLocation.latitude,
-          lng: userLocation.longitude,
-          title: newAlert.title,
-          description: newAlert.description,
-          status: "active",
-        });
+        const { data: inserted } = await supabase
+          .from("alerts")
+          .insert({
+            user_id: ud.user?.id,
+            category,
+            lat: userLocation.latitude,
+            lng: userLocation.longitude,
+            title: newAlert.title,
+            description: newAlert.description,
+            status: "active",
+          })
+          .select("id")
+          .single();
+        if (inserted?.id) {
+          const alertId = inserted.id;
+          void supabase.functions
+            .invoke("notify-on-alert", { body: { type: "alert", alertId } })
+            .catch(() => {});
+          if (media.length > 0) {
+            void (async () => {
+              const uploaded = await uploadMediaBatch(media);
+              if (uploaded.length > 0 && supabase) {
+                await supabase.from("media").insert(
+                  uploaded.map((m) => ({
+                    alert_id: alertId,
+                    media_url: m.url,
+                    media_type: m.type,
+                  })),
+                );
+              }
+            })().catch(() => {});
+          }
+        }
       }
     } catch {}
     void Sounds.success();
@@ -357,68 +355,42 @@ export default function ReportScreen() {
   // ── Render helpers ───────────────────────────────────────────────────────
 
   function renderStep1() {
-    const showCamera = captureMode !== "voice" && camPerm?.granted;
-    const isCapturing = isRecording || isVideoRecording;
+    const isCapturing = isRecording;
     const timer = `${Math.floor(recSeconds / 60)}:${String(recSeconds % 60).padStart(2, "0")}`;
-
-    const overlays = (
-      <>
-        <View style={[S.corner, S.cornerTL]} />
-        <View style={[S.corner, S.cornerTR]} />
-        <View style={[S.corner, S.cornerBL]} />
-        <View style={[S.corner, S.cornerBR]} />
-        <View style={[S.recChip, isCapturing && S.recChipActive]}>
-          {isCapturing && <Animated.View style={[S.recDot, { opacity: recDotAnim }]} />}
-          <Text style={S.recText}>{isCapturing ? "REC" : captureMode === "video" ? "VIDEO" : captureMode === "photo" ? "FOTO" : "VOZ"}</Text>
-        </View>
-        {isCapturing && (
-          <View style={S.vfTimer}>
-            <Text style={S.vfTimerText}>{timer}</Text>
-          </View>
-        )}
-      </>
-    );
 
     return (
       <>
         {/* Viewfinder */}
-        {showCamera ? (
-          <CameraView
-            ref={cameraRef}
-            style={S.viewfinder}
-            facing={facing}
-            mode={captureMode === "video" ? "video" : "picture"}
-            onCameraReady={() => setCameraReady(true)}
-          >
-            {overlays}
-          </CameraView>
-        ) : (
-          <View style={S.viewfinder}>
-            {overlays}
-            {captureMode === "voice" && isRecording ? (
-              <View style={S.waveformWrap}>
-                {waveAnims.map((anim, i) => (
-                  <Animated.View key={i} style={[S.wavebar, { transform: [{ scaleY: anim }] }]} />
-                ))}
-              </View>
-            ) : (
-              <View style={S.vfHint}>
-                {captureMode !== "voice" && !camPerm?.granted ? (
-                  <Pressable onPress={requestCamPerm} style={S.camPermBtn}>
-                    <Ionicons name="camera" size={28} color="rgba(255,255,255,0.5)" />
-                    <Text style={S.camPermText}>Permitir cámara</Text>
-                  </Pressable>
-                ) : (
-                  <Ionicons
-                    name={captureMode === "voice" ? "mic" : captureMode === "photo" ? "camera" : "videocam"}
-                    size={32}
-                    color="rgba(255,255,255,0.25)"
-                  />
-                )}
-              </View>
-            )}
+        <View style={S.viewfinder}>
+          <View style={[S.corner, S.cornerTL]} />
+          <View style={[S.corner, S.cornerTR]} />
+          <View style={[S.corner, S.cornerBL]} />
+          <View style={[S.corner, S.cornerBR]} />
+          <View style={[S.recChip, isCapturing && S.recChipActive]}>
+            {isCapturing && <Animated.View style={[S.recDot, { opacity: recDotAnim }]} />}
+            <Text style={S.recText}>{isCapturing ? "REC" : captureMode === "video" ? "VIDEO" : captureMode === "photo" ? "FOTO" : "VOZ"}</Text>
           </View>
-        )}
+          {isCapturing && (
+            <View style={S.vfTimer}>
+              <Text style={S.vfTimerText}>{timer}</Text>
+            </View>
+          )}
+          {captureMode === "voice" && isRecording ? (
+            <View style={S.waveformWrap}>
+              {waveAnims.map((anim, i) => (
+                <Animated.View key={i} style={[S.wavebar, { transform: [{ scaleY: anim }] }]} />
+              ))}
+            </View>
+          ) : (
+            <View style={S.vfHint}>
+              <Ionicons
+                name={captureMode === "video" ? "videocam" : captureMode === "photo" ? "camera" : "mic"}
+                size={32}
+                color="rgba(255,255,255,0.25)"
+              />
+            </View>
+          )}
+        </View>
 
         {/* Mode selector */}
         <View style={S.modeRow}>
@@ -426,7 +398,7 @@ export default function ReportScreen() {
             <Pressable
               key={mode}
               style={[S.modeBtn, captureMode === mode && S.modeBtnActive]}
-              onPress={() => { setCaptureMode(mode); setCameraReady(false); }}
+              onPress={() => setCaptureMode(mode)}
             >
               <Ionicons
                 name={mode === "video" ? "videocam" : mode === "photo" ? "camera" : "mic"}
@@ -461,19 +433,7 @@ export default function ReportScreen() {
             </View>
           </Pressable>
 
-          <View style={S.shutterSide}>
-            {captureMode !== "voice" && (
-              <>
-                <Pressable
-                  style={S.shutterSideBtn}
-                  onPress={() => setFacing((f) => (f === "back" ? "front" : "back"))}
-                >
-                  <Ionicons name="camera-reverse-outline" size={16} color="#fff" />
-                </Pressable>
-                <Text style={S.shutterSideLabel}>VOLTEAR</Text>
-              </>
-            )}
-          </View>
+          <View style={S.shutterSide} />
         </View>
 
         <Pressable style={S.skipBtn} onPress={() => setStep(2)}>
@@ -716,18 +676,28 @@ export default function ReportScreen() {
       {/* Nearby alert context widget */}
       {nearbyAlert && !isStep4 && (
         <SafeAreaView style={S.safeTop} edges={["top"]}>
-          <View style={S.nearbyWidget}>
-            <View style={S.nearbyDot} />
+          <Pressable
+            style={({ pressed }) => [S.nearbyWidget, pressed && S.nearbyWidgetPressed]}
+            onPress={() => router.push(`/alert/${nearbyAlert.id}` as any)}
+          >
+            <View style={S.nearbyDot}>
+              <Ionicons
+                name={(CATEGORY_ICONS[nearbyAlert.category] ?? "alert-circle") as any}
+                size={18}
+                color="#FF6060"
+              />
+            </View>
             <View style={{ flex: 1 }}>
               <Text style={S.nearbyTag}>ALERTA ABIERTA · CERCA</Text>
               <Text style={S.nearbyTitle} numberOfLines={1}>
                 {CATEGORY_LABELS[nearbyAlert.category]} · {nearbyAlert.neighborhood ?? locationLabel}
               </Text>
             </View>
-            <Pressable onPress={() => { if (nearbyAlert) { setCategory(nearbyAlert.category); } }}>
+            <View style={S.nearbyAportarBtn}>
               <Text style={S.nearbyAportar}>APORTAR</Text>
-            </Pressable>
-          </View>
+              <Ionicons name="chevron-forward" size={11} color="#66FF8C" />
+            </View>
+          </Pressable>
         </SafeAreaView>
       )}
 
@@ -849,13 +819,22 @@ const S = StyleSheet.create({
     borderWidth: 1, borderColor: "rgba(255,255,255,0.08)",
     borderRadius: 14,
   },
+  nearbyWidgetPressed: { opacity: 0.7 },
   nearbyDot: {
     width: 36, height: 36, borderRadius: 10,
-    backgroundColor: "#0a0a0a",
-    borderWidth: 1, borderColor: "rgba(255,255,255,0.08)",
+    backgroundColor: "#1a0c05",
+    borderWidth: 1, borderColor: "rgba(255,96,96,0.3)",
+    alignItems: "center", justifyContent: "center",
   },
   nearbyTag: { fontSize: 10, fontWeight: "700", letterSpacing: 1.4, color: "#FF6060" },
   nearbyTitle: { fontSize: 12, fontWeight: "700", color: "#fff" },
+  nearbyAportarBtn: {
+    flexDirection: "row", alignItems: "center", gap: 3,
+    paddingHorizontal: 10, paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: "rgba(102,255,140,0.12)",
+    borderWidth: 1, borderColor: "rgba(102,255,140,0.3)",
+  },
   nearbyAportar: { fontSize: 10, fontWeight: "700", letterSpacing: 1, color: "#66FF8C" },
 
   // Sheet

@@ -74,12 +74,18 @@ export function AlertCard({ alert, onPress }: AlertCardProps) {
               <Text style={styles.voteText}>{alert.downvotes}</Text>
             </View>
           )}
-          {alert.media.length > 0 && (
-            <View style={styles.mediaPill}>
-              <Ionicons name="camera" size={11} color={theme.colors.textMuted} />
-              <Text style={styles.voteText}>{alert.media.length}</Text>
-            </View>
-          )}
+          {alert.media.length > 0 && (() => {
+            const hasVideo = alert.media.some((m) => m.type === "video");
+            const hasAudio = alert.media.some((m) => m.type === "audio");
+            const icon = hasVideo ? "film" : hasAudio ? "mic" : "camera";
+            const iconColor = hasVideo ? "#FF6B3A" : theme.colors.textMuted;
+            return (
+              <View style={[styles.mediaPill, hasVideo && styles.mediaPillVideo]}>
+                <Ionicons name={icon} size={11} color={iconColor} />
+                <Text style={[styles.voteText, hasVideo && { color: "#FF6B3A" }]}>{alert.media.length}</Text>
+              </View>
+            );
+          })()}
           {(alert.updates?.length ?? 0) > 0 && (
             <View style={styles.mediaPill}>
               <Ionicons name="chatbubble-outline" size={11} color={theme.colors.textMuted} />
@@ -205,6 +211,10 @@ const createStyles = (theme: any) => StyleSheet.create({
     borderColor: theme.colors.border,
     paddingHorizontal: 9,
     paddingVertical: 5,
+  },
+  mediaPillVideo: {
+    backgroundColor: "rgba(255,107,58,0.1)",
+    borderColor: "rgba(255,107,58,0.35)",
   },
   voteText: {
     color: theme.colors.textMuted,

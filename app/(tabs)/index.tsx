@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   Platform,
@@ -17,11 +17,12 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { GlowMarker } from "../../components/GlowMarker";
 import { SOSButton } from "../../components/SOSButton";
-import { CULIACAN_CENTER } from "../../lib/alerty/constants";
+import { CATEGORY_LABELS, CULIACAN_CENTER } from "../../lib/alerty/constants";
 import { useAlertyTheme } from "../../lib/useAlertyTheme";
 import { useAlertyStore } from "../../lib/alerty/store";
 import { supabase } from "../../lib/supabase";
 import {
+  calculateDistance,
   formatRelativeTime,
   getIntensityColor,
   getPulseDuration,
@@ -33,6 +34,7 @@ export default function MapScreen() {
   const router = useRouter();
   const mapRef = useRef<MapView | null>(null);
   const [locating, setLocating] = useState(false);
+  const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   const isWeb = Platform.OS === "web";
 
   const {
@@ -78,6 +80,31 @@ export default function MapScreen() {
     [filteredAlerts],
   );
 
+  // Alerta activa más cercana dentro de 500m del usuario
+  const nearbyAlert = useMemo(() => {
+    if (!userLocation) return null;
+    const withDist = filteredAlerts
+      .map((alert) => ({
+        alert,
+        dist: calculateDistance(userLocation.latitude, userLocation.longitude, alert.lat, alert.lng),
+      }))
+      .filter((x) => x.dist <= 0.5)
+      .sort((a, b) => a.dist - b.dist);
+    return withDist[0] ?? null;
+  }, [userLocation, filteredAlerts]);
+
+  useEffect(() => {
+    if (isWeb) return;
+    void (async () => {
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== "granted") return;
+        const loc = await Location.getCurrentPositionAsync({});
+        setUserLocation({ latitude: loc.coords.latitude, longitude: loc.coords.longitude });
+      } catch {}
+    })();
+  }, []);
+
   const handleCenterLocation = async () => {
     try {
       if (isWeb) {
@@ -92,6 +119,7 @@ export default function MapScreen() {
       }
 
       const location = await Location.getCurrentPositionAsync({});
+      setUserLocation({ latitude: location.coords.latitude, longitude: location.coords.longitude });
       mapRef.current?.animateToRegion({
         latitude: location.coords.latitude,
         longitude: location.coords.longitude,
@@ -264,8 +292,30 @@ export default function MapScreen() {
           </View>
         )}
 
-        {/* Live Ticker */}
-        {filteredAlerts[0] ? (
+        {/* Banner de proximidad — prioridad sobre el live ticker */}
+        {nearbyAlert ? (
+          <Pressable
+            style={styles.proximityBanner}
+            onPress={() => {
+              void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+              router.push(`/alert/${nearbyAlert.alert.id}`);
+            }}
+          >
+            <View style={styles.proximityIcon}>
+              <Ionicons name="warning" size={18} color="#fff" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.proximityTitle}>Alerta activa cerca de ti</Text>
+              <Text style={styles.proximitySub} numberOfLines={1}>
+                {CATEGORY_LABELS[nearbyAlert.alert.category]} · a{" "}
+                {nearbyAlert.dist < 1
+                  ? `${Math.round(nearbyAlert.dist * 1000)} m`
+                  : `${nearbyAlert.dist.toFixed(1)} km`}
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color="#fff" />
+          </Pressable>
+        ) : filteredAlerts[0] ? (
           <GlassView
             colorScheme={isDark ? "dark" : "light"}
             glassEffectStyle="regular"
@@ -421,6 +471,43 @@ const createStyles = (theme: any, themeMode: string) => StyleSheet.create({
     borderWidth: 1,
     borderColor: theme.colors.border,
     overflow: "hidden",
+  },
+  proximityBanner: {
+    position: "absolute",
+    left: 16,
+    right: 16,
+    bottom: 120,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: theme.radius.xl,
+    backgroundColor: "#E84F1F",
+    shadowColor: "#E84F1F",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.45,
+    shadowRadius: 14,
+    elevation: 10,
+  },
+  proximityIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "rgba(255,255,255,0.2)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  proximityTitle: {
+    color: "#fff",
+    fontSize: 13,
+    fontFamily: theme.fonts.heading,
+  },
+  proximitySub: {
+    color: "rgba(255,255,255,0.88)",
+    fontSize: 12,
+    fontFamily: theme.fonts.body,
+    marginTop: 1,
   },
   liveText: {
     flex: 1,

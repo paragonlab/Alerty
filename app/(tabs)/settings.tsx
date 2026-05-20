@@ -15,6 +15,7 @@ import { ALERT_CATEGORIES, CATEGORY_LABELS, getLevelProgress } from "../../lib/a
 import { useAlertyStore } from "../../lib/alerty/store";
 import { useAlertyTheme } from "../../lib/useAlertyTheme";
 import { supabase } from "../../lib/supabase";
+import { syncPushRegistration, removePushTokens } from "../../lib/notifications";
 import { useRouter } from "expo-router";
 
 export default function SettingsScreen() {
@@ -58,7 +59,13 @@ export default function SettingsScreen() {
 
   const handleSignOut = async () => {
     if (!supabase) return;
+    await removePushTokens();
     await supabase.auth.signOut();
+  };
+
+  const handleTogglePush = (value: boolean) => {
+    setPushEnabled(value);
+    if (value) void syncPushRegistration();
   };
 
   const handleStartEditUsername = () => {
@@ -279,7 +286,7 @@ export default function SettingsScreen() {
             </View>
             <Switch
               value={pushEnabled}
-              onValueChange={setPushEnabled}
+              onValueChange={handleTogglePush}
               trackColor={{ false: theme.colors.border, true: theme.colors.accent + "80" }}
               thumbColor={pushEnabled ? theme.colors.accent : "#C9BBA8"}
             />

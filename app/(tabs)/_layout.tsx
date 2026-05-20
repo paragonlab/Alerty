@@ -2,24 +2,10 @@ import { View } from "react-native";
 import { Tabs } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useAlertyTheme } from "../../lib/useAlertyTheme";
-import { useAlertyStore } from "../../lib/alerty/store";
-import { isSupabaseConfigured } from "../../lib/supabase";
-import { useEffect } from "react";
 import { AlertyTabBar } from "../../components/AlertyTabBar";
 
 export default function TabLayout() {
   const theme = useAlertyTheme();
-  const { startDemo, loadAlertsFromSupabase, loadSponsoredZones, startRealtime } = useAlertyStore();
-
-  useEffect(() => {
-    if (isSupabaseConfigured) {
-      void loadAlertsFromSupabase();
-      void loadSponsoredZones();
-      startRealtime();
-    } else {
-      startDemo();
-    }
-  }, [loadAlertsFromSupabase, loadSponsoredZones, startDemo, startRealtime]);
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.colors.background }}>

@@ -2,34 +2,16 @@ import { useEffect, useMemo } from "react";
 import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
 import { useAlertyStore } from "../../lib/alerty/store";
 import { useAlertyTheme } from "../../lib/useAlertyTheme";
-import { CATEGORY_LABELS } from "../../lib/alerty/constants";
+import { CATEGORY_ICONS, CATEGORY_LABELS } from "../../lib/alerty/constants";
+import { formatRelativeTime } from "../../lib/alerty/utils";
 import type { AlertItem } from "../../lib/alerty/types";
-
-const CATEGORY_ICONS: Record<string, string> = {
-  robo: "wallet-outline",
-  accidente: "car-outline",
-  incendio: "flame-outline",
-  inundacion: "water-outline",
-  sismo: "earth-outline",
-  balacera: "warning-outline",
-  manifestacion: "people-outline",
-  sos: "alert-circle-outline",
-  vialidad: "navigate-outline",
-  otro: "ellipsis-horizontal-outline",
-};
-
-function timeAgo(iso: string) {
-  const diff = (Date.now() - new Date(iso).getTime()) / 1000;
-  if (diff < 60) return "Justo ahora";
-  if (diff < 3600) return `Hace ${Math.floor(diff / 60)} min`;
-  if (diff < 86400) return `Hace ${Math.floor(diff / 3600)} h`;
-  return `Hace ${Math.floor(diff / 86400)} d`;
-}
 
 export default function AvisosScreen() {
   const theme = useAlertyTheme();
+  const router = useRouter();
   const { alerts, clearUnreadAlerts } = useAlertyStore();
   const styles = createStyles(theme);
 
@@ -50,9 +32,14 @@ export default function AvisosScreen() {
     const isCritical = item.category === "sos" || item.category === "balacera" || item.upvotes > 10;
     const iconName = (CATEGORY_ICONS[item.category] ?? "notifications-outline") as any;
     const label = CATEGORY_LABELS[item.category] ?? item.category;
+    const hasMedia = item.media.length > 0;
 
     return (
-      <Pressable style={styles.item} android_ripple={{ color: theme.colors.border }}>
+      <Pressable
+        style={styles.item}
+        android_ripple={{ color: theme.colors.border }}
+        onPress={() => router.push(`/alert/${item.id}` as any)}
+      >
         <View style={[styles.iconWrap, isCritical && styles.iconWrapCritical]}>
           <Ionicons
             name={iconName}
@@ -68,18 +55,28 @@ export default function AvisosScreen() {
                 <Text style={styles.criticalBadgeText}>CRÍTICO</Text>
               </View>
             )}
+            {hasMedia && (
+              <View style={styles.mediaBadge}>
+                <Ionicons name={item.media.some(m => m.type === "video") ? "film" : "camera"} size={9} color={theme.colors.textMuted} />
+              </View>
+            )}
           </View>
-          {item.title ? (
-            <Text style={styles.itemDesc} numberOfLines={2}>{item.title}</Text>
-          ) : item.description ? (
-            <Text style={styles.itemDesc} numberOfLines={2}>{item.description}</Text>
-          ) : null}
+          <Text style={styles.itemDesc} numberOfLines={1}>
+            {item.title ?? item.description ?? label}
+          </Text>
           <View style={styles.itemMeta}>
-            <Ionicons name="time-outline" size={11} color={theme.colors.textMuted} />
-            <Text style={styles.itemTime}>{timeAgo(item.createdAt)}</Text>
+            <Ionicons name="location-outline" size={11} color={theme.colors.textMuted} />
+            <Text style={styles.itemTime}>{item.neighborhood ?? "Culiacán"}</Text>
             <Text style={styles.itemDot}>·</Text>
-            <Ionicons name="trending-up-outline" size={11} color={theme.colors.textMuted} />
-            <Text style={styles.itemTime}>{item.upvotes} confirmaciones</Text>
+            <Ionicons name="time-outline" size={11} color={theme.colors.textMuted} />
+            <Text style={styles.itemTime}>{formatRelativeTime(item.createdAt)}</Text>
+            {item.upvotes > 0 && (
+              <>
+                <Text style={styles.itemDot}>·</Text>
+                <Ionicons name="thumbs-up-outline" size={11} color={theme.colors.textMuted} />
+                <Text style={styles.itemTime}>{item.upvotes}</Text>
+              </>
+            )}
           </View>
         </View>
         <Ionicons name="chevron-forward" size={16} color={theme.colors.border} />
@@ -165,6 +162,16 @@ const createStyles = (theme: any) =>
       fontSize: 12,
       fontFamily: theme.fonts.heading,
       letterSpacing: 0.8,
+    },
+    mediaBadge: {
+      width: 18,
+      height: 18,
+      borderRadius: 5,
+      backgroundColor: theme.colors.surfaceAlt,
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+      alignItems: "center",
+      justifyContent: "center",
     },
     criticalBadge: {
       paddingHorizontal: 6,

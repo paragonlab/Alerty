@@ -1,8 +1,9 @@
 import { create } from "zustand";
-import type { AlertCategory, AlertItem, AlertUpdate, SponsoredZone, TimeFilter } from "./types";
+import type { AlertCategory, AlertItem, AlertMedia, AlertUpdate, SponsoredZone, TimeFilter } from "./types";
 import { ALERT_CATEGORIES, REPUTATION_LEVELS } from "./constants";
 import { baseAlerts, createRandomAlert } from "./mock";
 import { isSupabaseConfigured, supabase } from "../supabase";
+import { uploadMediaBatch } from "../upload";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import type { AlertUser } from "./types";
 
@@ -38,7 +39,7 @@ type AlertyState = {
   setPushEnabled: (value: boolean) => void;
   loadAlertsFromSupabase: () => Promise<void>;
   toggleFollowAlert: (id: string) => void;
-  addUpdateToAlert: (alertId: string, content: string) => Promise<void>;
+  addUpdateToAlert: (alertId: string, content: string, media?: AlertMedia[]) => Promise<void>;
   setMaxReportingDistance: (distance: number) => void;
   setSOSActive: (active: boolean) => void;
   setShowHeatmap: (show: boolean) => void;
@@ -94,7 +95,7 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
   sponsoredZones: [],
   feedViewMode: "list",
   setFeedViewMode: (mode) => set({ feedViewMode: mode }),
-  unreadAlerts: 3,
+  unreadAlerts: 0,
   clearUnreadAlerts: () => set({ unreadAlerts: 0 }),
   startDemo: () => {
     const { demoStarted, demoInterval, alerts } = get();
@@ -158,7 +159,12 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
           },
         };
 
-        set((state) => ({ alerts: [alert, ...state.alerts] }));
+        set((state) => ({
+          alerts: [alert, ...state.alerts],
+          unreadAlerts: alert.user.id !== state.currentUser.id
+            ? state.unreadAlerts + 1
+            : state.unreadAlerts,
+        }));
       },
     );
 
@@ -169,7 +175,7 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
         const row = payload.new as any;
         set((state) => ({
           alerts: state.alerts.map((alert) =>
-            alert.id === row.alert_id
+            alert.id === row.alert_id && !alert.media.some((m) => m.id === row.id)
               ? {
                   ...alert,
                   media: [
@@ -262,6 +268,9 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
     const isVerified = ratio >= 0.7 && !recentFalse;
     if (isVerified !== currentUser.isVerified) {
       set((state) => ({ currentUser: { ...state.currentUser, isVerified } }));
+      if (isSupabaseConfigured && supabase && currentUser.id !== "local-user") {
+        void supabase.from("users").update({ is_verified: isVerified }).eq("id", currentUser.id);
+      }
     }
   },
   voteAlert: (id, vote) => {
@@ -312,14 +321,20 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
   },
   loadUserProfile: async () => {
     if (!isSupabaseConfigured || !supabase) return;
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session?.user) return;
-
-    const { data } = await supabase
-      .from("users")
-      .select("*")
-      .eq("id", session.user.id)
-      .single();
+    let data: any = null;
+    try {
+      const { data: sess } = await supabase.auth.getSession();
+      if (!sess?.session?.user) return;
+      const res = await supabase
+        .from("users")
+        .select("*")
+        .eq("id", sess.session.user.id)
+        .single();
+      data = res.data;
+    } catch (err) {
+      console.warn("loadUserProfile failed", err);
+      return;
+    }
 
     if (data) {
       set((state) => ({
@@ -348,11 +363,19 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
   },
   loadSponsoredZones: async () => {
     if (!isSupabaseConfigured || !supabase) return;
-    const { data, error } = await supabase
-      .from("sponsored_zones")
-      .select("id,name,description,lat,lng,type,logo_url")
-      .eq("status", "active");
-    if (error || !data) return;
+    let data: any[] | null = null;
+    try {
+      const res = await supabase
+        .from("sponsored_zones")
+        .select("id,name,description,lat,lng,type,logo_url")
+        .eq("status", "active");
+      if (res.error || !res.data) return;
+      data = res.data;
+    } catch (err) {
+      console.warn("loadSponsoredZones failed", err);
+      return;
+    }
+    if (!data) return;
     const zones: SponsoredZone[] = data.map((row: any) => ({
       id: row.id,
       name: row.name,
@@ -395,7 +418,8 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
   },
   loadAlertsFromSupabase: async () => {
     if (!isSupabaseConfigured || !supabase) return;
-    
+
+    try {
     // Load follows first if logged in
     const { data: { user } } = await supabase.auth.getUser();
     if (user) {
@@ -425,19 +449,34 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
       .select(`
         id,category,lat,lng,title,description,created_at,status,
         users(id,username,avatar_url,is_verified,is_premium,trust_score,followers_count),
-        media(id,media_url,media_type),
+        media(id,media_url,media_type,update_id),
         alert_updates(id,content,created_at,user_id,users(id,username,avatar_url,is_verified,is_premium))
       `)
       .order("created_at", { ascending: false })
       .limit(100);
 
     if (!data || data.length === 0) {
-      set({ alerts: baseAlerts });
-      get().startDemo();
+      set({ alerts: [] });
       return;
     }
 
-    const parsed: AlertItem[] = data.map((row: any) => ({
+    const alertIds = data.map((row: any) => row.id);
+    const { data: votes } = await supabase
+      .from("verifications")
+      .select("alert_id,vote_type")
+      .in("alert_id", alertIds);
+
+    const voteCounts = new Map<string, { up: number; down: number }>();
+    votes?.forEach((v: any) => {
+      const counts = voteCounts.get(v.alert_id) ?? { up: 0, down: 0 };
+      if (v.vote_type === "upvote") counts.up++;
+      else counts.down++;
+      voteCounts.set(v.alert_id, counts);
+    });
+
+    const parsed: AlertItem[] = data.map((row: any) => {
+      const counts = voteCounts.get(row.id) ?? { up: 0, down: 0 };
+      return {
       id: row.id,
       category: row.category,
       lat: row.lat,
@@ -447,8 +486,8 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
       createdAt: row.created_at,
       status: row.status ?? "active",
       neighborhood: undefined,
-      upvotes: 0,
-      downvotes: 0,
+      upvotes: counts.up,
+      downvotes: counts.down,
       media: (row.media ?? []).map((media: any) => ({
         id: media.id,
         url: media.media_url,
@@ -468,7 +507,10 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
             level: "CIUDADANO",
             followersCount: Number(upd.users?.followers_count ?? 0),
           },
-      })).sort((a: AlertUpdate, b: AlertUpdate) => 
+          media: (row.media ?? [])
+            .filter((m: any) => m.update_id === upd.id)
+            .map((m: any) => ({ id: m.id, url: m.media_url, type: m.media_type })),
+      })).sort((a: AlertUpdate, b: AlertUpdate) =>
         new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
       ),
       user: {
@@ -481,10 +523,14 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
         level: "CIUDADANO",
         followersCount: Number(row.users?.followers_count ?? 0),
       },
-    }));
+      };
+    });
 
     set({ alerts: parsed });
     get().recomputeVerifiedStatus();
+    } catch (err) {
+      console.warn("loadAlertsFromSupabase failed", err);
+    }
   },
   toggleFollowAlert: async (id) => {
     if (!isSupabaseConfigured || !supabase) {
@@ -509,7 +555,7 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
       await supabase.from("alert_follows").insert({ alert_id: id, user_id: user.id });
     }
   },
-  addUpdateToAlert: async (alertId, content) => {
+  addUpdateToAlert: async (alertId, content, mediaItems = []) => {
     if (!isSupabaseConfigured || !supabase) {
       set((state) => ({
         alerts: state.alerts.map((alert) => {
@@ -527,10 +573,12 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
           level: "CIUDADANO",
           followersCount: 0,
         },
+            media: mediaItems,
           };
           return {
             ...alert,
             updates: [newUpdate, ...(alert.updates ?? [])],
+            media: [...alert.media, ...mediaItems],
           };
         }),
       }));
@@ -555,6 +603,21 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
       return;
     }
 
+    let uploadedMedia: AlertMedia[] = [];
+    if (mediaItems.length > 0) {
+      uploadedMedia = await uploadMediaBatch(mediaItems);
+      if (uploadedMedia.length > 0) {
+        await supabase.from("media").insert(
+          uploadedMedia.map((m) => ({
+            alert_id: alertId,
+            update_id: data.id,
+            media_url: m.url,
+            media_type: m.type,
+          })),
+        );
+      }
+    }
+
     const newUpdate: AlertUpdate = {
       id: data.id,
       content: data.content,
@@ -568,15 +631,24 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
         level: (get().currentUser.level) || "CIUDADANO",
         followersCount: Number(data.users?.followers_count ?? 0),
       },
+      media: uploadedMedia,
     };
 
     set((state) => ({
       alerts: state.alerts.map((alert) =>
         alert.id === alertId
-          ? { ...alert, updates: [newUpdate, ...(alert.updates ?? [])] }
+          ? {
+              ...alert,
+              updates: [newUpdate, ...(alert.updates ?? [])],
+              media: [...alert.media, ...uploadedMedia],
+            }
           : alert
       ),
     }));
+
+    void supabase.functions
+      .invoke("notify-on-alert", { body: { type: "update", updateId: data.id } })
+      .catch(() => {});
   },
   setMaxReportingDistance: (distance) => set({ maxReportingDistance: distance }),
   setSOSActive: (active) => set({ sosActive: active }),
