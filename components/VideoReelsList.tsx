@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  Alert,
   Animated,
   Dimensions,
   FlatList,
   Pressable,
+  Share,
   StyleSheet,
   Text,
   View,
@@ -13,8 +15,8 @@ import { Video, ResizeMode } from "expo-av";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
+import * as ImagePicker from "expo-image-picker";
 import * as Location from "expo-location";
-import { useRouter } from "expo-router";
 import { useAlertyStore } from "../lib/alerty/store";
 import { CATEGORY_ICONS, CATEGORY_LABELS } from "../lib/alerty/constants";
 import {
@@ -160,10 +162,16 @@ function ConfirmSheet({
   }
 
   return (
-    <Animated.View
-      pointerEvents={visible ? "auto" : "none"}
-      style={[styles.sheetWrap, { transform: [{ translateY: slide }] }]}
-    >
+    <View pointerEvents={visible ? "auto" : "none"} style={styles.sheetRoot}>
+      <Animated.View
+        style={[
+          styles.sheetScrim,
+          { opacity: slide.interpolate({ inputRange: [0, 600], outputRange: [1, 0] }) },
+        ]}
+      >
+        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+      </Animated.View>
+      <Animated.View style={[styles.sheetWrap, { transform: [{ translateY: slide }] }]}>
       <View style={styles.sheet}>
         <View style={styles.sheetHandle} />
 
@@ -223,7 +231,7 @@ function ConfirmSheet({
         <View style={styles.sheetVote}>
           <Pressable style={styles.denyBtn} onPress={doDeny}>
             <Ionicons name="close" size={13} color="white" />
-            <Text style={styles.denyBtnText}>DESMENTIR</Text>
+            <Text style={styles.denyBtnText}>FALSA</Text>
           </Pressable>
           <Pressable
             style={[styles.confirmBtn, !selected && styles.confirmBtnOff]}
@@ -232,46 +240,12 @@ function ConfirmSheet({
           >
             <Ionicons name="checkmark" size={13} color={selected ? "#0A0A0A" : "white"} />
             <Text style={[styles.confirmBtnText, !selected && { color: "rgba(255,255,255,0.5)" }]}>
-              CONFIRMAR
+              ES REAL
             </Text>
           </Pressable>
         </View>
       </View>
-    </Animated.View>
-  );
-}
-
-// ── ReelsCompactNav ───────────────────────────────────────────────────────────
-
-function ReelsCompactNav({ onClose }: { onClose?: () => void }) {
-  const router = useRouter();
-  return (
-    <View style={styles.reelsNav} pointerEvents="box-none">
-      <View style={styles.reelsNavInner} pointerEvents="auto">
-        <View style={styles.reelsNavSide}>
-          <Pressable style={styles.reelsNavBtn} onPress={onClose} hitSlop={8}>
-            <Ionicons name="chevron-back" size={18} color="#fff" />
-          </Pressable>
-          <Pressable style={[styles.reelsNavBtn, styles.reelsNavBtnMode]} onPress={onClose} hitSlop={8}>
-            <Ionicons name="list" size={14} color="#fff" />
-            <Text style={styles.reelsNavModeText}>LISTA</Text>
-          </Pressable>
-        </View>
-        <View style={styles.reelsNavCenter}>
-          <Pressable style={styles.reelsNavSos} onPress={() => router.push("/report" as any)} hitSlop={6}>
-            <LinearGradient colors={["#FF6B3A", "#E84F1F"]} style={StyleSheet.absoluteFill} start={{ x: 0.3, y: 0 }} end={{ x: 1, y: 1 }} />
-            <Ionicons name="alert-circle" size={22} color="#fff" />
-          </Pressable>
-        </View>
-        <View style={[styles.reelsNavSide, { justifyContent: "flex-end" }]}>
-          <Pressable style={styles.reelsNavBtn} hitSlop={8}>
-            <Ionicons name="volume-high" size={18} color="#fff" />
-          </Pressable>
-          <Pressable style={styles.reelsNavBtn} hitSlop={8}>
-            <Ionicons name="ellipsis-horizontal" size={18} color="#fff" />
-          </Pressable>
-        </View>
-      </View>
+      </Animated.View>
     </View>
   );
 }
@@ -289,12 +263,12 @@ export function VideoReelCard({
   userCoords: { latitude: number; longitude: number } | null;
   onClose?: () => void;
 }) {
-  const router = useRouter();
-  const { voteAlert, votedAlerts } = useAlertyStore();
+  const { voteAlert, votedAlerts, addUpdateToAlert, maxReportingDistance } = useAlertyStore();
   const [isMuted, setIsMuted] = useState(true);
   const [isPaused, setIsPaused] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [avoided, setAvoided] = useState(false);
+  const [contributing, setContributing] = useState(false);
   const barPulse = useRef(new Animated.Value(1)).current;
   const aportarPulse = useRef(new Animated.Value(0.9)).current;
 
@@ -338,6 +312,36 @@ export function VideoReelCard({
     if (isNear) aportarLoop.start();
     return () => { barLoop.stop(); aportarLoop.stop(); };
   }, [isActive, isNear]);
+
+  async function handleAportar() {
+    if (contributing) return;
+    void Sounds.tap();
+    if (distKm !== null && distKm > maxReportingDistance) {
+      Alert.alert(
+        "Fuera de rango",
+        `Debes estar a menos de ${maxReportingDistance}km del evento para aportar tu video. (Distancia actual: ${distKm.toFixed(2)}km)`,
+      );
+      return;
+    }
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    if (status !== "granted") {
+      Alert.alert("Permiso", "Necesitamos la cámara para aportar tu video.");
+      return;
+    }
+    const result = await ImagePicker.launchCameraAsync({
+      mediaTypes: "videos",
+      quality: 0.85,
+      videoMaxDuration: 60,
+    });
+    if (result.canceled || !result.assets[0]) return;
+    setContributing(true);
+    await addUpdateToAlert(alert.id, "Otro ángulo del evento", [
+      { id: `cap-${Date.now()}`, url: result.assets[0].uri, type: "video" as const },
+    ]);
+    setContributing(false);
+    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    Alert.alert("¡Gracias!", "Tu video se agregó como otro ángulo de este reporte.");
+  }
 
   if (!videoUri) return null;
 
@@ -500,7 +504,7 @@ export function VideoReelCard({
 
       {/* RIGHT ACTIONS */}
       <View style={styles.actionsCol} pointerEvents="box-none">
-        {/* Confirmar */}
+        {/* Es real */}
         <View style={styles.actionItem}>
           <Pressable
             style={[styles.confirmActionBtn, myVote === "upvote" && styles.confirmActionBtnDone]}
@@ -521,7 +525,7 @@ export function VideoReelCard({
           <Text style={styles.actionLabel}>{confirmCount}</Text>
         </View>
 
-        {/* Desmentir */}
+        {/* Falsa */}
         <View style={styles.actionItem}>
           <Pressable
             style={styles.actionIconBtn}
@@ -539,7 +543,7 @@ export function VideoReelCard({
               color={myVote === "downvote" ? "#EF4444" : "rgba(255,255,255,0.85)"}
             />
           </Pressable>
-          <Text style={styles.actionLabel}>Desmentir</Text>
+          <Text style={styles.actionLabel}>Falsa</Text>
         </View>
 
         {/* Evitar zona */}
@@ -563,18 +567,21 @@ export function VideoReelCard({
           </Text>
         </View>
 
-        {/* Enviar */}
+        {/* Compartir */}
         <View style={styles.actionItem}>
           <Pressable
             style={styles.actionIconBtn}
             onPress={() => {
               void Sounds.tap();
               void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              void Share.share({
+                message: `Alerta en Pulso: ${alert.title ?? CATEGORY_LABELS[alert.category]} · ${alert.neighborhood ?? "Culiacán"}`,
+              }).catch(() => {});
             }}
           >
-            <Ionicons name="paper-plane-outline" size={28} color="rgba(255,255,255,0.85)" />
+            <Ionicons name="share-social-outline" size={28} color="rgba(255,255,255,0.85)" />
           </Pressable>
-          <Text style={styles.actionLabel}>Enviar</Text>
+          <Text style={styles.actionLabel}>Compartir</Text>
         </View>
 
         {/* Aportar video */}
@@ -588,7 +595,8 @@ export function VideoReelCard({
             )}
             <Pressable
               style={styles.aportarBtn}
-              onPress={() => { void Sounds.tap(); router.push("/report" as any); }}
+              onPress={handleAportar}
+              disabled={contributing}
             >
               <LinearGradient
                 colors={["#FF6B3A", "#E84F1F"]}
@@ -596,10 +604,12 @@ export function VideoReelCard({
                 start={{ x: 0.3, y: 0 }}
                 end={{ x: 1, y: 1 }}
               />
-              <Ionicons name="videocam" size={26} color="#fff" />
+              <Ionicons name={contributing ? "hourglass" : "videocam"} size={26} color="#fff" />
             </Pressable>
           </View>
-          <Text style={[styles.actionLabel, { color: isNear ? "#FFB088" : "rgba(255,255,255,0.82)" }]}>Aportar</Text>
+          <Text style={[styles.actionLabel, { color: isNear ? "#FFB088" : "rgba(255,255,255,0.82)" }]}>
+            {contributing ? "Enviando..." : "Aportar"}
+          </Text>
         </View>
       </View>
 
@@ -616,11 +626,13 @@ export function VideoReelCard({
         </View>
       )}
 
-      {/* SWIPE HINT */}
-      <View style={styles.swipeHint} pointerEvents="none">
-        <Ionicons name="chevron-up" size={13} color="rgba(255,255,255,0.3)" />
-        <Text style={styles.swipeHintText}>Sig. evento</Text>
-      </View>
+      {/* SWIPE HINT — oculto cuando se muestra el CTA de aportar para no encimarse */}
+      {!isNear && (
+        <View style={styles.swipeHint} pointerEvents="none">
+          <Ionicons name="chevron-up" size={13} color="rgba(255,255,255,0.3)" />
+          <Text style={styles.swipeHintText}>Sig. evento</Text>
+        </View>
+      )}
 
       {/* CONFIRM SHEET */}
       <ConfirmSheet
@@ -638,11 +650,13 @@ export function VideoReelCard({
 export function VideoReelsList({
   alerts,
   onClose,
+  initialAlertId,
 }: {
   alerts: AlertItem[];
   onClose?: () => void;
+  initialAlertId?: string | null;
 }) {
-  const [activeId, setActiveId] = useState<string | null>(null);
+  const [activeId, setActiveId] = useState<string | null>(initialAlertId ?? null);
   const [userCoords, setUserCoords] = useState<{ latitude: number; longitude: number } | null>(
     null,
   );
@@ -671,6 +685,16 @@ export function VideoReelsList({
     });
   }, [alerts, userCoords]);
 
+  // Si se abrió desde un video específico, ese Pulso va primero.
+  const ordered = useMemo(() => {
+    if (!initialAlertId) return sorted;
+    const idx = sorted.findIndex((a) => a.id === initialAlertId);
+    if (idx <= 0) return sorted;
+    const copy = [...sorted];
+    const [target] = copy.splice(idx, 1);
+    return [target, ...copy];
+  }, [sorted, initialAlertId]);
+
   const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 80 }).current;
 
   const onViewableItemsChanged = useCallback(
@@ -685,7 +709,7 @@ export function VideoReelsList({
   return (
     <View style={{ flex: 1 }}>
       <FlatList
-        data={sorted}
+        data={ordered}
         keyExtractor={(item) => item.id}
         renderItem={({ item }) => (
           <VideoReelCard
@@ -709,7 +733,6 @@ export function VideoReelsList({
         removeClippedSubviews
         windowSize={3}
       />
-      <ReelsCompactNav onClose={onClose} />
     </View>
   );
 }
@@ -1090,7 +1113,7 @@ const styles = StyleSheet.create({
   // bottom cta
   bottomCTA: {
     position: "absolute",
-    bottom: 95,
+    bottom: 100,
     left: 16,
     right: 90,
     flexDirection: "row",
@@ -1140,12 +1163,19 @@ const styles = StyleSheet.create({
   },
 
   // confirm sheet
+  sheetRoot: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 50,
+  },
+  sheetScrim: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.6)",
+  },
   sheetWrap: {
     position: "absolute",
     bottom: 0,
     left: 0,
     right: 0,
-    zIndex: 50,
   },
   sheet: {
     backgroundColor: "rgba(8,8,12,0.97)",
@@ -1154,7 +1184,7 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderColor: "rgba(255,255,255,0.1)",
     padding: 20,
-    paddingBottom: 34,
+    paddingBottom: 124,
     gap: 14,
   },
   sheetHandle: {
@@ -1280,74 +1310,5 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontFamily: "SpaceGrotesk_700Bold",
     letterSpacing: 0.5,
-  },
-
-  // Compact reels nav bar
-  reelsNav: {
-    position: "absolute",
-    bottom: 22,
-    left: 14,
-    right: 14,
-    zIndex: 30,
-  },
-  reelsNavInner: {
-    height: 60,
-    borderRadius: 22,
-    backgroundColor: "rgba(8,8,8,0.78)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.1)",
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 8,
-    gap: 4,
-    overflow: "hidden",
-  },
-  reelsNavSide: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-  },
-  reelsNavBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    backgroundColor: "rgba(255,255,255,0.06)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.09)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  reelsNavBtnMode: {
-    flexDirection: "row",
-    gap: 5,
-    width: "auto" as any,
-    paddingHorizontal: 12,
-    flex: 0,
-  },
-  reelsNavModeText: {
-    color: "#fff",
-    fontSize: 10,
-    fontFamily: "SpaceGrotesk_700Bold",
-    letterSpacing: 1.1,
-  },
-  reelsNavCenter: {
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  reelsNavSos: {
-    width: 52,
-    height: 52,
-    borderRadius: 16,
-    overflow: "hidden",
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1.5,
-    borderColor: "rgba(255,255,255,0.2)",
-    shadowColor: "#FF4500",
-    shadowOpacity: 0.5,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 8,
   },
 });

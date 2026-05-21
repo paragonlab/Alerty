@@ -2,7 +2,7 @@ const googleMapsKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_KEY;
 
 /** @type {import('expo/config').ExpoConfig} */
 module.exports = {
-  name: "Alerty",
+  name: "Pulso",
   slug: "alerty",
   scheme: "alerty",
   version: "1.0.0",

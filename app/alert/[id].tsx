@@ -32,7 +32,7 @@ import type { AlertMedia, AlertUpdate } from "../../lib/alerty/types";
 export default function AlertDetailScreen() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { alerts, voteAlert, votedAlerts, followingAlertIds, toggleFollowAlert, addUpdateToAlert, getReportingRange, themeMode } = useAlertyStore();
+  const { alerts, voteAlert, votedAlerts, followingAlertIds, toggleFollowAlert, addUpdateToAlert, getReportingRange, themeMode, openReels } = useAlertyStore();
   const theme = useAlertyTheme();
   const isDark = themeMode === "darkHighVisibility";
   const styles = createStyles(theme, themeMode);
@@ -124,7 +124,7 @@ export default function AlertDetailScreen() {
   const handleShare = async () => {
     try {
       await Share.share({
-        message: `Alerta en Alerty: ${alert.title ?? CATEGORY_LABELS[alert.category]}\n\n${alert.description ?? ""}\n\nUbicación: ${alert.neighborhood ?? "Culiacán"}`,
+        message: `Alerta en Pulso: ${alert.title ?? CATEGORY_LABELS[alert.category]}\n\n${alert.description ?? ""}\n\nUbicación: ${alert.neighborhood ?? "Culiacán"}`,
       });
     } catch (error) {
       console.error(error);
@@ -299,13 +299,24 @@ export default function AlertDetailScreen() {
                   {item.type === "audio" ? (
                     <AudioPlayer uri={item.url} />
                   ) : item.type === "video" ? (
-                    <Video
-                      source={{ uri: item.url }}
-                      style={styles.mediaVideo}
-                      resizeMode={ResizeMode.CONTAIN}
-                      useNativeControls
-                      shouldPlay={false}
-                    />
+                    <Pressable
+                      style={styles.mediaVideoPress}
+                      onPress={() => {
+                        openReels(alert.id);
+                        router.navigate("/(tabs)/feed");
+                      }}
+                    >
+                      <Video
+                        source={{ uri: item.url }}
+                        style={styles.mediaThumb}
+                        resizeMode={ResizeMode.COVER}
+                        shouldPlay={false}
+                        isMuted
+                      />
+                      <View style={styles.videoOverlay}>
+                        <Ionicons name="play-circle" size={46} color="#fff" />
+                      </View>
+                    </Pressable>
                   ) : (
                     <Image source={{ uri: item.url }} style={styles.mediaThumb} />
                   )}
@@ -700,11 +711,9 @@ const createStyles = (theme: any, themeMode: string) => StyleSheet.create({
     width: "100%",
     height: "100%",
   },
-  mediaVideo: {
+  mediaVideoPress: {
     width: "100%",
-    height: 220,
-    borderRadius: theme.radius.xl,
-    backgroundColor: "#000",
+    height: "100%",
   },
   audioPlayer: {
     flexDirection: "row",

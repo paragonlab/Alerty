@@ -54,6 +54,8 @@ type AlertyState = {
   loadSponsoredZones: () => Promise<void>;
   feedViewMode: "list" | "reels";
   setFeedViewMode: (mode: "list" | "reels") => void;
+  reelsInitialAlertId: string | null;
+  openReels: (alertId: string | null) => void;
   unreadAlerts: number;
   clearUnreadAlerts: () => void;
 };
@@ -65,6 +67,11 @@ const syncPreference = async (key: string, value: any) => {
   
   await supabase.from("users").update({ [key]: value }).eq("id", session.user.id);
 };
+
+// Los IDs de alertas demo/locales (seed-, live-, local-) no son UUID y no
+// existen en la base de datos — sus mutaciones se quedan solo en memoria.
+const isDbId = (id: string) =>
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
 
 export const useAlertyStore = create<AlertyState>((set, get) => ({
   alerts: [],
@@ -95,6 +102,8 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
   sponsoredZones: [],
   feedViewMode: "list",
   setFeedViewMode: (mode) => set({ feedViewMode: mode }),
+  reelsInitialAlertId: null,
+  openReels: (alertId) => set({ feedViewMode: "reels", reelsInitialAlertId: alertId }),
   unreadAlerts: 0,
   clearUnreadAlerts: () => set({ unreadAlerts: 0 }),
   startDemo: () => {
@@ -286,7 +295,7 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
     }));
     get().recomputeVerifiedStatus();
 
-    if (!isSupabaseConfigured || !supabase) return;
+    if (!isSupabaseConfigured || !supabase || !isDbId(id)) return;
     void supabase.auth.getUser().then(({ data }) => {
       const userId = data.user?.id;
       if (!userId) return;
@@ -533,7 +542,7 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
     }
   },
   toggleFollowAlert: async (id) => {
-    if (!isSupabaseConfigured || !supabase) {
+    if (!isSupabaseConfigured || !supabase || !isDbId(id)) {
       set((state) => ({
         followingAlertIds: state.followingAlertIds.includes(id)
           ? state.followingAlertIds.filter((fid) => fid !== id)
@@ -556,7 +565,8 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
     }
   },
   addUpdateToAlert: async (alertId, content, mediaItems = []) => {
-    if (!isSupabaseConfigured || !supabase) {
+    if (!isSupabaseConfigured || !supabase || !isDbId(alertId)) {
+      const currentUser = get().currentUser;
       set((state) => ({
         alerts: state.alerts.map((alert) => {
           if (alert.id !== alertId) return alert;
@@ -564,15 +574,7 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
             id: `upd-${Date.now()}`,
             content,
             createdAt: new Date().toISOString(),
-            user: {
-          id: "local-user",
-          username: "@DemoUser",
-          avatarUrl: null,
-          isVerified: false,
-          trustScore: 0.1,
-          level: "CIUDADANO",
-          followersCount: 0,
-        },
+            user: currentUser,
             media: mediaItems,
           };
           return {

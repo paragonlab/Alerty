@@ -1,4 +1,4 @@
-// Este archivo ya no es una tab — la experiencia de Reels vive dentro del Feed.
+// Este archivo ya no es una tab — la experiencia de Pulsos vive dentro del Feed.
 // Se mantiene como ruta accesible por si se necesita en el futuro.
 import { View, Text, StyleSheet } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -12,9 +12,9 @@ export default function VideosRedirect() {
     <SafeAreaView style={styles.container}>
       <View style={styles.inner}>
         <Ionicons name="videocam-outline" size={48} color="rgba(255,255,255,0.3)" />
-        <Text style={styles.title}>Los videos están en el Feed</Text>
+        <Text style={styles.title}>Los Pulsos están en el Feed</Text>
         <Text style={styles.subtitle}>
-          Abre el Feed y toca el botón "Reels" para ver los videos en pantalla completa.
+          Abre el Feed y toca el botón "Pulsos" para verlos en pantalla completa.
         </Text>
         <Pressable style={styles.button} onPress={() => router.replace("/(tabs)/feed")}>
           <Text style={styles.buttonText}>Ir al Feed</Text>

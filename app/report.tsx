@@ -10,7 +10,7 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import * as ImagePicker from "expo-image-picker";
@@ -67,6 +67,7 @@ function ContextChips({ locationLabel }: { locationLabel: string }) {
 // ── Main component ────────────────────────────────────────────────────────────
 export default function ReportScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { addAlert, currentUser, alerts } = useAlertyStore();
 
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
@@ -701,8 +702,14 @@ export default function ReportScreen() {
         </SafeAreaView>
       )}
 
-      {/* Sheet */}
-      <SafeAreaView style={S.safeSheet} edges={["bottom"]}>
+      {/* Sheet — deja espacio arriba para no encimarse con el widget de alerta cercana */}
+      <SafeAreaView
+        style={[
+          S.safeSheet,
+          nearbyAlert && !isStep4 && { paddingTop: insets.top + 78 },
+        ]}
+        edges={["bottom"]}
+      >
         <View style={S.sheet}>
           {/* Handle */}
           <View style={S.handle} />
@@ -893,7 +900,7 @@ const S = StyleSheet.create({
 
   // Viewfinder (step 1)
   viewfinder: {
-    aspectRatio: 9 / 12, borderRadius: 18,
+    aspectRatio: 1, borderRadius: 18,
     backgroundColor: "#0d0605",
     overflow: "hidden",
     alignItems: "center", justifyContent: "center",

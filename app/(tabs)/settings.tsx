@@ -109,7 +109,7 @@ export default function SettingsScreen() {
       >
         <View style={styles.header}>
           <Text style={styles.title}>Ajustes</Text>
-          <Text style={styles.subtitle}>Personaliza tu experiencia en Alerty.</Text>
+          <Text style={styles.subtitle}>Personaliza tu experiencia en Pulso.</Text>
         </View>
 
         {/* Account Card */}
@@ -246,7 +246,7 @@ export default function SettingsScreen() {
               <Ionicons name="shield-checkmark" size={24} color="#fff" />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={styles.premiumBannerTitle}>Alerty Plus</Text>
+              <Text style={styles.premiumBannerTitle}>Pulso Plus</Text>
               <Text style={styles.premiumBannerDesc}>Mejora para tener mapa de calor, alertas SMS y sin anuncios.</Text>
             </View>
             <Ionicons name="chevron-forward" size={20} color="#fff" />

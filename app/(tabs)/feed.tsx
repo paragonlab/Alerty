@@ -20,7 +20,7 @@ import { AdCard } from "../../components/AdCard";
 
 export default function FeedScreen() {
   const router = useRouter();
-  const { alerts, timeFilter, setTimeFilter, activeCategories, sponsoredZones, feedViewMode: viewMode, setFeedViewMode: setViewMode } = useAlertyStore();
+  const { alerts, timeFilter, setTimeFilter, activeCategories, sponsoredZones, feedViewMode: viewMode, setFeedViewMode: setViewMode, openReels, reelsInitialAlertId } = useAlertyStore();
   const theme = useAlertyTheme();
   const styles = createStyles(theme);
 
@@ -40,6 +40,17 @@ export default function FeedScreen() {
     () => filteredAlerts.filter((a) => a.media.some((m) => m.type === "video")),
     [filteredAlerts],
   );
+
+  // Lista para los Pulsos. Garantiza que el video tocado esté incluido aunque
+  // quede fuera de la ventana de tiempo / filtros del feed.
+  const reelsAlerts = useMemo(() => {
+    if (!reelsInitialAlertId) return videoAlerts;
+    if (videoAlerts.some((a) => a.id === reelsInitialAlertId)) return videoAlerts;
+    const target = alerts.find(
+      (a) => a.id === reelsInitialAlertId && a.media.some((m) => m.type === "video"),
+    );
+    return target ? [target, ...videoAlerts] : videoAlerts;
+  }, [videoAlerts, reelsInitialAlertId, alerts]);
 
   const total24h = useMemo(
     () =>
@@ -78,6 +89,7 @@ export default function FeedScreen() {
           <AlertCard
             alert={item as AlertItem}
             onPress={() => router.push(`/alert/${item.id}`)}
+            onPressVideo={() => openReels(item.id)}
           />
         );
       } else {
@@ -89,7 +101,7 @@ export default function FeedScreen() {
         );
       }
     },
-    [router],
+    [router, openReels],
   );
 
   const keyExtractor = useCallback((item: AlertItem | SponsoredZone) => item.id, []);
@@ -151,7 +163,7 @@ export default function FeedScreen() {
   if (viewMode === "reels") {
     return (
       <View style={styles.reelsRoot}>
-        {videoAlerts.length === 0 ? (
+        {reelsAlerts.length === 0 ? (
           <SafeAreaView style={styles.emptyReelsContainer}>
             <Pressable onPress={() => setViewMode("list")} style={styles.reelsBackBtn} hitSlop={10}>
               <Ionicons name="chevron-back" size={20} color="rgba(255,255,255,0.75)" />
@@ -166,7 +178,11 @@ export default function FeedScreen() {
             </View>
           </SafeAreaView>
         ) : (
-          <VideoReelsList alerts={videoAlerts} onClose={() => setViewMode("list")} />
+          <VideoReelsList
+            alerts={reelsAlerts}
+            initialAlertId={reelsInitialAlertId}
+            onClose={() => setViewMode("list")}
+          />
         )}
       </View>
     );
@@ -192,9 +208,9 @@ export default function FeedScreen() {
             <Ionicons name="list" size={13} color="#fff" />
             <Text style={[styles.modePillText, { color: "#fff" }]}>LISTA</Text>
           </View>
-          <Pressable style={styles.modePillBtn} onPress={() => setViewMode("reels")}>
+          <Pressable style={styles.modePillBtn} onPress={() => openReels(null)}>
             <Ionicons name="film" size={13} color="rgba(255,255,255,0.45)" />
-            <Text style={styles.modePillText}>REELS</Text>
+            <Text style={styles.modePillText}>PULSOS</Text>
           </Pressable>
         </View>
       </View>

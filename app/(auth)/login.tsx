@@ -109,7 +109,7 @@ export default function LoginScreen() {
               <View style={styles.brandIcon}>
                 <Ionicons name="alert-circle" size={28} color={theme.colors.accent} />
               </View>
-              <Text style={styles.brand}>Alerty</Text>
+              <Text style={styles.brand}>Pulso</Text>
             </View>
             <Text style={styles.headline}>Seguridad comunitaria{"\n"}en tiempo real.</Text>
             <Text style={styles.subheadline}>
