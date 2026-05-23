@@ -48,6 +48,7 @@ export type AlertItem = {
   downvotes: number;
   neighborhood?: string;
   updates?: AlertUpdate[];
+  parentAlertId?: string;
 };
 
 export type SponsoredZone = {

@@ -263,7 +263,7 @@ export function VideoReelCard({
   userCoords: { latitude: number; longitude: number } | null;
   onClose?: () => void;
 }) {
-  const { voteAlert, votedAlerts, addUpdateToAlert, maxReportingDistance } = useAlertyStore();
+  const { voteAlert, votedAlerts, addAngleAlert, maxReportingDistance, alerts } = useAlertyStore();
   const [isMuted, setIsMuted] = useState(true);
   const [isPaused, setIsPaused] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
@@ -273,6 +273,9 @@ export function VideoReelCard({
   const aportarPulse = useRef(new Animated.Value(0.9)).current;
 
   const videoUri = alert.media.find((m) => m.type === "video")?.url;
+  const parentAlert = alert.parentAlertId
+    ? alerts.find((a) => a.id === alert.parentAlertId)
+    : null;
   const myVote = votedAlerts[alert.id];
   const voted = Boolean(myVote);
   const ageMin = getAlertAgeMinutes(alert.createdAt);
@@ -335,12 +338,17 @@ export function VideoReelCard({
     });
     if (result.canceled || !result.assets[0]) return;
     setContributing(true);
-    await addUpdateToAlert(alert.id, "Otro ángulo del evento", [
-      { id: `cap-${Date.now()}`, url: result.assets[0].uri, type: "video" as const },
-    ]);
+    // El reporte original: si esta alerta ya es un ángulo, el nuevo aporte
+    // cuelga del mismo reporte raíz, no de un ángulo.
+    const referenceId = alert.parentAlertId ?? alert.id;
+    await addAngleAlert(referenceId, {
+      id: `cap-${Date.now()}`,
+      url: result.assets[0].uri,
+      type: "video" as const,
+    });
     setContributing(false);
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    Alert.alert("¡Gracias!", "Tu video se agregó como otro ángulo de este reporte.");
+    Alert.alert("¡Gracias!", "Tu video se publicó como otro ángulo en los Pulsos.");
   }
 
   if (!videoUri) return null;
@@ -436,6 +444,16 @@ export function VideoReelCard({
             {CATEGORY_LABELS[alert.category].toUpperCase()}
           </Text>
         </View>
+
+        {/* otro ángulo */}
+        {alert.parentAlertId && (
+          <View style={styles.angleChip}>
+            <Ionicons name="git-branch" size={10} color="#FFB088" />
+            <Text style={styles.angleChipText} numberOfLines={1}>
+              Otro ángulo de: {parentAlert?.title ?? parentAlert?.description ?? "reporte original"}
+            </Text>
+          </View>
+        )}
 
         {/* title */}
         {(alert.title || alert.description) && (
@@ -958,6 +976,25 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontFamily: "SpaceGrotesk_700Bold",
     letterSpacing: 0.5,
+  },
+  angleChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    alignSelf: "flex-start",
+    maxWidth: "100%",
+    backgroundColor: "rgba(255,107,58,0.16)",
+    borderWidth: 1,
+    borderColor: "rgba(255,107,58,0.4)",
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  angleChipText: {
+    color: "#FFB088",
+    fontSize: 10,
+    fontFamily: "SpaceGrotesk_500Medium",
+    flexShrink: 1,
   },
   alertTitle: {
     color: "white",

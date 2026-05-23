@@ -40,6 +40,7 @@ type AlertyState = {
   loadAlertsFromSupabase: () => Promise<void>;
   toggleFollowAlert: (id: string) => void;
   addUpdateToAlert: (alertId: string, content: string, media?: AlertMedia[]) => Promise<void>;
+  addAngleAlert: (parentAlertId: string, video: AlertMedia) => Promise<void>;
   setMaxReportingDistance: (distance: number) => void;
   setSOSActive: (active: boolean) => void;
   setShowHeatmap: (show: boolean) => void;
@@ -153,6 +154,7 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
           createdAt: row.created_at,
           status: row.status ?? "active",
           neighborhood: undefined,
+          parentAlertId: row.parent_alert_id ?? undefined,
           upvotes: 0,
           downvotes: 0,
           media: [],
@@ -456,7 +458,7 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
     const { data } = await supabase
       .from("alerts")
       .select(`
-        id,category,lat,lng,title,description,created_at,status,
+        id,category,lat,lng,title,description,created_at,status,parent_alert_id,
         users(id,username,avatar_url,is_verified,is_premium,trust_score,followers_count),
         media(id,media_url,media_type,update_id),
         alert_updates(id,content,created_at,user_id,users(id,username,avatar_url,is_verified,is_premium))
@@ -495,6 +497,7 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
       createdAt: row.created_at,
       status: row.status ?? "active",
       neighborhood: undefined,
+      parentAlertId: row.parent_alert_id ?? undefined,
       upvotes: counts.up,
       downvotes: counts.down,
       media: (row.media ?? []).map((media: any) => ({
@@ -651,6 +654,83 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
     void supabase.functions
       .invoke("notify-on-alert", { body: { type: "update", updateId: data.id } })
       .catch(() => {});
+  },
+  addAngleAlert: async (parentAlertId, video) => {
+    const parent = get().alerts.find((a) => a.id === parentAlertId);
+    if (!parent) return;
+    const currentUser = get().currentUser;
+
+    // Demo/local o sin conexión: el aporte vive solo en memoria.
+    if (!isSupabaseConfigured || !supabase || !isDbId(parentAlertId)) {
+      const child: AlertItem = {
+        id: `local-${Date.now()}`,
+        user: currentUser,
+        category: parent.category,
+        lat: parent.lat,
+        lng: parent.lng,
+        title: "Otro ángulo",
+        createdAt: new Date().toISOString(),
+        status: "active",
+        media: [video],
+        upvotes: 0,
+        downvotes: 0,
+        neighborhood: parent.neighborhood,
+        parentAlertId,
+        updates: [],
+      };
+      set((state) => ({ alerts: [child, ...state.alerts] }));
+      return;
+    }
+
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    const { data, error } = await supabase
+      .from("alerts")
+      .insert({
+        user_id: user.id,
+        category: parent.category,
+        lat: parent.lat,
+        lng: parent.lng,
+        title: "Otro ángulo",
+        parent_alert_id: parentAlertId,
+      })
+      .select("id,created_at")
+      .single();
+
+    if (error || !data) {
+      console.error("Error adding angle:", error);
+      return;
+    }
+
+    const uploaded = await uploadMediaBatch([video]);
+    if (uploaded.length > 0) {
+      await supabase.from("media").insert(
+        uploaded.map((m) => ({
+          alert_id: data.id,
+          media_url: m.url,
+          media_type: m.type,
+        })),
+      );
+    }
+
+    const child: AlertItem = {
+      id: data.id,
+      user: currentUser,
+      category: parent.category,
+      lat: parent.lat,
+      lng: parent.lng,
+      title: "Otro ángulo",
+      createdAt: data.created_at,
+      status: "active",
+      media: uploaded,
+      upvotes: 0,
+      downvotes: 0,
+      neighborhood: parent.neighborhood,
+      parentAlertId,
+      updates: [],
+    };
+    set((state) => ({ alerts: [child, ...state.alerts] }));
   },
   setMaxReportingDistance: (distance) => set({ maxReportingDistance: distance }),
   setSOSActive: (active) => set({ sosActive: active }),
