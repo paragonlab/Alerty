@@ -24,7 +24,7 @@ export default function FeedScreen() {
   const theme = useAlertyTheme();
   const styles = createStyles(theme);
 
-  const filteredAlerts = useMemo(
+  const baseFilteredAlerts = useMemo(
     () =>
       alerts.filter(
         (alert) =>
@@ -36,9 +36,16 @@ export default function FeedScreen() {
     [alerts, activeCategories, timeFilter],
   );
 
+  // Los "otros ángulos" solo se muestran como Pulsos — fuera del feed para
+  // no duplicar la tarjeta del reporte original.
+  const filteredAlerts = useMemo(
+    () => baseFilteredAlerts.filter((a) => !a.parentAlertId),
+    [baseFilteredAlerts],
+  );
+
   const videoAlerts = useMemo(
-    () => filteredAlerts.filter((a) => a.media.some((m) => m.type === "video")),
-    [filteredAlerts],
+    () => baseFilteredAlerts.filter((a) => a.media.some((m) => m.type === "video")),
+    [baseFilteredAlerts],
   );
 
   // Lista para los Pulsos. Garantiza que el video tocado esté incluido aunque

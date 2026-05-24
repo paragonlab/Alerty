@@ -69,6 +69,7 @@ export default function MapScreen() {
       alerts.filter(
         (alert) =>
           alert.status === "active" &&
+          !alert.parentAlertId &&
           activeCategories.includes(alert.category) &&
           isAlertInWindow(alert, timeFilter) &&
           !shouldSuppressAlert(alert),
@@ -107,7 +108,9 @@ export default function MapScreen() {
   // Para el riesgo usamos todas las alertas activas (sin filtro de categoría ni
   // ventana de tiempo) — no queremos ocultar peligro por las preferencias del feed.
   const riskAlerts = useMemo(
-    () => alerts.filter((alert) => alert.status === "active" && !shouldSuppressAlert(alert)),
+    () => alerts.filter(
+      (alert) => alert.status === "active" && !alert.parentAlertId && !shouldSuppressAlert(alert),
+    ),
     [alerts],
   );
 

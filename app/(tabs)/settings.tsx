@@ -247,7 +247,7 @@ export default function SettingsScreen() {
             </View>
             <View style={{ flex: 1 }}>
               <Text style={styles.premiumBannerTitle}>Pulso Plus</Text>
-              <Text style={styles.premiumBannerDesc}>Mejora para tener mapa de calor, alertas SMS y sin anuncios.</Text>
+              <Text style={styles.premiumBannerDesc}>Mejora para tener mapa de calor, cuadrantes de riesgo y sin anuncios.</Text>
             </View>
             <Ionicons name="chevron-forward" size={20} color="#fff" />
           </Pressable>

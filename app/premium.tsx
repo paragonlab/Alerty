@@ -184,15 +184,9 @@ export default function PremiumScreen() {
             description="Ve la ciudad dividida en cuadrantes de color según el nivel de peligro."
             theme={theme}
           />
-          <FeatureItem 
-            icon="chatbubbles" 
-            title="Alertas por SMS Inmediatas" 
-            description="Recibe alertas críticas incluso sin conexión a internet o datos móviles." 
-            theme={theme}
-          />
-          <FeatureItem 
-            icon="people" 
-            title="Zonas Múltiples Seguras" 
+          <FeatureItem
+            icon="people"
+            title="Zonas Múltiples Seguras"
             description="Agrega hasta 5 zonas para notificar a tu familia." 
             theme={theme}
           />
@@ -233,7 +227,7 @@ export default function PremiumScreen() {
                 <ActivityIndicator color="#fff" />
               ) : (
                 <>
-                  <Text style={styles.subscribeText}>Mejorar por $99 MXN/mes</Text>
+                  <Text style={styles.subscribeText}>Mejorar por $49 MXN/mes</Text>
                   <Text style={styles.cancelText}>Cancela cuando quieras</Text>
                 </>
               )}
