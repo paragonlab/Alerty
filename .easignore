@@ -1,0 +1,39 @@
+# EAS compilation ignore file
+# Copiado de .gitignore pero omitiendo .env para que las variables de entorno se incluyan en la compilación en la nube
+
+node_modules/
+.expo/
+dist/
+web-build/
+expo-env.d.ts
+
+.kotlin/
+*.orig.*
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+
+.metro-health-check*
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+.npm-cache/
+
+.DS_Store
+*.pem
+
+.env*.local
+*.tsbuildinfo
+
+/ios
+/android
+
+.local/
+.expo-home/
+
+Keys/
+apple_gen.js
+apple_gen.rb
+# Omitimos .env aquí para que EAS lo suba durante el build
