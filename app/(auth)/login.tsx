@@ -11,6 +11,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import * as Linking from "expo-linking";
 import * as WebBrowser from "expo-web-browser";
+import * as AppleAuthentication from "expo-apple-authentication";
 import { makeRedirectUri } from "expo-auth-session";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
@@ -26,6 +27,45 @@ type Provider = "apple" | "google";
 export default function LoginScreen() {
   const [loadingProvider, setLoadingProvider] = useState<Provider | null>(null);
 
+  const handleAppleNativeLogin = async () => {
+    if (!supabase) return;
+    try {
+      setLoadingProvider("apple");
+      void trackEvent({ event_type: "auth_oauth_started", metadata: { provider: "apple", method: "native" } });
+
+      const credential = await AppleAuthentication.signInAsync({
+        requestedScopes: [
+          AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
+          AppleAuthentication.AppleAuthenticationScope.EMAIL,
+        ],
+      });
+
+      if (!credential.identityToken) {
+        Alert.alert("Error al iniciar sesión", "No se obtuvo el token de Apple.");
+        return;
+      }
+
+      const { error } = await supabase.auth.signInWithIdToken({
+        provider: "apple",
+        token: credential.identityToken,
+      });
+
+      if (error) {
+        void trackEvent({
+          event_type: "auth_oauth_failed",
+          metadata: { provider: "apple", message: error.message },
+        });
+        Alert.alert("Error al iniciar sesión", error.message);
+      }
+    } catch (e: any) {
+      if (e?.code === "ERR_REQUEST_CANCELED") return;
+      void trackEvent({ event_type: "auth_oauth_failed", metadata: { provider: "apple" } });
+      Alert.alert("Error al iniciar sesión", "No fue posible conectarse. Intenta de nuevo.");
+    } finally {
+      setLoadingProvider(null);
+    }
+  };
+
   const handleSocialLogin = async (provider: Provider) => {
     if (!isSupabaseConfigured || !supabase) {
       Alert.alert(
@@ -33,6 +73,10 @@ export default function LoginScreen() {
         "Configura EXPO_PUBLIC_SUPABASE_URL y EXPO_PUBLIC_SUPABASE_ANON_KEY para habilitar OAuth.",
       );
       return;
+    }
+
+    if (provider === "apple" && Platform.OS === "ios") {
+      return handleAppleNativeLogin();
     }
 
     try {

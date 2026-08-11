@@ -15,6 +15,7 @@ import {
   addNotificationTapListener,
   getInitialNotificationAlertId,
 } from "../lib/notifications";
+import { identifyUser as identifyRevenueCatUser } from "../lib/revenuecat";
 import * as Location from "expo-location";
 import * as Haptics from "expo-haptics";
 
@@ -161,6 +162,9 @@ export default function RootLayout() {
       void loadAlertsFromSupabase();
       void loadSponsoredZones();
       void syncPushRegistration();
+      void supabase?.auth.getUser().then(({ data }) => {
+        if (data.user?.id) void identifyRevenueCatUser(data.user.id);
+      });
       const unsubscribeRealtime = startRealtime();
       return () => {
         if (unsubscribeRealtime) unsubscribeRealtime();
