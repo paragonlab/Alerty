@@ -170,12 +170,15 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
           },
         };
 
-        set((state) => ({
-          alerts: [alert, ...state.alerts],
-          unreadAlerts: alert.user.id !== state.currentUser.id
-            ? state.unreadAlerts + 1
-            : state.unreadAlerts,
-        }));
+        set((state) => {
+          if (state.alerts.some((existing) => existing.id === alert.id)) return state;
+          return {
+            alerts: [alert, ...state.alerts],
+            unreadAlerts: alert.user.id !== state.currentUser.id
+              ? state.unreadAlerts + 1
+              : state.unreadAlerts,
+          };
+        });
       },
     );
 
@@ -261,7 +264,7 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
       set({ realtimeStarted: false, realtimeChannel: null });
     };
   },
-  addAlert: (alert) => set((state) => ({ alerts: [alert, ...state.alerts] })),
+  addAlert: (alert) => set((state) => state.alerts.some((a) => a.id === alert.id) ? state : { alerts: [alert, ...state.alerts] }),
   recomputeVerifiedStatus: () => {
     const { alerts, currentUser } = get();
     const myAlerts = alerts.filter((a) => a.user.id === currentUser.id);

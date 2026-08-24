@@ -54,7 +54,7 @@ function SOSCenterBtn({
 
   const auraAnim  = useRef(new Animated.Value(0)).current;
   const glowAnim  = useRef(new Animated.Value(0)).current;
-  const radarAnim = useRef(new Animated.Value(0)).current;
+  const radarAnim  = useRef(new Animated.Value(0)).current;
   const wave1Anim = useRef(new Animated.Value(0)).current;
   const wave2Anim = useRef(new Animated.Value(0)).current;
   const wave3Anim = useRef(new Animated.Value(0)).current;
@@ -271,7 +271,6 @@ export function AlertyTabBar({ state, navigation }: TabBarProps) {
   const {
     feedViewMode, setFeedViewMode,
     themeMode, addAlert, currentUser,
-    sosWarningAccepted, setSosWarningAccepted,
     unreadAlerts, clearUnreadAlerts,
   } = useAlertyStore();
 
@@ -295,38 +294,68 @@ export function AlertyTabBar({ state, navigation }: TabBarProps) {
       }
       const loc = await Location.getCurrentPositionAsync({});
       const { latitude, longitude } = loc.coords;
-      addAlert({
-        id: `sos-${Date.now()}`,
-        category: "sos",
-        lat: latitude, lng: longitude,
-        createdAt: new Date().toISOString(),
-        status: "active", media: [],
-        upvotes: 0, downvotes: 0,
-        user: currentUser,
-      } as any);
+
       if (supabase && isSupabaseConfigured) {
         const { data: ud } = await supabase.auth.getUser();
-        await supabase.from("alerts").insert({
-          user_id: ud.user?.id, category: "sos",
-          lat: latitude, lng: longitude,
-          status: "active", title: "EMERGENCIA SOS",
-        });
+        if (!ud.user?.id) {
+          Alert.alert("No se pudo enviar el SOS", "Inicia sesión e intenta de nuevo.");
+          return;
+        }
+        const { data, error } = await supabase
+          .from("alerts")
+          .insert({
+            user_id: ud.user.id,
+            category: "sos",
+            lat: latitude,
+            lng: longitude,
+            status: "active",
+            title: "EMERGENCIA SOS",
+          })
+          .select("id,created_at")
+          .single();
+        if (error || !data) {
+          Alert.alert("No se pudo enviar el SOS", "Intenta de nuevo. Si sigue fallando, llama a emergencias.");
+          return;
+        }
+        addAlert({
+          id: data.id,
+          category: "sos",
+          lat: latitude,
+          lng: longitude,
+          createdAt: data.created_at,
+          status: "active",
+          media: [],
+          upvotes: 0,
+          downvotes: 0,
+          user: currentUser,
+          title: "EMERGENCIA SOS",
+        } as any);
+      } else {
+        addAlert({
+          id: `sos-${Date.now()}`,
+          category: "sos",
+          lat: latitude,
+          lng: longitude,
+          createdAt: new Date().toISOString(),
+          status: "active",
+          media: [],
+          upvotes: 0,
+          downvotes: 0,
+          user: currentUser,
+          title: "EMERGENCIA SOS",
+        } as any);
       }
       Alert.alert("Alerta SOS enviada", "Tu ubicación ha sido compartida como emergencia crítica.");
     };
 
-    if (!sosWarningAccepted) {
-      Alert.alert(
-        "🚨 BOTÓN DE EMERGENCIA (SOS)",
-        "Esta función alertará a todos los usuarios cercanos de una emergencia real. ¿Es una emergencia legítima?",
-        [
-          { text: "Cancelar", style: "cancel" },
-          { text: "ENVIAR SOS", onPress: () => { setSosWarningAccepted(true); void triggerSOS(); } },
-        ],
-      );
-    } else {
-      void triggerSOS();
-    }
+    Alert.alert(
+      "BOTÓN DE EMERGENCIA (SOS)",
+      "Esto alertará a usuarios cercanos de una emergencia real. ¿Es una emergencia legítima?",
+      [
+        { text: "Cancelar", style: "cancel" },
+        { text: "ENVIAR SOS", style: "destructive", onPress: () => { void triggerSOS(); } },
+      ],
+    );
   };
 
   // ── navigation helper ─────────────────────────────────────────────────────

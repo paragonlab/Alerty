@@ -5,7 +5,6 @@ import { StatusBar } from "expo-status-bar";
 import * as Linking from "expo-linking";
 import { useFonts, SpaceGrotesk_400Regular, SpaceGrotesk_500Medium, SpaceGrotesk_700Bold } from "@expo-google-fonts/space-grotesk";
 import { trackEvent } from "../lib/analytics";
-import { theme } from "../lib/theme";
 import { darkHighVisibility, lightTheme } from "../lib/theme";
 import { isSupabaseConfigured, supabase } from "../lib/supabase";
 import { useAlertyStore } from "../lib/alerty/store";
@@ -65,41 +64,19 @@ export default function RootLayout() {
       setHasSession(Boolean(session));
     });
 
-    // Listener para deep links de OAuth (cuando el browser redirige de vuelta)
     const handleDeepLink = async (event: { url: string }) => {
       if (!supabase) return;
-      const url = event.url;
-
-      const codeMatch = url.match(/code=([^&]+)/);
-      const accessMatch = url.match(/access_token=([^&]+)/);
-      const refreshMatch = url.match(/refresh_token=([^&]+)/);
-
-      if (codeMatch) {
-        const code = codeMatch[1];
-        const { data, error } = await supabase.auth.exchangeCodeForSession(code);
-        if (data?.session) {
-          setHasSession(true);
-        }
-        if (error) {
-          console.error("OAuth exchange error:", error.message);
-        }
-      } else if (accessMatch && refreshMatch) {
-        const { data, error } = await supabase.auth.setSession({
-          access_token: accessMatch[1],
-          refresh_token: refreshMatch[1],
-        });
-        if (data?.session) {
-          setHasSession(true);
-        }
-        if (error) {
-          console.error("OAuth session error:", error.message);
-        }
-      }
+      const codeMatch = event.url.match(/[?&#]code=([^&]+)/);
+      if (!codeMatch) return;
+      const { data, error } = await supabase.auth.exchangeCodeForSession(
+        decodeURIComponent(codeMatch[1]),
+      );
+      if (data?.session) setHasSession(true);
+      if (error) console.error("OAuth exchange error:", error.message);
     };
 
     const subscription = Linking.addEventListener("url", handleDeepLink);
 
-    // Verificar si la app fue abierta desde un deep link de OAuth
     Linking.getInitialURL().then((url) => {
       if (url) handleDeepLink({ url });
     });
@@ -111,14 +88,18 @@ export default function RootLayout() {
     };
   }, []);
 
-  const { alerts } = useAlertyStore();
+  const { alerts, currentUser } = useAlertyStore();
   const lastSOSRef = useRef<string | null>(null);
 
   useEffect(() => {
     const latest = alerts[0];
     if (latest?.category === "sos" && latest.id !== lastSOSRef.current) {
+      if (latest.user?.id && latest.user.id === currentUser.id) {
+        lastSOSRef.current = latest.id;
+        return;
+      }
       const age = (Date.now() - new Date(latest.createdAt).getTime()) / 1000;
-      if (age < 30) { // Only if it's very recent (less than 30s)
+      if (age < 30) {
         lastSOSRef.current = latest.id;
         void (async () => {
           try {
@@ -132,10 +113,10 @@ export default function RootLayout() {
                 latest.lng
               );
 
-              if (dist <= 5) { // Within 5km
+              if (dist <= 5) {
                 void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
                 Alert.alert(
-                  "🚨 EMERGENCIA SOS CERCANA",
+                  "EMERGENCIA SOS CERCANA",
                   `Se ha reportado una emergencia crítica a ${dist.toFixed(1)}km de tu ubicación.`,
                   [
                     { text: "Ver en mapa", onPress: () => router.push("/(tabs)") },
@@ -150,7 +131,7 @@ export default function RootLayout() {
         })();
       }
     }
-  }, [alerts]);
+  }, [alerts, currentUser.id, router]);
 
   useEffect(() => {
     if (!isReady) return;
@@ -172,7 +153,6 @@ export default function RootLayout() {
     }
   }, [hasSession, isReady]);
 
-  // Tap en notificación → abrir la alerta
   const handledColdStart = useRef(false);
   useEffect(() => {
     return addNotificationTapListener((alertId) => {

@@ -1,5 +1,5 @@
 # EAS compilation ignore file
-# Copiado de .gitignore pero omitiendo .env para que las variables de entorno se incluyan en la compilación en la nube
+# Copiado de .gitignore. .env NO se sube al build en la nube.
 
 node_modules/
 .expo/
@@ -24,6 +24,7 @@ yarn-error.*
 .DS_Store
 *.pem
 
+.env
 .env*.local
 *.tsbuildinfo
 
@@ -36,4 +37,4 @@ yarn-error.*
 Keys/
 apple_gen.js
 apple_gen.rb
-# Omitimos .env aquí para que EAS lo suba durante el build
+.rescued-from-icloud/
