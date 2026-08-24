@@ -1,1 +1,62 @@
-PLACEHOLDER_STORE
+import { create } from "zustand";
+import type { AlertCategory, AlertItem, AlertMedia, AlertUpdate, SponsoredZone, TimeFilter } from "./types";
+import { ALERT_CATEGORIES, REPUTATION_LEVELS } from "./constants";
+import { baseAlerts, createRandomAlert } from "./mock";
+import { isSupabaseConfigured, supabase } from "../supabase";
+import { uploadMediaBatch } from "../upload";
+import type { RealtimeChannel } from "@supabase/supabase-js";
+import type { AlertUser } from "./types";
+
+type VoteType = "upvote" | "downvote";
+
+type AlertyState = {
+  alerts: AlertItem[];
+  timeFilter: TimeFilter;
+  activeCategories: AlertCategory[];
+  lowConnection: boolean;
+  pushEnabled: boolean;
+  demoStarted: boolean;
+  demoInterval: ReturnType<typeof setInterval> | null;
+  realtimeStarted: boolean;
+  realtimeChannel: RealtimeChannel | null;
+  followingAlertIds: string[];
+  votedAlerts: Record<string, "upvote" | "downvote">;
+  maxReportingDistance: number; // in km
+  sosActive: boolean;
+  showHeatmap: boolean;
+  sosWarningAccepted: boolean;
+  themeMode: "light" | "darkHighVisibility";
+  currentUser: AlertUser;
+  startDemo: () => void;
+  stopDemo: () => void;
+  startRealtime: () => (() => void) | undefined;
+  addAlert: (alert: AlertItem) => void;
+  voteAlert: (id: string, vote: VoteType) => void;
+  setTimeFilter: (filter: TimeFilter) => void;
+  toggleCategory: (category: AlertCategory) => void;
+  setCategoryDefaults: (categories: AlertCategory[]) => void;
+  setLowConnection: (value: boolean) => void;
+  setPushEnabled: (value: boolean) => void;
+  loadAlertsFromSupabase: () => Promise<void>;
+  toggleFollowAlert: (id: string) => void;
+  addUpdateToAlert: (alertId: string, content: string, media?: AlertMedia[]) => Promise<void>;
+  addAngleAlert: (parentAlertId: string, video: AlertMedia) => Promise<void>;
+  setMaxReportingDistance: (distance: number) => void;
+  setSOSActive: (active: boolean) => void;
+  setShowHeatmap: (show: boolean) => void;
+  setSosWarningAccepted: (accepted: boolean) => void;
+  setThemeMode: (mode: "light" | "darkHighVisibility") => void;
+  updateUserScore: (score: number) => void;
+  getReportingRange: () => number;
+  loadUserProfile: () => Promise<void>;
+  updateUsername: (newUsername: string) => Promise<{ error: string | null }>;
+  recomputeVerifiedStatus: () => void;
+  sponsoredZones: SponsoredZone[];
+  loadSponsoredZones: () => Promise<void>;
+  feedViewMode: "list" | "reels";
+  setFeedViewMode: (mode: "list" | "reels") => void;
+  reelsInitialAlertId: string | null;
+  openReels: (alertId: string | null) => void;
+  unreadAlerts: number;
+  clearUnreadAlerts: () => void;
+};
