@@ -9,7 +9,6 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import * as Linking from "expo-linking";
 import * as WebBrowser from "expo-web-browser";
 import * as AppleAuthentication from "expo-apple-authentication";
 import { makeRedirectUri } from "expo-auth-session";
@@ -19,7 +18,6 @@ import { trackEvent } from "../../lib/analytics";
 import { lightTheme as theme } from "../../lib/theme";
 import { isSupabaseConfigured, supabase } from "../../lib/supabase";
 
-// Completa la sesión si la app se abre desde el browser (requerido por Expo)
 WebBrowser.maybeCompleteAuthSession();
 
 type Provider = "apple" | "google";
@@ -28,7 +26,7 @@ export default function LoginScreen() {
   const [loadingProvider, setLoadingProvider] = useState<Provider | null>(null);
 
   const handleAppleNativeLogin = async () => {
-    if (!supabase) return;
+    if (!isSupabaseConfigured || !supabase) return;
     try {
       setLoadingProvider("apple");
       void trackEvent({ event_type: "auth_oauth_started", metadata: { provider: "apple", method: "native" } });
@@ -84,18 +82,12 @@ export default function LoginScreen() {
       void trackEvent({ event_type: "auth_oauth_started", metadata: { provider } });
 
       const isWeb = Platform.OS === "web";
-
-      // scheme: "alerty" genera exp+alerty://auth-callback en Expo Go
-      // y alerty://auth-callback en build de producción.
-      // En web genera la URL del servidor actual.
       const redirectTo = makeRedirectUri({ scheme: "alerty", path: "auth-callback" });
 
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider,
         options: {
           redirectTo,
-          // En web dejamos que Supabase redirija directamente.
-          // En nativo abrimos el browser manualmente para poder interceptar el callback.
           skipBrowserRedirect: !isWeb,
         },
       });
@@ -109,24 +101,17 @@ export default function LoginScreen() {
         return;
       }
 
-      // Solo en nativo abrimos el WebBrowser in-app
       if (!isWeb && data?.url) {
         const result = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
         if (result.type === "success" && result.url) {
           const url = result.url;
           const codeMatch = url.match(/[?&]code=([^&]+)/);
-          const accessMatch = url.match(/[#&]access_token=([^&]+)/);
-          const refreshMatch = url.match(/[#&]refresh_token=([^&]+)/);
 
           if (codeMatch) {
-            const { error } = await supabase.auth.exchangeCodeForSession(codeMatch[1]);
-            if (error) Alert.alert("Error al iniciar sesión", error.message);
-          } else if (accessMatch && refreshMatch) {
-            const { error } = await supabase.auth.setSession({
-              access_token: accessMatch[1],
-              refresh_token: refreshMatch[1],
-            });
-            if (error) Alert.alert("Error al iniciar sesión", error.message);
+            const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(
+              decodeURIComponent(codeMatch[1]),
+            );
+            if (exchangeError) Alert.alert("Error al iniciar sesión", exchangeError.message);
           } else {
             Alert.alert("Error al iniciar sesión", "Respuesta de autenticación inválida.");
           }
@@ -139,7 +124,6 @@ export default function LoginScreen() {
       setLoadingProvider(null);
     }
   };
-
 
   return (
     <SafeAreaView style={styles.safeArea}>
