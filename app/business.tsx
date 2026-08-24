@@ -26,6 +26,10 @@ export default function BusinessOnboarding() {
   const params = useLocalSearchParams<{ status?: string; zone_id?: string }>();
   const styles = createStyles();
 
+  // En iOS la inscripción B2B se hace desde la web para no incluir un flujo de
+  // pago dentro de la app (evita rechazo en App Store review).
+  const isIOS = Platform.OS === "ios";
+
   // Si el negocio vuelve de Stripe con status=success, mostramos confirmación
   useEffect(() => {
     if (params.status === "success") {
@@ -119,7 +123,7 @@ export default function BusinessOnboarding() {
           <Pressable onPress={() => router.back()} style={styles.closeButton} hitSlop={10}>
             <Ionicons name="chevron-back" size={22} color={theme.colors.text} />
           </Pressable>
-          <Text style={styles.headerTitle}>Tu negocio en Alerty</Text>
+          <Text style={styles.headerTitle}>Tu negocio en Pulso</Text>
           <View style={{ width: 40 }} />
         </View>
 
@@ -135,6 +139,21 @@ export default function BusinessOnboarding() {
             </Text>
           </View>
 
+          {isIOS ? (
+            <View style={styles.card}>
+              <Text style={styles.label}>Inscripción de negocios</Text>
+              <Text style={styles.priceAmount}>
+                Para registrar tu negocio como pin patrocinado, completa el
+                proceso desde nuestro sitio web. Te tomará un par de minutos.
+              </Text>
+              <Pressable
+                style={styles.submitButton}
+                onPress={() => WebBrowser.openBrowserAsync("https://alerty.app/business")}
+              >
+                <Text style={styles.submitText}>Abrir registro web</Text>
+              </Pressable>
+            </View>
+          ) : (
           <View style={styles.card}>
             <Text style={styles.label}>Tipo de pin</Text>
             <View style={styles.typeRow}>
@@ -256,9 +275,10 @@ export default function BusinessOnboarding() {
 
             <Text style={styles.legalText}>
               Al continuar aceptas que tu pin aparecerá en el mapa mientras tu suscripción esté activa.
-              El equipo de Alerty revisa cada inscripción antes de publicarla.
+              El equipo de Pulso revisa cada inscripción antes de publicarla.
             </Text>
           </View>
+          )}
         </ScrollView>
       </LinearGradient>
     </SafeAreaView>

@@ -1,15 +1,12 @@
-# Learn more https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files
+# EAS compilation ignore file
+# Copiado de .gitignore pero omitiendo .env para que las variables de entorno se incluyan en la compilación en la nube
 
-# dependencies
 node_modules/
-
-# Expo
 .expo/
 dist/
 web-build/
 expo-env.d.ts
 
-# Native
 .kotlin/
 *.orig.*
 *.jks
@@ -18,38 +15,25 @@ expo-env.d.ts
 *.key
 *.mobileprovision
 
-# Metro
 .metro-health-check*
-
-# debug
 npm-debug.*
 yarn-debug.*
 yarn-error.*
 .npm-cache/
-.BC.*
-*.apk
-*.aab
 
-# macOS
 .DS_Store
 *.pem
 
-# local env files
 .env*.local
-
-# typescript
 *.tsbuildinfo
 
-# generated native folders
 /ios
 /android
 
-# local tooling
 .local/
 .expo-home/
 
-# Secrets and Keys
 Keys/
 apple_gen.js
 apple_gen.rb
-.env
+# Omitimos .env aquí para que EAS lo suba durante el build

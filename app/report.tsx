@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useMemo } from "react";
 import {
   Alert,
-  Image,
+  Animated,
   Platform,
   Pressable,
   ScrollView,
@@ -10,789 +10,1158 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
-import MapView, { Marker, PROVIDER_GOOGLE } from "../components/ExpoMapView";
-import { GlassView, GlassContainer } from "expo-glass-effect";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import * as ImagePicker from "expo-image-picker";
 import * as Haptics from "expo-haptics";
-import { Sounds } from "../lib/sounds";
 import * as Location from "expo-location";
-import { Ionicons } from "@expo/vector-icons";
 import { Audio } from "expo-av";
 import * as FileSystem from "expo-file-system/legacy";
 import { useRouter } from "expo-router";
-import { useAlertyTheme } from "../lib/useAlertyTheme";
 import { ALERT_CATEGORIES, CATEGORY_ICONS, CATEGORY_LABELS, CULIACAN_CENTER } from "../lib/alerty/constants";
 import { useAlertyStore } from "../lib/alerty/store";
-import type { AlertCategory, AlertItem, AlertMedia } from "../lib/alerty/types";
+import { Sounds } from "../lib/sounds";
 import { supabase } from "../lib/supabase";
+import { uploadMediaBatch } from "../lib/upload";
+import type { AlertCategory, AlertMedia } from "../lib/alerty/types";
 import { calculateDistance } from "../lib/alerty/utils";
 
+// Categories shown in the 3-column grid (exclude SOS – that's the long-press)
+const GRID_CATS = ALERT_CATEGORIES.filter((c) => c !== "sos");
+
+// ── Step indicator ────────────────────────────────────────────────────────────
+function StepDots({ current }: { current: number }) {
+  return (
+    <View style={S.stepDots}>
+      {[1, 2, 3].map((n) => (
+        <View
+          key={n}
+          style={[
+            S.stepDot,
+            n < current && S.stepDotPlayed,
+            n === current && S.stepDotActive,
+          ]}
+        />
+      ))}
+    </View>
+  );
+}
+
+// ── Context chips ─────────────────────────────────────────────────────────────
+function ContextChips({ locationLabel }: { locationLabel: string }) {
+  return (
+    <View style={S.chips}>
+      <View style={S.chipLoc}>
+        <Ionicons name="location" size={11} color="#6BE0FF" />
+        <Text style={S.chipLocText}>{locationLabel.toUpperCase()}</Text>
+      </View>
+      <View style={S.chipAnon}>
+        <Ionicons name="eye-off" size={11} color="#66FF8C" />
+        <Text style={S.chipAnonText}>ANÓNIMO</Text>
+      </View>
+    </View>
+  );
+}
+
+// ── Main component ────────────────────────────────────────────────────────────
 export default function ReportScreen() {
   const router = useRouter();
-  const mapRef = useRef<MapView | null>(null);
+  const insets = useSafeAreaInsets();
+  const { addAlert, currentUser, alerts } = useAlertyStore();
+
+  const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
+  const [captureMode, setCaptureMode] = useState<"video" | "photo" | "voice">("video");
   const [category, setCategory] = useState<AlertCategory | null>(null);
   const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
-  const [location, setLocation] = useState({
-    latitude: CULIACAN_CENTER.latitude,
-    longitude: CULIACAN_CENTER.longitude,
-  });
+  const [sourceTag, setSourceTag] = useState<"veo" | "escucho" | "contaron">("veo");
   const [media, setMedia] = useState<AlertMedia[]>([]);
-  const [submitting, setSubmitting] = useState(false);
-  const [locating, setLocating] = useState(false);
-  const [mapExpanded, setMapExpanded] = useState(false);
+  const [locationLoading, setLocationLoading] = useState(true);
   const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
-  const [locationDenied, setLocationDenied] = useState(false);
+  const [locationLabel, setLocationLabel] = useState("Mi ubicación");
+  const [submitting, setSubmitting] = useState(false);
   const [recording, setRecording] = useState<Audio.Recording | null>(null);
   const [isRecording, setIsRecording] = useState(false);
-  const [audioUri, setAudioUri] = useState<string | null>(null);
-  const [playingId, setPlayingId] = useState<string | null>(null);
-  const soundRef = useRef<Audio.Sound | null>(null);
-  const isWeb = Platform.OS === "web";
-  
-  const { addAlert, currentUser, themeMode } = useAlertyStore();
+  const [recSeconds, setRecSeconds] = useState(0);
+  const recIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const waveAnims = useRef(Array.from({ length: 18 }, () => new Animated.Value(0.06))).current;
+  const waveLoopsRef = useRef<Animated.CompositeAnimation[]>([]);
+
+  // Animations
+  const recDotAnim = useRef(new Animated.Value(1)).current;
+  const shutterPulse = useRef(new Animated.Value(0)).current;
+  const successScale = useRef(new Animated.Value(1)).current;
+  const successHalo = useRef(new Animated.Value(0)).current;
+
+  // Computed
+  const vigias = useMemo(() => Math.max(380, alerts.length * 12 + 200), [alerts.length]);
+  const nearbyAlert = useMemo(() => {
+    if (!userLocation) return null;
+    return (
+      alerts.find(
+        (a) =>
+          a.status === "active" &&
+          calculateDistance(userLocation.latitude, userLocation.longitude, a.lat, a.lng) < 0.2,
+      ) ?? null
+    );
+  }, [alerts, userLocation]);
 
   useEffect(() => {
-    // Cargar ubicación del usuario al abrir el formulario
-    (async () => {
-      try {
-        const { status } = await Location.requestForegroundPermissionsAsync();
-        if (status !== "granted") { setLocationDenied(true); return; }
-        const current = await Location.getCurrentPositionAsync({});
-        const coords = { latitude: current.coords.latitude, longitude: current.coords.longitude };
-        setUserLocation(coords);
-        setLocation(coords);
-        mapRef.current?.animateToRegion({ ...coords, latitudeDelta: 0.008, longitudeDelta: 0.008 });
-      } catch {}
-    })();
+    void getLocation();
+    const recLoop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(recDotAnim, { toValue: 0, duration: 600, useNativeDriver: true }),
+        Animated.timing(recDotAnim, { toValue: 1, duration: 600, useNativeDriver: true }),
+      ]),
+    );
+    const shutLoop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(shutterPulse, { toValue: 1, duration: 700, useNativeDriver: true }),
+        Animated.timing(shutterPulse, { toValue: 0, duration: 700, useNativeDriver: true }),
+      ]),
+    );
+    recLoop.start();
+    shutLoop.start();
     return () => {
-      soundRef.current?.stopAsync().then(() => soundRef.current?.unloadAsync());
+      recLoop.stop();
+      shutLoop.stop();
+      if (recIntervalRef.current) clearInterval(recIntervalRef.current);
+      waveLoopsRef.current.forEach((l) => l.stop());
+      recording?.stopAndUnloadAsync().catch(() => {});
     };
   }, []);
-  const theme = useAlertyTheme();
-  const isDark = themeMode === "darkHighVisibility";
-  const styles = createStyles(theme, themeMode);
 
-  const handlePickMedia = async () => {
-    if (isWeb) {
-      Alert.alert("Multimedia", "Adjuntos disponibles en la app móvil.");
-      return;
-    }
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== "granted") {
-      Alert.alert("Permiso requerido", "Necesitamos acceso a tus fotos para adjuntar evidencia.");
-      return;
-    }
+  useEffect(() => {
+    if (step !== 4) return;
+    const scaleLoop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(successScale, { toValue: 1.04, duration: 1000, useNativeDriver: true }),
+        Animated.timing(successScale, { toValue: 1, duration: 1000, useNativeDriver: true }),
+      ]),
+    );
+    const haloLoop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(successHalo, { toValue: 1, duration: 2000, useNativeDriver: true }),
+        Animated.timing(successHalo, { toValue: 0, duration: 0, useNativeDriver: true }),
+      ]),
+    );
+    scaleLoop.start();
+    haloLoop.start();
+    return () => { scaleLoop.stop(); haloLoop.stop(); };
+  }, [step]);
 
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.All,
-      quality: 0.8,
-      allowsMultipleSelection: true,
-    });
+  const shutterScale = shutterPulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.08] });
+  const haloScale = successHalo.interpolate({ inputRange: [0, 1], outputRange: [1, 1.55] });
+  const haloOpacity = successHalo.interpolate({ inputRange: [0, 0.6, 1], outputRange: [0.6, 0.15, 0] });
 
-    if (result.canceled) return;
-
-    const picked: AlertMedia[] = result.assets.map((asset) => ({
-      id: asset.assetId ?? `local-${Date.now()}-${asset.uri}`,
-      url: asset.uri,
-      type: (asset.type === "video" ? "video" : "image") as "image" | "video",
-    }));
-
-    setMedia((prev) => [...prev, ...picked]);
-  };
-
-  const handleStartRecording = async () => {
-    try {
-      if (isWeb) return;
-
-      // Clean up any leftover recording object before starting a new one
-      if (recording) {
-        try { await recording.stopAndUnloadAsync(); } catch {}
-        setRecording(null);
-        setIsRecording(false);
-      }
-
-      const { status } = await Audio.requestPermissionsAsync();
-      if (status !== "granted") {
-        Alert.alert("Permiso", "Necesitamos acceso al micrófono para grabar el reporte.");
-        return;
-      }
-
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: true,
-        playsInSilentModeIOS: true,
-      });
-
-      const { recording: newRecording } = await Audio.Recording.createAsync(
-        Audio.RecordingOptionsPresets.HIGH_QUALITY
-      );
-      setRecording(newRecording);
-      setIsRecording(true);
-      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    } catch (err) {
-      console.error("Failed to start recording", err);
-      setIsRecording(false);
-    }
-  };
-
-  const handleStopRecording = async () => {
-    if (!recording) return;
-    try {
-      setIsRecording(false);
-      await recording.stopAndUnloadAsync();
-      const tmpUri = recording.getURI();
-      setRecording(null);
-
-      if (tmpUri) {
-        // Copy out of Caches to documentDirectory so iOS doesn't evict it
-        const filename = `recording-${Date.now()}.m4a`;
-        const destUri = `${FileSystem.documentDirectory}${filename}`;
-        await FileSystem.copyAsync({ from: tmpUri, to: destUri });
-
-        setAudioUri(destUri);
-        setMedia(prev => [...prev, { id: `audio-${Date.now()}`, url: destUri, type: "audio" }]);
-      }
-
-      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    } catch (err) {
-      console.error("Failed to stop recording", err);
-    }
-  };
-
-  const handlePlayAudio = async (id: string, uri: string) => {
-    if (playingId === id) {
-      await soundRef.current?.stopAsync();
-      await soundRef.current?.unloadAsync();
-      soundRef.current = null;
-      setPlayingId(null);
-      return;
-    }
-
-    if (soundRef.current) {
-      await soundRef.current.stopAsync();
-      await soundRef.current.unloadAsync();
-      soundRef.current = null;
-    }
-
-    const { sound } = await Audio.Sound.createAsync({ uri });
-    soundRef.current = sound;
-    setPlayingId(id);
-    await sound.playAsync();
-    sound.setOnPlaybackStatusUpdate((status) => {
-      if (status.isLoaded && status.didJustFinish) {
-        setPlayingId(null);
-        soundRef.current = null;
-      }
-    });
-  };
-
-  const handleSubmit = async () => {
-    if (!category) {
-      Alert.alert("Falta categoría", "Selecciona el tipo de incidente.");
-      return;
-    }
-
-    setSubmitting(true);
-
-    // Verificar proximidad: el usuario debe estar a ≤500m del incidente
-    const MAX_REPORT_DISTANCE_KM = 0.5;
+  async function getLocation() {
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status === "granted") {
         const current = await Location.getCurrentPositionAsync({});
-        const distanceKm = calculateDistance(
-          current.coords.latitude,
-          current.coords.longitude,
-          location.latitude,
-          location.longitude
-        );
-        const distanceM = Math.round(distanceKm * 1000);
-
-        if (distanceKm > MAX_REPORT_DISTANCE_KM) {
-          Alert.alert(
-            "Debes estar en el lugar",
-            `Solo puedes publicar si estás a menos de 500m del incidente para confirmar que ocurrió.\n\nTu distancia actual: ${distanceM}m`,
-            [{ text: "Entendido" }]
-          );
-          setSubmitting(false);
-          return;
-        }
-      } else {
-        Alert.alert(
-          "Ubicación requerida",
-          "Necesitamos acceso a tu ubicación para verificar que estás en el lugar del incidente."
-        );
-        setSubmitting(false);
-        return;
+        const coords = { latitude: current.coords.latitude, longitude: current.coords.longitude };
+        setUserLocation(coords);
+        try {
+          const [place] = await Location.reverseGeocodeAsync(coords);
+          if (place) {
+            setLocationLabel(place.district ?? place.subregion ?? place.city ?? "Mi ubicación");
+          }
+        } catch {}
       }
-    } catch (err) {
-      console.warn("Could not verify location for proximity check", err);
+    } catch {}
+    setLocationLoading(false);
+  }
+
+  async function handleGallery() {
+    if (Platform.OS === "web") return;
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== "granted") { Alert.alert("Permiso requerido", "Necesitamos acceso a tu galería."); return; }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images", "videos"],
+      quality: 0.8,
+    });
+    if (result.canceled) return;
+    const picked: AlertMedia[] = result.assets.map((a) => ({
+      id: a.assetId ?? `local-${Date.now()}`,
+      url: a.uri,
+      type: (a.type === "video" ? "video" : "image") as "image" | "video",
+    }));
+    setMedia((prev) => [...prev, ...picked]);
+    if (step === 1) setStep(2);
+  }
+
+  async function handleShutter() {
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
+    if (captureMode === "voice") {
+      if (isRecording) {
+        await handleStopRecording();
+        setStep(2);
+      } else {
+        await handleStartRecording();
+      }
+      return;
     }
 
-    const newAlert: AlertItem = {
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    if (status !== "granted") {
+      Alert.alert("Permiso", "Necesitamos acceso a la cámara para capturar evidencia.");
+      return;
+    }
+    try {
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: captureMode === "video" ? "videos" : "images",
+        quality: 0.85,
+        videoMaxDuration: 60,
+      });
+      if (!result.canceled) {
+        const picked: AlertMedia[] = result.assets.map((a) => ({
+          id: `cap-${Date.now()}`,
+          url: a.uri,
+          type: (a.type === "video" ? "video" : "image") as "image" | "video",
+        }));
+        setMedia((prev) => [...prev, ...picked]);
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        if (step === 1) setStep(2);
+      }
+    } catch {
+      await handleGallery();
+    }
+  }
+
+  function startWave() {
+    waveLoopsRef.current.forEach((l) => l.stop());
+    waveLoopsRef.current = waveAnims.map((anim, i) => {
+      const peak = 0.2 + (i % 5) * 0.14 + (i % 3) * 0.08;
+      const dur = 160 + (i * 61) % 340;
+      const loop = Animated.loop(
+        Animated.sequence([
+          Animated.timing(anim, { toValue: peak, duration: dur, useNativeDriver: true }),
+          Animated.timing(anim, { toValue: 0.06 + (i % 4) * 0.02, duration: Math.round(dur * 0.75), useNativeDriver: true }),
+        ]),
+      );
+      loop.start();
+      return loop;
+    });
+  }
+
+  function stopWave() {
+    waveLoopsRef.current.forEach((l) => l.stop());
+    waveLoopsRef.current = [];
+    waveAnims.forEach((anim) =>
+      Animated.timing(anim, { toValue: 0.06, duration: 250, useNativeDriver: true }).start(),
+    );
+  }
+
+  async function handleStartRecording() {
+    try {
+      const { status } = await Audio.requestPermissionsAsync();
+      if (status !== "granted") { Alert.alert("Permiso", "Necesitamos el micrófono para grabar."); return; }
+      await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
+      const { recording: rec } = await Audio.Recording.createAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
+      setRecording(rec);
+      setIsRecording(true);
+      setRecSeconds(0);
+      recIntervalRef.current = setInterval(() => setRecSeconds((s) => s + 1), 1000);
+      startWave();
+    } catch (e) {
+      console.error("start recording", e);
+    }
+  }
+
+  async function handleStopRecording() {
+    if (!recording) return;
+    try {
+      setIsRecording(false);
+      stopWave();
+      if (recIntervalRef.current) { clearInterval(recIntervalRef.current); recIntervalRef.current = null; }
+      await recording.stopAndUnloadAsync();
+      const tmpUri = recording.getURI();
+      setRecording(null);
+      if (tmpUri) {
+        const dest = `${FileSystem.documentDirectory}rec-${Date.now()}.m4a`;
+        await FileSystem.copyAsync({ from: tmpUri, to: dest });
+        setMedia((prev) => [...prev, { id: `audio-${Date.now()}`, url: dest, type: "audio" }]);
+      }
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (e) {
+      console.error("stop recording", e);
+    }
+  }
+
+  async function handleSubmit() {
+    if (!category) { Alert.alert("Falta categoría", "Selecciona el tipo de incidente."); return; }
+    if (!userLocation) { Alert.alert("Ubicación no disponible", "Activa el GPS e intenta de nuevo."); return; }
+    setSubmitting(true);
+    const newAlert = {
       id: `local-${Date.now()}`,
       category,
-      lat: location.latitude,
-      lng: location.longitude,
-      title: title.trim() || undefined,
-      description: description.trim() || undefined,
+      lat: userLocation.latitude,
+      lng: userLocation.longitude,
+      title: title.trim() || `${CATEGORY_LABELS[category]} · ${locationLabel}`,
+      description: `Cómo lo sé: ${sourceTag}`,
       createdAt: new Date().toISOString(),
-      status: "active",
+      status: "active" as const,
       media,
       upvotes: 0,
       downvotes: 0,
-      neighborhood: "Culiacán",
+      neighborhood: locationLabel,
       user: currentUser,
     };
-
-    addAlert(newAlert);
-
+    addAlert(newAlert as any);
     try {
       if (supabase) {
-        const { data: userData } = await supabase.auth.getUser();
-        const userId = userData.user?.id;
-
-        const { data: alertRow, error } = await supabase
+        const { data: ud } = await supabase.auth.getUser();
+        const { data: inserted } = await supabase
           .from("alerts")
           .insert({
-            user_id: userId,
+            user_id: ud.user?.id,
             category,
-            lat: location.latitude,
-            lng: location.longitude,
-            title: title.trim() || null,
-            description: description.trim() || null,
+            lat: userLocation.latitude,
+            lng: userLocation.longitude,
+            title: newAlert.title,
+            description: newAlert.description,
             status: "active",
           })
-          .select()
+          .select("id")
           .single();
-
-        if (error) {
-          console.warn("Supabase insert failed", error);
-        } else if (alertRow && media.length > 0) {
-          // Only insert remote URLs — local paths aren't accessible by other devices
-          const remoteMedia = media.filter(
-            (item) => !item.url.startsWith("/") && !item.url.startsWith("file://"),
-          );
-          if (remoteMedia.length > 0) {
-            await supabase.from("media").insert(
-              remoteMedia.map((item) => ({
-                alert_id: alertRow.id,
-                media_url: item.url,
-                media_type: item.type,
-              })),
-            );
+        if (inserted?.id) {
+          const alertId = inserted.id;
+          void supabase.functions
+            .invoke("notify-on-alert", { body: { type: "alert", alertId } })
+            .catch(() => {});
+          if (media.length > 0) {
+            void (async () => {
+              const uploaded = await uploadMediaBatch(media);
+              if (uploaded.length > 0 && supabase) {
+                await supabase.from("media").insert(
+                  uploaded.map((m) => ({
+                    alert_id: alertId,
+                    media_url: m.url,
+                    media_type: m.type,
+                  })),
+                );
+              }
+            })().catch(() => {});
           }
         }
       }
+    } catch {}
+    void Sounds.success();
+    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    setSubmitting(false);
+    setStep(4);
+  }
 
-      void Sounds.success();
-      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      router.back();
-    } catch (error) {
-      Alert.alert("Reporte", "Tu alerta se guardó localmente. Intentaremos sincronizarla.");
-    } finally {
-      setSubmitting(false);
-    }
-  };
+  // ── Render helpers ───────────────────────────────────────────────────────
 
-  const handleUseMyLocation = async () => {
-    try {
-      setLocating(true);
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== "granted") {
-        Alert.alert("Permiso requerido", "Activa ubicación para usar tu posición actual.");
-        return;
-      }
-      const current = await Location.getCurrentPositionAsync({});
-      const coords = { latitude: current.coords.latitude, longitude: current.coords.longitude };
-      setUserLocation(coords);
-      setLocation(coords);
-      mapRef.current?.animateToRegion({ ...coords, latitudeDelta: 0.008, longitudeDelta: 0.008 });
-      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    } catch (error) {
-      Alert.alert("Ubicación", "No se pudo obtener tu ubicación.");
-    } finally {
-      setLocating(false);
-    }
-  };
+  function renderStep1() {
+    const isCapturing = isRecording;
+    const timer = `${Math.floor(recSeconds / 60)}:${String(recSeconds % 60).padStart(2, "0")}`;
 
-  const handlePinDragEnd = (coord: { latitude: number; longitude: number }) => {
-    if (!userLocation) {
-      setLocation(coord);
-      return;
-    }
-    const distKm = calculateDistance(
-      userLocation.latitude, userLocation.longitude,
-      coord.latitude, coord.longitude
-    );
-    if (distKm > 0.5) {
-      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-      setLocation(userLocation);
-      mapRef.current?.animateToRegion({
-        ...userLocation,
-        latitudeDelta: 0.008,
-        longitudeDelta: 0.008,
-      });
-    } else {
-      setLocation(coord);
-    }
-  };
-
-  return (
-    <SafeAreaView style={styles.safeArea}>
-      <GlassView 
-        colorScheme={isDark ? "dark" : "light"} 
-        glassEffectStyle="regular" 
-        tintColor={isDark ? "rgba(0, 224, 255, 0.05)" : "rgba(44, 123, 229, 0.05)"}
-        style={styles.header}
-      >
-        <LinearGradient
-          colors={["rgba(255,255,255,0.15)", "transparent"]}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={StyleSheet.absoluteFill}
-        />
-        <Pressable style={styles.backButton} onPress={() => router.back()}>
-          <Ionicons name="chevron-back" size={20} color={theme.colors.text} />
-        </Pressable>
-        <Text style={styles.title}>Nuevo reporte</Text>
-        <View style={styles.headerSpacer} />
-      </GlassView>
-
-      <ScrollView contentContainerStyle={styles.container}>
-        {/* 1. Tipo de alerta */}
-        <GlassView
-          colorScheme={isDark ? "dark" : "light"}
-          glassEffectStyle="regular"
-          style={styles.formGroupGlass}
-        >
-          <LinearGradient
-            colors={["rgba(255,255,255,0.1)", "transparent"]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={StyleSheet.absoluteFill}
-          />
-          <Text style={styles.sectionTitle}>Tipo de alerta *</Text>
-          <View style={styles.categoryWrap}>
-            {ALERT_CATEGORIES.map((item) => {
-              const active = item === category;
-              return (
-                <Pressable
-                  key={item}
-                  style={[styles.categoryPill, active && styles.categoryPillActive]}
-                  onPress={() => { void Sounds.tap(); setCategory(item); }}
-                >
-                  <Ionicons
-                    name={CATEGORY_ICONS[item] as any}
-                    size={14}
-                    color={active ? theme.colors.text : theme.colors.textMuted}
-                  />
-                  <Text style={[styles.categoryText, active && styles.categoryTextActive]}>
-                    {CATEGORY_LABELS[item]}
-                  </Text>
-                </Pressable>
-              );
-            })}
+    return (
+      <>
+        {/* Viewfinder */}
+        <View style={S.viewfinder}>
+          <View style={[S.corner, S.cornerTL]} />
+          <View style={[S.corner, S.cornerTR]} />
+          <View style={[S.corner, S.cornerBL]} />
+          <View style={[S.corner, S.cornerBR]} />
+          <View style={[S.recChip, isCapturing && S.recChipActive]}>
+            {isCapturing && <Animated.View style={[S.recDot, { opacity: recDotAnim }]} />}
+            <Text style={S.recText}>{isCapturing ? "REC" : captureMode === "video" ? "VIDEO" : captureMode === "photo" ? "FOTO" : "VOZ"}</Text>
           </View>
-        </GlassView>
-
-        {/* 2. Evidencia */}
-        <Text style={styles.sectionTitle}>Evidencia (fotos, video o voz)</Text>
-        <View style={styles.mediaActions}>
-          <Pressable style={styles.mediaActionBtn} onPress={handlePickMedia}>
-            <Ionicons name="images-outline" size={22} color={theme.colors.text} />
-            <Text style={styles.mediaActionText}>Galería</Text>
-          </Pressable>
-          <Pressable
-            style={[styles.mediaActionBtn, isRecording && styles.mediaActionBtnActive]}
-            onLongPress={handleStartRecording}
-            onPressOut={() => (isRecording ? handleStopRecording() : null)}
-            delayLongPress={100}
-          >
-            <Ionicons
-              name={isRecording ? "stop-circle" : "mic-outline"}
-              size={22}
-              color={isRecording ? theme.colors.surface : theme.colors.text}
-            />
-            <Text style={[styles.mediaActionText, isRecording && styles.mediaActionTextActive]}>
-              {isRecording ? "Suelta para guardar" : "Mantén para voz"}
-            </Text>
-          </Pressable>
-        </View>
-
-        {media.length > 0 && (
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.mediaPreviewList}>
-            {media.map((item) => (
-              <View key={item.id} style={styles.mediaPreviewItem}>
-                {item.type === "audio" ? (
-                  <Pressable style={styles.audioPreview} onPress={() => handlePlayAudio(item.id, item.url)}>
-                    <Ionicons
-                      name={playingId === item.id ? "stop-circle" : "play-circle"}
-                      size={28}
-                      color={theme.colors.accent}
-                    />
-                  </Pressable>
-                ) : (
-                  <Image source={{ uri: item.url }} style={styles.mediaPreviewThumb} />
-                )}
-                <Pressable
-                  style={styles.removeMedia}
-                  onPress={() => setMedia((prev) => prev.filter((m) => m.id !== item.id))}
-                >
-                  <Ionicons name="close-circle" size={16} color={theme.colors.danger} />
-                </Pressable>
-              </View>
-            ))}
-          </ScrollView>
-        )}
-
-        {/* 3. Título */}
-        <Text style={styles.sectionTitle}>Título *</Text>
-        <TextInput
-          style={styles.textInputSingle}
-          placeholder="Ej: Balacera en zona centro"
-          placeholderTextColor={theme.colors.textMuted}
-          value={title}
-          onChangeText={setTitle}
-          maxLength={100}
-        />
-
-        {/* 4. Ubicación */}
-        <Text style={styles.sectionTitle}>Ubicación exacta</Text>
-        <View style={[styles.mapCard, mapExpanded && styles.mapCardExpanded]}>
-          {isWeb ? (
-            <View style={styles.webMap}>
-              <Ionicons name="map" size={24} color={theme.colors.textMuted} />
-              <Text style={styles.webMapText}>
-                Ajuste de ubicación disponible en la app móvil.
-              </Text>
+          {isCapturing && (
+            <View style={S.vfTimer}>
+              <Text style={S.vfTimerText}>{timer}</Text>
+            </View>
+          )}
+          {captureMode === "voice" && isRecording ? (
+            <View style={S.waveformWrap}>
+              {waveAnims.map((anim, i) => (
+                <Animated.View key={i} style={[S.wavebar, { transform: [{ scaleY: anim }] }]} />
+              ))}
             </View>
           ) : (
-            <>
-              <MapView
-                ref={mapRef}
-                style={StyleSheet.absoluteFill}
-                provider={Platform.OS === "android" ? PROVIDER_GOOGLE : undefined}
-                initialRegion={{
-                  latitude: location.latitude,
-                  longitude: location.longitude,
-                  latitudeDelta: 0.008,
-                  longitudeDelta: 0.008,
-                }}
-              >
-                <Marker
-                  coordinate={location}
-                  draggable
-                  onDragEnd={(event) => handlePinDragEnd(event.nativeEvent.coordinate)}
-                />
-              </MapView>
-              <View style={styles.mapOverlay}>
-                <Text style={styles.mapHint}>Arrastra el pin · máx 500m de ti</Text>
-              </View>
-              <Pressable
-                style={styles.locationButton}
-                onPress={handleUseMyLocation}
-                disabled={locating}
-              >
-                <Ionicons name="locate" size={16} color={theme.colors.text} />
-              </Pressable>
-              <Pressable
-                style={styles.expandButton}
-                onPress={() => setMapExpanded((v) => !v)}
-              >
-                <Ionicons
-                  name={mapExpanded ? "contract-outline" : "expand-outline"}
-                  size={16}
-                  color={theme.colors.text}
-                />
-              </Pressable>
-            </>
+            <View style={S.vfHint}>
+              <Ionicons
+                name={captureMode === "video" ? "videocam" : captureMode === "photo" ? "camera" : "mic"}
+                size={32}
+                color="rgba(255,255,255,0.25)"
+              />
+            </View>
           )}
         </View>
 
-        {/* 5. Descripción */}
-        <Text style={styles.sectionTitle}>Descripción</Text>
-        <TextInput
-          style={styles.textInput}
-          placeholder="Detalles adicionales sobre el incidente (opcional)"
-          placeholderTextColor={theme.colors.textMuted}
-          value={description}
-          onChangeText={setDescription}
-          multiline
-        />
+        {/* Mode selector */}
+        <View style={S.modeRow}>
+          {(["video", "photo", "voice"] as const).map((mode) => (
+            <Pressable
+              key={mode}
+              style={[S.modeBtn, captureMode === mode && S.modeBtnActive]}
+              onPress={() => setCaptureMode(mode)}
+            >
+              <Ionicons
+                name={mode === "video" ? "videocam" : mode === "photo" ? "camera" : "mic"}
+                size={13}
+                color={captureMode === mode ? "#fff" : "rgba(255,255,255,0.5)"}
+              />
+              <Text style={[S.modeBtnText, captureMode === mode && S.modeBtnTextActive]}>
+                {mode === "video" ? "VIDEO" : mode === "photo" ? "FOTO" : "VOZ"}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
 
-        {locationDenied && (
-          <Text style={styles.locationWarning}>
-            Activa la ubicación en ajustes del dispositivo para poder publicar.
-          </Text>
+        {/* Shutter row */}
+        <View style={S.shutterRow}>
+          <Pressable style={S.shutterSide} onPress={handleGallery}>
+            <View style={S.shutterSideBtn}>
+              <Ionicons name="images-outline" size={16} color="#fff" />
+            </View>
+            <Text style={S.shutterSideLabel}>GALERÍA</Text>
+          </Pressable>
+
+          <Pressable onPress={handleShutter}>
+            <View style={S.shutterRing}>
+              <Animated.View
+                style={[
+                  S.shutterInner,
+                  isCapturing && S.shutterInnerRec,
+                  { transform: [{ scale: shutterScale }] },
+                ]}
+              />
+            </View>
+          </Pressable>
+
+          <View style={S.shutterSide} />
+        </View>
+
+        <Pressable style={S.skipBtn} onPress={() => setStep(2)}>
+          <Text style={S.skipBtnText}>Continuar sin evidencia</Text>
+          <Ionicons name="arrow-forward" size={12} color="rgba(255,255,255,0.35)" />
+        </Pressable>
+      </>
+    );
+  }
+
+  function renderStep2() {
+    const previewMedia = media[0];
+    return (
+      <>
+        {/* Evidence row */}
+        {media.length > 0 ? (
+          <View style={S.evidenceRow}>
+            <View style={S.evidenceThumb}>
+              <Ionicons name={previewMedia?.type === "audio" ? "mic" : previewMedia?.type === "video" ? "videocam" : "image"} size={14} color="rgba(255,255,255,0.5)" style={{ position: "absolute" }} />
+              <View style={S.evidenceThumbPlay}>
+                <View style={S.evidencePlayTriangle} />
+              </View>
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={S.evidenceLabel}>
+                {previewMedia?.type === "audio" ? "Audio" : previewMedia?.type === "video" ? "Video" : "Foto"}
+                {media.length > 1 ? ` +${media.length - 1}` : ""}
+              </Text>
+              <Text style={S.evidenceSub}>Listo · {media.length} archivo{media.length > 1 ? "s" : ""}</Text>
+            </View>
+            <Pressable style={S.evidenceAdd} onPress={handleGallery}>
+              <Ionicons name="add" size={16} color="rgba(255,255,255,0.6)" />
+            </Pressable>
+          </View>
+        ) : (
+          <Pressable style={[S.evidenceRow, { justifyContent: "center", gap: 8 }]} onPress={() => setStep(1)}>
+            <Ionicons name="camera-outline" size={18} color="rgba(255,255,255,0.35)" />
+            <Text style={S.evidenceSub}>Toca para agregar evidencia</Text>
+          </Pressable>
         )}
 
-        <Pressable
-          style={[styles.submitButton, (!userLocation || submitting) && styles.submitButtonDisabled]}
-          onPress={handleSubmit}
-          disabled={!userLocation || submitting}
-        >
-          <Text style={styles.submitText}>
-            {submitting ? "Enviando..." : !userLocation ? "Ubicación no disponible" : "Publicar alerta"}
+        {/* Category label */}
+        <Text style={S.sheetLabel}>¿Qué está pasando?</Text>
+
+        {/* Category grid */}
+        <View style={S.catGrid}>
+          {GRID_CATS.map((cat) => (
+            <Pressable
+              key={cat}
+              style={[S.catCell, category === cat && S.catCellActive]}
+              onPress={() => { void Haptics.selectionAsync(); setCategory(cat); }}
+            >
+              <Ionicons
+                name={(CATEGORY_ICONS[cat] ?? "alert-circle") as any}
+                size={18}
+                color={category === cat ? "#FF6060" : "rgba(255,255,255,0.65)"}
+              />
+              <Text style={[S.catLabel, category === cat && S.catLabelActive]}>
+                {CATEGORY_LABELS[cat]}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+
+        {/* Title input */}
+        <TextInput
+          style={S.titleInput}
+          placeholder={category ? `${CATEGORY_LABELS[category]} · ${locationLabel}` : "Describe brevemente lo que pasa..."}
+          placeholderTextColor="rgba(255,255,255,0.3)"
+          value={title}
+          onChangeText={setTitle}
+          maxLength={100}
+          selectionColor="#FF6B3A"
+        />
+
+        {/* Source tag */}
+        <Text style={S.sheetLabel}>Cómo sabes</Text>
+        <View style={S.tagRow}>
+          {([
+            ["veo", "eye", "Lo veo"],
+            ["escucho", "ear-outline", "Lo escucho"],
+            ["contaron", "chatbubble-outline", "Me contaron"],
+          ] as const).map(([val, icon, label]) => (
+            <Pressable
+              key={val}
+              style={[S.tag, sourceTag === val && S.tagActive]}
+              onPress={() => setSourceTag(val)}
+            >
+              <Ionicons name={icon as any} size={11} color={sourceTag === val ? "#6BE0FF" : "rgba(255,255,255,0.55)"} />
+              <Text style={[S.tagText, sourceTag === val && S.tagTextActive]}>{label}</Text>
+            </Pressable>
+          ))}
+        </View>
+      </>
+    );
+  }
+
+  function renderStep3() {
+    const displayTitle = title.trim() || (category ? `${CATEGORY_LABELS[category]} · ${locationLabel}` : "Sin título");
+    const isNearby = true; // they're reporting from their location
+
+    return (
+      <>
+        <Text style={S.sheetLabel}>Así se verá en la red</Text>
+
+        {/* Preview card */}
+        <View style={S.previewCard}>
+          <View style={S.previewHead}>
+            <View style={S.previewThumb} />
+            <View style={{ flex: 1, gap: 4 }}>
+              <View style={S.previewCat}>
+                <Ionicons name={(category ? CATEGORY_ICONS[category] : "alert-circle") as any} size={10} color="#FF6060" />
+                <Text style={S.previewCatText}>{category ? CATEGORY_LABELS[category].toUpperCase() : "INCIDENTE"}</Text>
+              </View>
+              <Text style={S.previewTitle} numberOfLines={2}>{displayTitle}</Text>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
+                <Ionicons name="location-outline" size={11} color="rgba(255,255,255,0.55)" />
+                <Text style={S.previewMeta}>{locationLabel} · Ahora</Text>
+              </View>
+            </View>
+          </View>
+        </View>
+
+        <Text style={S.sheetLabel}>Distribución</Text>
+
+        {/* Distribution cells */}
+        <View style={S.distRow}>
+          <View style={S.distCell}>
+            <Text style={S.distNum}>{vigias.toLocaleString()}</Text>
+            <Text style={S.distLabel}>VIGÍAS A 5 KM</Text>
+          </View>
+          <View style={S.distCell}>
+            <Text style={S.distNum}>8</Text>
+            <Text style={S.distLabel}>CONF. PARA VERIFICAR</Text>
+          </View>
+        </View>
+
+        {/* Geo trust bonus */}
+        {isNearby && (
+          <View style={S.trustBlock}>
+            <Ionicons name="shield-checkmark" size={18} color="#66FF8C" />
+            <View style={{ flex: 1 }}>
+              <Text style={S.trustText}>
+                Estás en el lugar del evento.
+              </Text>
+              <Text style={S.trustSub}>Tu reporte pesa 5× en confirmaciones cercanas.</Text>
+            </View>
+          </View>
+        )}
+      </>
+    );
+  }
+
+  function renderStep4() {
+    const displayTitle = title.trim() || (category ? `${CATEGORY_LABELS[category]} · ${locationLabel}` : "Sin título");
+
+    return (
+      <>
+        {/* Success mark */}
+        <View style={S.successWrap}>
+          {/* Halo ring */}
+          <Animated.View
+            pointerEvents="none"
+            style={[S.successHaloRing, { transform: [{ scale: haloScale }], opacity: haloOpacity }]}
+          />
+          {/* Main circle */}
+          <Animated.View style={[S.successMark, { transform: [{ scale: successScale }] }]}>
+            <Ionicons name="checkmark" size={38} color="#001a07" />
+          </Animated.View>
+          <Text style={S.successTitle}>{vigias.toLocaleString()} vigías ya lo están viendo.</Text>
+          <Text style={S.successSub}>
+            Tu alerta llegó a {locationLabel}. Recibirás notificaciones cuando confirmen o desmientan.
           </Text>
+        </View>
+
+        {/* Preview card */}
+        <View style={S.previewCard}>
+          <View style={S.previewHead}>
+            <View style={S.previewThumb} />
+            <View style={{ flex: 1, gap: 4 }}>
+              <View style={S.previewCat}>
+                <Ionicons name={(category ? CATEGORY_ICONS[category] : "alert-circle") as any} size={10} color="#FF6060" />
+                <Text style={S.previewCatText}>{category ? CATEGORY_LABELS[category].toUpperCase() : "INCIDENTE"}</Text>
+              </View>
+              <Text style={S.previewTitle} numberOfLines={2}>{displayTitle}</Text>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
+                <Ionicons name="shield-checkmark" size={11} color="#66FF8C" />
+                <Text style={[S.previewMeta, { color: "#66FF8C", fontWeight: "700" }]}>0/8 confirmaciones</Text>
+                <Text style={S.previewMeta}>· ahora</Text>
+              </View>
+            </View>
+          </View>
+        </View>
+
+        {/* Actions */}
+        <View style={S.successActions}>
+          <Pressable style={S.successActionSec} onPress={() => router.replace("/(tabs)/")}>
+            <Ionicons name="map" size={14} color="#fff" />
+            <Text style={S.successActionSecText}>Ver en mapa</Text>
+          </Pressable>
+          <Pressable style={S.successActionPri} onPress={() => router.back()}>
+            <Ionicons name="eye-outline" size={14} color="#fff" />
+            <Text style={S.successActionPriText}>Seguir alerta</Text>
+          </Pressable>
+        </View>
+      </>
+    );
+  }
+
+  // ── Main render ──────────────────────────────────────────────────────────
+
+  const isStep4 = step === 4;
+
+  if (locationLoading) {
+    return (
+      <View style={[S.root, { alignItems: "center", justifyContent: "center", gap: 20, paddingHorizontal: 32 }]}>
+        <LinearGradient colors={["rgba(40,15,8,0.92)", "rgba(0,0,0,0.97)"]} style={StyleSheet.absoluteFill} />
+        <View style={S.locLoadingIcon}>
+          <Ionicons name="location" size={30} color="#6BE0FF" />
+        </View>
+        <Text style={S.locLoadingTitle}>OBTENIENDO UBICACIÓN</Text>
+        <Text style={S.locLoadingSub}>
+          Necesitamos saber dónde ocurre el incidente para que tu reporte llegue a las personas correctas.
+        </Text>
+        <Pressable style={S.locSkipBtn} onPress={() => setLocationLoading(false)}>
+          <Text style={S.locSkipText}>Continuar sin GPS</Text>
         </Pressable>
-      </ScrollView>
-    </SafeAreaView>
+      </View>
+    );
+  }
+
+  return (
+    <View style={S.root}>
+      {/* Dark blurred backdrop */}
+      <LinearGradient
+        colors={["rgba(40,15,8,0.92)", "rgba(0,0,0,0.97)"]}
+        style={StyleSheet.absoluteFill}
+      />
+
+      {/* Nearby alert context widget */}
+      {nearbyAlert && !isStep4 && (
+        <SafeAreaView style={S.safeTop} edges={["top"]}>
+          <Pressable
+            style={({ pressed }) => [S.nearbyWidget, pressed && S.nearbyWidgetPressed]}
+            onPress={() => router.push(`/alert/${nearbyAlert.id}` as any)}
+          >
+            <View style={S.nearbyDot}>
+              <Ionicons
+                name={(CATEGORY_ICONS[nearbyAlert.category] ?? "alert-circle") as any}
+                size={18}
+                color="#FF6060"
+              />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={S.nearbyTag}>ALERTA ABIERTA · CERCA</Text>
+              <Text style={S.nearbyTitle} numberOfLines={1}>
+                {CATEGORY_LABELS[nearbyAlert.category]} · {nearbyAlert.neighborhood ?? locationLabel}
+              </Text>
+            </View>
+            <View style={S.nearbyAportarBtn}>
+              <Text style={S.nearbyAportar}>APORTAR</Text>
+              <Ionicons name="chevron-forward" size={11} color="#66FF8C" />
+            </View>
+          </Pressable>
+        </SafeAreaView>
+      )}
+
+      {/* Sheet — deja espacio arriba para no encimarse con el widget de alerta cercana */}
+      <SafeAreaView
+        style={[
+          S.safeSheet,
+          nearbyAlert && !isStep4 && { paddingTop: insets.top + 78 },
+        ]}
+        edges={["bottom"]}
+      >
+        <View style={S.sheet}>
+          {/* Handle */}
+          <View style={S.handle} />
+
+          {/* Head */}
+          {isStep4 ? (
+            <View style={S.sheetHead}>
+              <Text style={S.sheetTitle}>Reporte enviado</Text>
+              <View style={S.chipAnon}>
+                <Ionicons name="eye-off" size={11} color="#66FF8C" />
+                <Text style={S.chipAnonText}>ANÓNIMO</Text>
+              </View>
+            </View>
+          ) : (
+            <View style={S.sheetHead}>
+              <Text style={S.sheetTitle}>{step === 3 ? "Revisa" : "Reportar"}</Text>
+              <StepDots current={step} />
+              <Pressable style={S.closeBtn} onPress={() => router.back()}>
+                <Ionicons name="close" size={14} color="#fff" />
+              </Pressable>
+            </View>
+          )}
+
+          {/* Location chips (steps 1–2) */}
+          {step <= 2 && <ContextChips locationLabel={locationLabel} />}
+
+          {/* Step content */}
+          <ScrollView
+            style={{ flex: 1 }}
+            contentContainerStyle={S.scrollContent}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+          >
+            {step === 1 && renderStep1()}
+            {step === 2 && renderStep2()}
+            {step === 3 && renderStep3()}
+            {step === 4 && renderStep4()}
+          </ScrollView>
+
+          {/* CTA — steps 2 & 3 */}
+          {step === 2 && (
+            <View style={S.ctaWrap}>
+              <Pressable
+                style={[S.cta, !category && S.ctaDisabled]}
+                onPress={() => {
+                  if (!category) { Alert.alert("Falta categoría", "Selecciona el tipo de incidente."); return; }
+                  setStep(3);
+                }}
+              >
+                <LinearGradient
+                  colors={["#FF6B3A", "#E84F1F"]}
+                  style={StyleSheet.absoluteFill}
+                />
+                <Text style={S.ctaText}>REVISAR Y ENVIAR</Text>
+                <Ionicons name="arrow-forward" size={16} color="#fff" />
+              </Pressable>
+            </View>
+          )}
+
+          {step === 3 && (
+            <View style={S.ctaWrap}>
+              <Pressable style={[S.cta, submitting && S.ctaDisabled]} onPress={handleSubmit} disabled={submitting}>
+                <LinearGradient
+                  colors={["#FF6B3A", "#E84F1F"]}
+                  style={StyleSheet.absoluteFill}
+                />
+                <Ionicons name="paper-plane" size={16} color="#fff" />
+                <Text style={S.ctaText}>{submitting ? "ENVIANDO..." : "ENVIAR ALERTA"}</Text>
+              </Pressable>
+              <Text style={S.ctaHelper}>Tu identidad permanece anónima · 0 metadatos personales</Text>
+            </View>
+          )}
+        </View>
+      </SafeAreaView>
+
+    </View>
   );
 }
 
-const createStyles = (theme: any, themeMode: string) => StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: theme.colors.background,
+// ── Styles ────────────────────────────────────────────────────────────────────
+
+const S = StyleSheet.create({
+  root: { flex: 1, backgroundColor: "#050202" },
+
+  // Location loading screen
+  locLoadingIcon: {
+    width: 72, height: 72, borderRadius: 36,
+    backgroundColor: "rgba(0,224,255,0.1)",
+    borderWidth: 1, borderColor: "rgba(0,224,255,0.35)",
+    alignItems: "center", justifyContent: "center",
   },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    backgroundColor: themeMode === "light" ? "rgba(255,255,255,0.8)" : "rgba(0,0,0,0.8)",
-    borderBottomWidth: 1.5,
-    borderColor: themeMode === "light" ? "rgba(255,255,255,0.5)" : "rgba(255,255,255,0.1)",
+  locLoadingTitle: {
+    fontSize: 13, fontWeight: "700", letterSpacing: 2,
+    color: "#6BE0FF", fontFamily: "SpaceGrotesk_700Bold",
   },
-  headerSpacer: {
-    width: 32,
+  locLoadingSub: {
+    fontSize: 13, color: "rgba(255,255,255,0.4)", textAlign: "center",
+    lineHeight: 19, fontFamily: "SpaceGrotesk_500Medium",
   },
-  backButton: {
-    width: 32,
-    height: 32,
-    borderRadius: theme.radius.pill,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    backgroundColor: theme.colors.surface,
-    alignItems: "center",
-    justifyContent: "center",
+  locSkipBtn: {
+    marginTop: 8, paddingHorizontal: 20, paddingVertical: 10,
+    borderRadius: 999, borderWidth: 1, borderColor: "rgba(255,255,255,0.15)",
   },
-  title: {
-    color: theme.colors.text,
-    fontSize: 18,
-    fontFamily: theme.fonts.heading,
+  locSkipText: { fontSize: 12, color: "rgba(255,255,255,0.45)", fontFamily: "SpaceGrotesk_500Medium" },
+  safeTop: { position: "absolute", top: 0, left: 0, right: 0, zIndex: 10 },
+  safeSheet: { flex: 1, justifyContent: "flex-end" },
+
+  // Nearby widget
+  nearbyWidget: {
+    flexDirection: "row", alignItems: "center", gap: 10,
+    margin: 14, marginTop: 8,
+    padding: 10, paddingHorizontal: 12,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    borderWidth: 1, borderColor: "rgba(255,255,255,0.08)",
+    borderRadius: 14,
   },
-  container: {
-    paddingHorizontal: 16,
-    paddingBottom: 60,
-    paddingTop: 16,
-    gap: 18,
+  nearbyWidgetPressed: { opacity: 0.7 },
+  nearbyDot: {
+    width: 36, height: 36, borderRadius: 10,
+    backgroundColor: "#1a0c05",
+    borderWidth: 1, borderColor: "rgba(255,96,96,0.3)",
+    alignItems: "center", justifyContent: "center",
   },
-  formGroupGlass: {
-    padding: 16,
-    borderRadius: theme.radius.xl,
+  nearbyTag: { fontSize: 10, fontWeight: "700", letterSpacing: 1.4, color: "#FF6060" },
+  nearbyTitle: { fontSize: 12, fontWeight: "700", color: "#fff" },
+  nearbyAportarBtn: {
+    flexDirection: "row", alignItems: "center", gap: 3,
+    paddingHorizontal: 10, paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: "rgba(102,255,140,0.12)",
+    borderWidth: 1, borderColor: "rgba(102,255,140,0.3)",
+  },
+  nearbyAportar: { fontSize: 10, fontWeight: "700", letterSpacing: 1, color: "#66FF8C" },
+
+  // Sheet
+  sheet: {
+    backgroundColor: "#0F0B08",
+    borderTopLeftRadius: 26, borderTopRightRadius: 26,
+    borderTopWidth: 1, borderColor: "rgba(255,255,255,0.10)",
+    paddingHorizontal: 14, paddingBottom: 8,
+    flex: 1, maxHeight: "93%",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: -24 }, shadowOpacity: 0.7, shadowRadius: 20,
+    elevation: 30,
+  },
+  handle: {
+    width: 44, height: 5, borderRadius: 999,
+    backgroundColor: "rgba(255,255,255,0.18)",
+    alignSelf: "center", marginVertical: 10,
+  },
+  sheetHead: {
+    flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 2, marginBottom: 10,
+  },
+  sheetTitle: {
+    fontSize: 17, fontWeight: "700", letterSpacing: -0.3, color: "#fff", fontFamily: "SpaceGrotesk_700Bold",
+  },
+  closeBtn: {
+    width: 28, height: 28, borderRadius: 999,
+    backgroundColor: "rgba(255,255,255,0.08)",
+    borderWidth: 1, borderColor: "rgba(255,255,255,0.12)",
+    alignItems: "center", justifyContent: "center",
+  },
+  stepDots: { flexDirection: "row", gap: 4, marginLeft: "auto" },
+  stepDot: { width: 18, height: 4, borderRadius: 999, backgroundColor: "rgba(255,255,255,0.15)" },
+  stepDotActive: { backgroundColor: "#FF4500", shadowColor: "#FF4500", shadowOpacity: 0.5, shadowRadius: 4, shadowOffset: { width: 0, height: 0 } },
+  stepDotPlayed: { backgroundColor: "rgba(255,107,58,0.5)" },
+
+  // Chips
+  chips: { flexDirection: "row", gap: 6, marginBottom: 10 },
+  chipLoc: {
+    flexDirection: "row", alignItems: "center", gap: 5,
+    paddingHorizontal: 9, paddingVertical: 4,
+    borderRadius: 999, fontSize: 10,
+    backgroundColor: "rgba(0,224,255,0.14)",
+    borderWidth: 1, borderColor: "rgba(0,224,255,0.4)",
+  },
+  chipLocText: { fontSize: 10, fontWeight: "700", letterSpacing: 1, color: "#6BE0FF", fontFamily: "SpaceGrotesk_700Bold" },
+  chipAnon: {
+    flexDirection: "row", alignItems: "center", gap: 5,
+    paddingHorizontal: 9, paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: "rgba(0,255,65,0.16)",
+    borderWidth: 1, borderColor: "rgba(0,255,65,0.4)",
+  },
+  chipAnonText: { fontSize: 10, fontWeight: "700", letterSpacing: 1, color: "#66FF8C", fontFamily: "SpaceGrotesk_700Bold" },
+
+  scrollContent: { gap: 12, paddingBottom: 8 },
+
+  // Viewfinder (step 1)
+  viewfinder: {
+    aspectRatio: 1, borderRadius: 18,
+    backgroundColor: "#0d0605",
     overflow: "hidden",
-    borderWidth: 1.5,
-    borderColor: themeMode === "light" ? "rgba(255,255,255,0.5)" : "rgba(255,255,255,0.1)",
+    alignItems: "center", justifyContent: "center",
+    borderWidth: 1, borderColor: "rgba(255,255,255,0.06)",
   },
-  sectionTitle: {
-    color: theme.colors.text,
-    fontSize: 15,
-    fontFamily: theme.fonts.heading,
+  corner: { position: "absolute", width: 18, height: 18, borderColor: "rgba(255,255,255,0.8)", borderWidth: 2 },
+  cornerTL: { top: 12, left: 12, borderRightWidth: 0, borderBottomWidth: 0 },
+  cornerTR: { top: 12, right: 12, borderLeftWidth: 0, borderBottomWidth: 0 },
+  cornerBL: { bottom: 12, left: 12, borderRightWidth: 0, borderTopWidth: 0 },
+  cornerBR: { bottom: 12, right: 12, borderLeftWidth: 0, borderTopWidth: 0 },
+  recChip: {
+    position: "absolute", top: 10, right: 10,
+    flexDirection: "row", alignItems: "center", gap: 5,
+    paddingHorizontal: 9, paddingVertical: 4,
+    backgroundColor: "rgba(255,255,255,0.12)", borderRadius: 999,
   },
-  categoryWrap: {
+  recChipActive: {
+    backgroundColor: "rgba(255,0,0,0.85)",
+  },
+  recDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: "#fff" },
+  recText: { fontSize: 9, fontWeight: "800", letterSpacing: 1.6, color: "#fff", fontFamily: "SpaceGrotesk_700Bold" },
+  vfTimer: {
+    position: "absolute", bottom: 10, alignSelf: "center",
+    backgroundColor: "rgba(0,0,0,0.5)",
+    paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6,
+  },
+  vfTimerText: { fontSize: 12, fontWeight: "700", color: "#fff", fontFamily: "SpaceGrotesk_700Bold" },
+  vfHint: { alignItems: "center", justifyContent: "center" },
+  camPermBtn: { alignItems: "center", gap: 10 },
+  camPermText: { fontSize: 12, color: "rgba(255,255,255,0.45)", fontFamily: "SpaceGrotesk_500Medium" },
+
+  // Mode selector
+  modeRow: {
     flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
+    backgroundColor: "rgba(255,255,255,0.05)",
+    borderWidth: 1, borderColor: "rgba(255,255,255,0.08)",
+    borderRadius: 999, padding: 3, alignSelf: "center",
   },
-  categoryPill: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    borderRadius: theme.radius.pill,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    backgroundColor: theme.colors.surface,
+  modeBtn: {
+    flexDirection: "row", alignItems: "center", gap: 5,
+    paddingHorizontal: 14, paddingVertical: 6,
+    borderRadius: 999,
   },
-  categoryPillActive: {
-    borderColor: theme.colors.reportAction,
-    backgroundColor: themeMode === "light" ? "#E3F2FD" : "rgba(0,224,255,0.1)",
+  modeBtnActive: {
+    backgroundColor: "#FF4500",
+    shadowColor: "#FF4500", shadowOpacity: 0.4, shadowRadius: 8, shadowOffset: { width: 0, height: 4 },
   },
-  categoryText: {
-    color: theme.colors.textMuted,
-    fontSize: 12,
-    fontFamily: theme.fonts.body,
+  modeBtnText: { fontSize: 11, fontWeight: "700", letterSpacing: 1.2, color: "rgba(255,255,255,0.5)", fontFamily: "SpaceGrotesk_700Bold" },
+  modeBtnTextActive: { color: "#fff" },
+
+  // Shutter row
+  shutterRow: {
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+    paddingHorizontal: 6, paddingTop: 4,
   },
-  categoryTextActive: {
-    color: themeMode === "light" ? theme.colors.reportAction : "#00E0FF",
-    fontFamily: theme.fonts.heading,
+  shutterSide: { alignItems: "center", gap: 4, flex: 1 },
+  shutterSideBtn: {
+    width: 36, height: 36, borderRadius: 999,
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderWidth: 1, borderColor: "rgba(255,255,255,0.12)",
+    alignItems: "center", justifyContent: "center",
   },
-  mapCard: {
-    height: 180,
-    borderRadius: theme.radius.xl,
-    overflow: "hidden",
-    borderWidth: 1,
-    borderColor: theme.colors.border,
+  shutterSideLabel: { fontSize: 9, fontWeight: "700", letterSpacing: 1.2, color: "rgba(255,255,255,0.6)", fontFamily: "SpaceGrotesk_700Bold" },
+  shutterRing: {
+    width: 64, height: 64, borderRadius: 32,
+    borderWidth: 3, borderColor: "#fff",
+    alignItems: "center", justifyContent: "center",
   },
-  mapCardExpanded: {
-    height: 360,
+  shutterInner: {
+    width: 46, height: 46, borderRadius: 23,
+    backgroundColor: "#FF0000",
+    shadowColor: "#FF0000", shadowOpacity: 0.7, shadowRadius: 8, shadowOffset: { width: 0, height: 0 },
   },
-  expandButton: {
-    position: "absolute",
-    top: 10,
-    left: 10,
-    width: 36,
-    height: 36,
-    borderRadius: theme.radius.pill,
-    backgroundColor: themeMode === "light" ? "rgba(255,255,255,0.9)" : "rgba(18,18,18,0.9)",
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    alignItems: "center",
-    justifyContent: "center",
+  shutterInnerRec: { backgroundColor: "#FF6060" },
+  skipBtn: {
+    flexDirection: "row", alignItems: "center", gap: 5,
+    alignSelf: "center", paddingVertical: 8,
   },
-  mapOverlay: {
-    position: "absolute",
-    bottom: 10,
-    left: 10,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: theme.radius.pill,
-    backgroundColor: themeMode === "light" ? "rgba(255,255,255,0.9)" : "rgba(18,18,18,0.9)",
+  skipBtnText: { fontSize: 12, color: "rgba(255,255,255,0.35)", fontFamily: "SpaceGrotesk_500Medium" },
+
+  // Evidence row (step 2)
+  evidenceRow: {
+    flexDirection: "row", alignItems: "center", gap: 8,
+    padding: 8,
+    backgroundColor: "rgba(255,255,255,0.04)",
+    borderWidth: 1, borderColor: "rgba(255,255,255,0.08)",
+    borderRadius: 14,
   },
-  webMap: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    backgroundColor: theme.colors.surfaceAlt,
+  evidenceThumb: {
+    width: 44, height: 56, borderRadius: 8,
+    backgroundColor: "#1a0c05",
+    alignItems: "center", justifyContent: "center",
+    flexShrink: 0, overflow: "hidden",
   },
-  webMapText: {
-    color: theme.colors.textMuted,
-    fontSize: 12,
-    fontFamily: theme.fonts.body,
-    textAlign: "center",
-    maxWidth: 200,
+  evidenceThumbPlay: { position: "absolute" },
+  evidencePlayTriangle: {
+    width: 0, height: 0,
+    borderLeftWidth: 8, borderTopWidth: 5, borderBottomWidth: 5,
+    borderLeftColor: "#fff", borderTopColor: "transparent", borderBottomColor: "transparent",
   },
-  locationButton: {
-    position: "absolute",
-    top: 10,
-    right: 10,
-    width: 36,
-    height: 36,
-    borderRadius: theme.radius.pill,
-    backgroundColor: themeMode === "light" ? "rgba(255,255,255,0.9)" : "rgba(18,18,18,0.9)",
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    alignItems: "center",
-    justifyContent: "center",
+  evidenceLabel: { fontSize: 12, fontWeight: "700", color: "#fff", fontFamily: "SpaceGrotesk_700Bold" },
+  evidenceSub: { fontSize: 10.5, color: "rgba(255,255,255,0.6)", marginTop: 2, fontFamily: "SpaceGrotesk_500Medium" },
+  evidenceAdd: {
+    width: 36, height: 56, borderRadius: 8,
+    backgroundColor: "rgba(255,255,255,0.04)",
+    borderWidth: 1, borderStyle: "dashed", borderColor: "rgba(255,255,255,0.18)",
+    alignItems: "center", justifyContent: "center",
   },
-  mapHint: {
-    color: theme.colors.textMuted,
-    fontSize: 11,
-    fontFamily: theme.fonts.body,
+
+  // Label
+  sheetLabel: {
+    fontSize: 9, fontWeight: "800", letterSpacing: 1.8,
+    color: "rgba(255,255,255,0.5)", textTransform: "uppercase",
+    fontFamily: "SpaceGrotesk_700Bold", marginTop: 4,
   },
-  textInputSingle: {
-    height: 52,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    borderRadius: theme.radius.md,
-    paddingHorizontal: 12,
-    color: theme.colors.text,
-    backgroundColor: theme.colors.surfaceAlt,
-    fontFamily: theme.fonts.body,
+
+  // Category grid
+  catGrid: { display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 6 },
+  catCell: {
+    width: "31.5%", alignItems: "center", gap: 4,
+    paddingVertical: 9, paddingHorizontal: 4,
+    borderRadius: 12,
+    backgroundColor: "rgba(255,255,255,0.04)",
+    borderWidth: 1, borderColor: "rgba(255,255,255,0.08)",
   },
-  textInput: {
-    minHeight: 100,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    borderRadius: theme.radius.md,
+  catCellActive: {
+    backgroundColor: "rgba(255,0,0,0.16)",
+    borderColor: "rgba(255,0,0,0.5)",
+    shadowColor: "#FF0000", shadowOpacity: 0.25, shadowRadius: 10, shadowOffset: { width: 0, height: 4 },
+  },
+  catLabel: { fontSize: 9.5, fontWeight: "700", letterSpacing: 0.4, color: "rgba(255,255,255,0.65)", textAlign: "center", fontFamily: "SpaceGrotesk_700Bold" },
+  catLabelActive: { color: "#FF6060" },
+
+  // Title input
+  titleInput: {
+    paddingHorizontal: 12, paddingVertical: 10,
+    backgroundColor: "rgba(255,255,255,0.04)",
+    borderWidth: 1, borderColor: "rgba(255,255,255,0.1)",
+    borderRadius: 12,
+    fontSize: 13, color: "#fff",
+    fontFamily: "SpaceGrotesk_500Medium",
+  },
+
+  // Source tags
+  tagRow: { flexDirection: "row", gap: 6, flexWrap: "wrap" },
+  tag: {
+    flexDirection: "row", alignItems: "center", gap: 5,
+    paddingHorizontal: 9, paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: "rgba(255,255,255,0.04)",
+    borderWidth: 1, borderColor: "rgba(255,255,255,0.1)",
+  },
+  tagActive: {
+    backgroundColor: "rgba(0,224,255,0.14)",
+    borderColor: "rgba(0,224,255,0.5)",
+  },
+  tagText: { fontSize: 10.5, fontWeight: "700", color: "rgba(255,255,255,0.6)", fontFamily: "SpaceGrotesk_700Bold" },
+  tagTextActive: { color: "#6BE0FF" },
+
+  // Preview card (steps 3 & 4)
+  previewCard: {
     padding: 12,
-    color: theme.colors.text,
-    backgroundColor: theme.colors.surfaceAlt,
-    fontFamily: theme.fonts.body,
-    textAlignVertical: "top",
+    backgroundColor: "rgba(255,255,255,0.04)",
+    borderWidth: 1, borderColor: "rgba(255,255,255,0.08)",
+    borderRadius: 14,
   },
-  mediaActions: {
-    flexDirection: "row",
-    gap: 12,
-    marginBottom: 4,
+  previewHead: { flexDirection: "row", alignItems: "center", gap: 8 },
+  previewThumb: {
+    width: 56, height: 70, borderRadius: 10, flexShrink: 0,
+    backgroundColor: "#1a0c05",
+    borderWidth: 1, borderColor: "rgba(255,255,255,0.1)",
   },
-  mediaActionBtn: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 10,
-    backgroundColor: theme.colors.surface,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    paddingVertical: 14,
-    borderRadius: theme.radius.xl,
+  previewCat: {
+    flexDirection: "row", alignItems: "center", gap: 4, alignSelf: "flex-start",
+    paddingHorizontal: 7, paddingVertical: 2, borderRadius: 999,
+    backgroundColor: "rgba(255,0,0,0.2)", borderWidth: 1, borderColor: "rgba(255,0,0,0.5)",
   },
-  mediaActionBtnActive: {
-    backgroundColor: theme.colors.danger,
-    borderColor: theme.colors.danger,
+  previewCatText: { fontSize: 9.5, fontWeight: "700", letterSpacing: 0.4, color: "#FF6060", fontFamily: "SpaceGrotesk_700Bold" },
+  previewTitle: { fontSize: 13, fontWeight: "700", color: "#fff", letterSpacing: -0.1, lineHeight: 18, fontFamily: "SpaceGrotesk_700Bold" },
+  previewMeta: { fontSize: 10.5, color: "rgba(255,255,255,0.6)", fontFamily: "SpaceGrotesk_500Medium" },
+
+  // Distribution (step 3)
+  distRow: { flexDirection: "row", gap: 6 },
+  distCell: {
+    flex: 1, padding: 10,
+    backgroundColor: "rgba(0,224,255,0.08)",
+    borderWidth: 1, borderColor: "rgba(0,224,255,0.22)",
+    borderRadius: 10,
   },
-  mediaActionText: {
-    fontSize: 14,
-    fontFamily: theme.fonts.heading,
-    color: theme.colors.text,
-  },
-  mediaActionTextActive: {
-    color: theme.colors.surface,
-  },
-  mediaPreviewList: {
-    marginBottom: 10,
-  },
-  mediaPreviewItem: {
-    marginRight: 10,
-    position: "relative",
-  },
-  mediaPreviewThumb: {
-    width: 64,
-    height: 64,
+  distNum: { fontSize: 16, fontWeight: "700", color: "#6BE0FF", letterSpacing: -0.1, fontFamily: "SpaceGrotesk_700Bold" },
+  distLabel: { fontSize: 9.5, fontWeight: "700", letterSpacing: 1, textTransform: "uppercase", color: "rgba(107,224,255,0.7)", marginTop: 2, fontFamily: "SpaceGrotesk_700Bold" },
+
+  // Trust block (step 3)
+  trustBlock: {
+    flexDirection: "row", alignItems: "center", gap: 10,
+    padding: 10, paddingHorizontal: 12,
+    backgroundColor: "rgba(0,255,65,0.06)",
+    borderWidth: 1, borderColor: "rgba(0,255,65,0.25)",
     borderRadius: 12,
   },
-  audioPreview: {
-    width: 64,
-    height: 64,
-    borderRadius: 12,
-    backgroundColor: theme.colors.surfaceAlt,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: theme.colors.reportAction,
+  trustText: { fontSize: 11, color: "rgba(0,255,65,0.85)", fontFamily: "SpaceGrotesk_700Bold" },
+  trustSub: { fontSize: 10, color: "rgba(0,255,65,0.65)", marginTop: 1, fontFamily: "SpaceGrotesk_500Medium" },
+
+  // CTA
+  ctaWrap: { paddingTop: 8, paddingBottom: 4, gap: 6 },
+  cta: {
+    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
+    padding: 14, borderRadius: 14, overflow: "hidden",
   },
-  removeMedia: {
+  ctaDisabled: { opacity: 0.5 },
+  ctaText: { fontSize: 13, fontWeight: "800", letterSpacing: 1.6, color: "#fff", fontFamily: "SpaceGrotesk_700Bold" },
+  ctaHelper: { textAlign: "center", fontSize: 10.5, color: "rgba(255,255,255,0.4)", fontFamily: "SpaceGrotesk_500Medium" },
+
+  // Success (step 4)
+  successWrap: { alignItems: "center", gap: 14, paddingVertical: 16, paddingHorizontal: 12 },
+  successHaloRing: {
     position: "absolute",
-    top: -5,
-    right: -5,
-    backgroundColor: theme.colors.surface,
-    borderRadius: 99,
+    width: 96, height: 96, borderRadius: 48,
+    borderWidth: 2, borderColor: "rgba(0,255,65,0.5)",
   },
-  submitButton: {
-    marginTop: 20,
-    height: 56,
-    borderRadius: theme.radius.pill,
-    backgroundColor: theme.colors.reportAction,
+  successMark: {
+    width: 76, height: 76, borderRadius: 38,
+    backgroundColor: "#00FF41",
+    alignItems: "center", justifyContent: "center",
+    shadowColor: "#00FF41", shadowOpacity: 0.5, shadowRadius: 20, shadowOffset: { width: 0, height: 0 },
+    elevation: 20,
+  },
+  successTitle: { fontSize: 22, fontWeight: "700", color: "#fff", textAlign: "center", letterSpacing: -0.4, fontFamily: "SpaceGrotesk_700Bold" },
+  successSub: { fontSize: 12.5, color: "rgba(255,255,255,0.6)", textAlign: "center", lineHeight: 18, fontFamily: "SpaceGrotesk_500Medium" },
+  successActions: { flexDirection: "row", gap: 8 },
+  successActionSec: {
+    flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6,
+    padding: 12, borderRadius: 12,
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderWidth: 1, borderColor: "rgba(255,255,255,0.1)",
+  },
+  successActionSecText: { fontSize: 12, fontWeight: "700", color: "#fff", letterSpacing: 1, fontFamily: "SpaceGrotesk_700Bold" },
+  successActionPri: {
+    flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6,
+    padding: 12, borderRadius: 12,
+    backgroundColor: "#FF4500",
+  },
+  successActionPriText: { fontSize: 12, fontWeight: "700", color: "#fff", letterSpacing: 1, fontFamily: "SpaceGrotesk_700Bold" },
+
+  // Audio waveform
+  waveformWrap: {
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: theme.colors.reportAction,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 10,
-    elevation: 6,
+    gap: 3,
+    paddingHorizontal: 20,
+    height: 72,
   },
-  submitButtonDisabled: {
-    opacity: 0.6,
-  },
-  locationWarning: {
-    color: theme.colors.danger,
-    fontSize: 13,
-    fontFamily: theme.fonts.body,
-    textAlign: "center",
-    marginTop: 8,
-  },
-  submitText: {
-    color: theme.colors.surface,
-    fontSize: 16,
-    fontFamily: theme.fonts.heading,
-    letterSpacing: 1,
+  wavebar: {
+    width: 3,
+    height: 64,
+    borderRadius: 2,
+    backgroundColor: "#FF4500",
+    shadowColor: "#FF4500",
+    shadowOpacity: 0.6,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 0 },
   },
 });

@@ -8,9 +8,10 @@ import { useAlertyTheme } from "../lib/useAlertyTheme";
 type AlertCardProps = {
   alert: AlertItem;
   onPress?: () => void;
+  onPressVideo?: () => void;
 };
 
-export function AlertCard({ alert, onPress }: AlertCardProps) {
+export function AlertCard({ alert, onPress, onPressVideo }: AlertCardProps) {
   const theme = useAlertyTheme();
   const styles = createStyles(theme);
   const color = getIntensityColor(alert.createdAt);
@@ -20,6 +21,7 @@ export function AlertCard({ alert, onPress }: AlertCardProps) {
 
   const primaryText = alert.title ?? alert.description ?? "Sin descripción";
   const secondaryText = alert.title && alert.description ? alert.description : null;
+  const hasVideo = alert.media.some((m) => m.type === "video");
 
   return (
     <Pressable
@@ -74,12 +76,17 @@ export function AlertCard({ alert, onPress }: AlertCardProps) {
               <Text style={styles.voteText}>{alert.downvotes}</Text>
             </View>
           )}
-          {alert.media.length > 0 && (
-            <View style={styles.mediaPill}>
-              <Ionicons name="camera" size={11} color={theme.colors.textMuted} />
-              <Text style={styles.voteText}>{alert.media.length}</Text>
-            </View>
-          )}
+          {alert.media.length > 0 && !hasVideo && (() => {
+            const hasAudio = alert.media.some((m) => m.type === "audio");
+            const icon = hasVideo ? "film" : hasAudio ? "mic" : "camera";
+            const iconColor = hasVideo ? "#FF6B3A" : theme.colors.textMuted;
+            return (
+              <View style={[styles.mediaPill, hasVideo && styles.mediaPillVideo]}>
+                <Ionicons name={icon} size={11} color={iconColor} />
+                <Text style={[styles.voteText, hasVideo && { color: "#FF6B3A" }]}>{alert.media.length}</Text>
+              </View>
+            );
+          })()}
           {(alert.updates?.length ?? 0) > 0 && (
             <View style={styles.mediaPill}>
               <Ionicons name="chatbubble-outline" size={11} color={theme.colors.textMuted} />
@@ -88,6 +95,18 @@ export function AlertCard({ alert, onPress }: AlertCardProps) {
           )}
         </View>
       </View>
+
+      {hasVideo && (
+        <Pressable style={styles.videoThumb} onPress={onPressVideo ?? onPress}>
+          <View style={styles.videoThumbPlay}>
+            <Ionicons name="play" size={16} color="#fff" />
+          </View>
+          <View style={styles.videoThumbBadge}>
+            <Ionicons name="film" size={8} color="#FF6B3A" />
+            <Text style={styles.videoThumbBadgeText}>VIDEO</Text>
+          </View>
+        </Pressable>
+      )}
     </Pressable>
   );
 }
@@ -206,9 +225,46 @@ const createStyles = (theme: any) => StyleSheet.create({
     paddingHorizontal: 9,
     paddingVertical: 5,
   },
+  mediaPillVideo: {
+    backgroundColor: "rgba(255,107,58,0.1)",
+    borderColor: "rgba(255,107,58,0.35)",
+  },
   voteText: {
     color: theme.colors.textMuted,
     fontSize: 11,
     fontFamily: theme.fonts.body,
+  },
+  videoThumb: {
+    width: 78,
+    backgroundColor: "#16110E",
+    borderLeftWidth: 1,
+    borderLeftColor: theme.colors.border,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  videoThumbPlay: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "rgba(255,107,58,0.9)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  videoThumbBadge: {
+    position: "absolute",
+    bottom: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    borderRadius: theme.radius.pill,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  videoThumbBadgeText: {
+    color: "#FF6B3A",
+    fontSize: 8,
+    fontFamily: theme.fonts.heading,
+    letterSpacing: 0.6,
   },
 });

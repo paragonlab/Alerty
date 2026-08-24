@@ -1,8 +1,9 @@
 import { create } from "zustand";
-import type { AlertCategory, AlertItem, AlertUpdate, SponsoredZone, TimeFilter } from "./types";
+import type { AlertCategory, AlertItem, AlertMedia, AlertUpdate, SponsoredZone, TimeFilter } from "./types";
 import { ALERT_CATEGORIES, REPUTATION_LEVELS } from "./constants";
 import { baseAlerts, createRandomAlert } from "./mock";
 import { isSupabaseConfigured, supabase } from "../supabase";
+import { uploadMediaBatch } from "../upload";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import type { AlertUser } from "./types";
 
@@ -38,7 +39,8 @@ type AlertyState = {
   setPushEnabled: (value: boolean) => void;
   loadAlertsFromSupabase: () => Promise<void>;
   toggleFollowAlert: (id: string) => void;
-  addUpdateToAlert: (alertId: string, content: string) => Promise<void>;
+  addUpdateToAlert: (alertId: string, content: string, media?: AlertMedia[]) => Promise<void>;
+  addAngleAlert: (parentAlertId: string, video: AlertMedia) => Promise<void>;
   setMaxReportingDistance: (distance: number) => void;
   setSOSActive: (active: boolean) => void;
   setShowHeatmap: (show: boolean) => void;
@@ -51,6 +53,12 @@ type AlertyState = {
   recomputeVerifiedStatus: () => void;
   sponsoredZones: SponsoredZone[];
   loadSponsoredZones: () => Promise<void>;
+  feedViewMode: "list" | "reels";
+  setFeedViewMode: (mode: "list" | "reels") => void;
+  reelsInitialAlertId: string | null;
+  openReels: (alertId: string | null) => void;
+  unreadAlerts: number;
+  clearUnreadAlerts: () => void;
 };
 
 const syncPreference = async (key: string, value: any) => {
@@ -60,6 +68,11 @@ const syncPreference = async (key: string, value: any) => {
   
   await supabase.from("users").update({ [key]: value }).eq("id", session.user.id);
 };
+
+// Los IDs de alertas demo/locales (seed-, live-, local-) no son UUID y no
+// existen en la base de datos — sus mutaciones se quedan solo en memoria.
+const isDbId = (id: string) =>
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
 
 export const useAlertyStore = create<AlertyState>((set, get) => ({
   alerts: [],
@@ -88,6 +101,12 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
     followersCount: 0,
   },
   sponsoredZones: [],
+  feedViewMode: "list",
+  setFeedViewMode: (mode) => set({ feedViewMode: mode }),
+  reelsInitialAlertId: null,
+  openReels: (alertId) => set({ feedViewMode: "reels", reelsInitialAlertId: alertId }),
+  unreadAlerts: 0,
+  clearUnreadAlerts: () => set({ unreadAlerts: 0 }),
   startDemo: () => {
     const { demoStarted, demoInterval, alerts } = get();
     if (demoStarted) return;
@@ -135,6 +154,7 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
           createdAt: row.created_at,
           status: row.status ?? "active",
           neighborhood: undefined,
+          parentAlertId: row.parent_alert_id ?? undefined,
           upvotes: 0,
           downvotes: 0,
           media: [],
@@ -150,7 +170,12 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
           },
         };
 
-        set((state) => ({ alerts: [alert, ...state.alerts] }));
+        set((state) => ({
+          alerts: [alert, ...state.alerts],
+          unreadAlerts: alert.user.id !== state.currentUser.id
+            ? state.unreadAlerts + 1
+            : state.unreadAlerts,
+        }));
       },
     );
 
@@ -161,7 +186,7 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
         const row = payload.new as any;
         set((state) => ({
           alerts: state.alerts.map((alert) =>
-            alert.id === row.alert_id
+            alert.id === row.alert_id && !alert.media.some((m) => m.id === row.id)
               ? {
                   ...alert,
                   media: [
@@ -254,6 +279,9 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
     const isVerified = ratio >= 0.7 && !recentFalse;
     if (isVerified !== currentUser.isVerified) {
       set((state) => ({ currentUser: { ...state.currentUser, isVerified } }));
+      if (isSupabaseConfigured && supabase && currentUser.id !== "local-user") {
+        void supabase.from("users").update({ is_verified: isVerified }).eq("id", currentUser.id);
+      }
     }
   },
   voteAlert: (id, vote) => {
@@ -269,7 +297,7 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
     }));
     get().recomputeVerifiedStatus();
 
-    if (!isSupabaseConfigured || !supabase) return;
+    if (!isSupabaseConfigured || !supabase || !isDbId(id)) return;
     void supabase.auth.getUser().then(({ data }) => {
       const userId = data.user?.id;
       if (!userId) return;
@@ -304,14 +332,20 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
   },
   loadUserProfile: async () => {
     if (!isSupabaseConfigured || !supabase) return;
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session?.user) return;
-
-    const { data } = await supabase
-      .from("users")
-      .select("*")
-      .eq("id", session.user.id)
-      .single();
+    let data: any = null;
+    try {
+      const { data: sess } = await supabase.auth.getSession();
+      if (!sess?.session?.user) return;
+      const res = await supabase
+        .from("users")
+        .select("*")
+        .eq("id", sess.session.user.id)
+        .single();
+      data = res.data;
+    } catch (err) {
+      console.warn("loadUserProfile failed", err);
+      return;
+    }
 
     if (data) {
       set((state) => ({
@@ -340,11 +374,19 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
   },
   loadSponsoredZones: async () => {
     if (!isSupabaseConfigured || !supabase) return;
-    const { data, error } = await supabase
-      .from("sponsored_zones")
-      .select("id,name,description,lat,lng,type,logo_url")
-      .eq("status", "active");
-    if (error || !data) return;
+    let data: any[] | null = null;
+    try {
+      const res = await supabase
+        .from("sponsored_zones")
+        .select("id,name,description,lat,lng,type,logo_url")
+        .eq("status", "active");
+      if (res.error || !res.data) return;
+      data = res.data;
+    } catch (err) {
+      console.warn("loadSponsoredZones failed", err);
+      return;
+    }
+    if (!data) return;
     const zones: SponsoredZone[] = data.map((row: any) => ({
       id: row.id,
       name: row.name,
@@ -387,7 +429,8 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
   },
   loadAlertsFromSupabase: async () => {
     if (!isSupabaseConfigured || !supabase) return;
-    
+
+    try {
     // Load follows first if logged in
     const { data: { user } } = await supabase.auth.getUser();
     if (user) {
@@ -415,21 +458,36 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
     const { data } = await supabase
       .from("alerts")
       .select(`
-        id,category,lat,lng,title,description,created_at,status,
+        id,category,lat,lng,title,description,created_at,status,parent_alert_id,
         users(id,username,avatar_url,is_verified,is_premium,trust_score,followers_count),
-        media(id,media_url,media_type),
+        media(id,media_url,media_type,update_id),
         alert_updates(id,content,created_at,user_id,users(id,username,avatar_url,is_verified,is_premium))
       `)
       .order("created_at", { ascending: false })
       .limit(100);
 
     if (!data || data.length === 0) {
-      set({ alerts: baseAlerts });
-      get().startDemo();
+      set({ alerts: [] });
       return;
     }
 
-    const parsed: AlertItem[] = data.map((row: any) => ({
+    const alertIds = data.map((row: any) => row.id);
+    const { data: votes } = await supabase
+      .from("verifications")
+      .select("alert_id,vote_type")
+      .in("alert_id", alertIds);
+
+    const voteCounts = new Map<string, { up: number; down: number }>();
+    votes?.forEach((v: any) => {
+      const counts = voteCounts.get(v.alert_id) ?? { up: 0, down: 0 };
+      if (v.vote_type === "upvote") counts.up++;
+      else counts.down++;
+      voteCounts.set(v.alert_id, counts);
+    });
+
+    const parsed: AlertItem[] = data.map((row: any) => {
+      const counts = voteCounts.get(row.id) ?? { up: 0, down: 0 };
+      return {
       id: row.id,
       category: row.category,
       lat: row.lat,
@@ -439,8 +497,9 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
       createdAt: row.created_at,
       status: row.status ?? "active",
       neighborhood: undefined,
-      upvotes: 0,
-      downvotes: 0,
+      parentAlertId: row.parent_alert_id ?? undefined,
+      upvotes: counts.up,
+      downvotes: counts.down,
       media: (row.media ?? []).map((media: any) => ({
         id: media.id,
         url: media.media_url,
@@ -460,7 +519,10 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
             level: "CIUDADANO",
             followersCount: Number(upd.users?.followers_count ?? 0),
           },
-      })).sort((a: AlertUpdate, b: AlertUpdate) => 
+          media: (row.media ?? [])
+            .filter((m: any) => m.update_id === upd.id)
+            .map((m: any) => ({ id: m.id, url: m.media_url, type: m.media_type })),
+      })).sort((a: AlertUpdate, b: AlertUpdate) =>
         new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
       ),
       user: {
@@ -473,13 +535,17 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
         level: "CIUDADANO",
         followersCount: Number(row.users?.followers_count ?? 0),
       },
-    }));
+      };
+    });
 
     set({ alerts: parsed });
     get().recomputeVerifiedStatus();
+    } catch (err) {
+      console.warn("loadAlertsFromSupabase failed", err);
+    }
   },
   toggleFollowAlert: async (id) => {
-    if (!isSupabaseConfigured || !supabase) {
+    if (!isSupabaseConfigured || !supabase || !isDbId(id)) {
       set((state) => ({
         followingAlertIds: state.followingAlertIds.includes(id)
           ? state.followingAlertIds.filter((fid) => fid !== id)
@@ -501,8 +567,9 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
       await supabase.from("alert_follows").insert({ alert_id: id, user_id: user.id });
     }
   },
-  addUpdateToAlert: async (alertId, content) => {
-    if (!isSupabaseConfigured || !supabase) {
+  addUpdateToAlert: async (alertId, content, mediaItems = []) => {
+    if (!isSupabaseConfigured || !supabase || !isDbId(alertId)) {
+      const currentUser = get().currentUser;
       set((state) => ({
         alerts: state.alerts.map((alert) => {
           if (alert.id !== alertId) return alert;
@@ -510,19 +577,13 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
             id: `upd-${Date.now()}`,
             content,
             createdAt: new Date().toISOString(),
-            user: {
-          id: "local-user",
-          username: "@DemoUser",
-          avatarUrl: null,
-          isVerified: false,
-          trustScore: 0.1,
-          level: "CIUDADANO",
-          followersCount: 0,
-        },
+            user: currentUser,
+            media: mediaItems,
           };
           return {
             ...alert,
             updates: [newUpdate, ...(alert.updates ?? [])],
+            media: [...alert.media, ...mediaItems],
           };
         }),
       }));
@@ -547,6 +608,21 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
       return;
     }
 
+    let uploadedMedia: AlertMedia[] = [];
+    if (mediaItems.length > 0) {
+      uploadedMedia = await uploadMediaBatch(mediaItems);
+      if (uploadedMedia.length > 0) {
+        await supabase.from("media").insert(
+          uploadedMedia.map((m) => ({
+            alert_id: alertId,
+            update_id: data.id,
+            media_url: m.url,
+            media_type: m.type,
+          })),
+        );
+      }
+    }
+
     const newUpdate: AlertUpdate = {
       id: data.id,
       content: data.content,
@@ -560,15 +636,101 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
         level: (get().currentUser.level) || "CIUDADANO",
         followersCount: Number(data.users?.followers_count ?? 0),
       },
+      media: uploadedMedia,
     };
 
     set((state) => ({
       alerts: state.alerts.map((alert) =>
         alert.id === alertId
-          ? { ...alert, updates: [newUpdate, ...(alert.updates ?? [])] }
+          ? {
+              ...alert,
+              updates: [newUpdate, ...(alert.updates ?? [])],
+              media: [...alert.media, ...uploadedMedia],
+            }
           : alert
       ),
     }));
+
+    void supabase.functions
+      .invoke("notify-on-alert", { body: { type: "update", updateId: data.id } })
+      .catch(() => {});
+  },
+  addAngleAlert: async (parentAlertId, video) => {
+    const parent = get().alerts.find((a) => a.id === parentAlertId);
+    if (!parent) return;
+    const currentUser = get().currentUser;
+
+    // Demo/local o sin conexión: el aporte vive solo en memoria.
+    if (!isSupabaseConfigured || !supabase || !isDbId(parentAlertId)) {
+      const child: AlertItem = {
+        id: `local-${Date.now()}`,
+        user: currentUser,
+        category: parent.category,
+        lat: parent.lat,
+        lng: parent.lng,
+        title: "Otro ángulo",
+        createdAt: new Date().toISOString(),
+        status: "active",
+        media: [video],
+        upvotes: 0,
+        downvotes: 0,
+        neighborhood: parent.neighborhood,
+        parentAlertId,
+        updates: [],
+      };
+      set((state) => ({ alerts: [child, ...state.alerts] }));
+      return;
+    }
+
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    const { data, error } = await supabase
+      .from("alerts")
+      .insert({
+        user_id: user.id,
+        category: parent.category,
+        lat: parent.lat,
+        lng: parent.lng,
+        title: "Otro ángulo",
+        parent_alert_id: parentAlertId,
+      })
+      .select("id,created_at")
+      .single();
+
+    if (error || !data) {
+      console.error("Error adding angle:", error);
+      return;
+    }
+
+    const uploaded = await uploadMediaBatch([video]);
+    if (uploaded.length > 0) {
+      await supabase.from("media").insert(
+        uploaded.map((m) => ({
+          alert_id: data.id,
+          media_url: m.url,
+          media_type: m.type,
+        })),
+      );
+    }
+
+    const child: AlertItem = {
+      id: data.id,
+      user: currentUser,
+      category: parent.category,
+      lat: parent.lat,
+      lng: parent.lng,
+      title: "Otro ángulo",
+      createdAt: data.created_at,
+      status: "active",
+      media: uploaded,
+      upvotes: 0,
+      downvotes: 0,
+      neighborhood: parent.neighborhood,
+      parentAlertId,
+      updates: [],
+    };
+    set((state) => ({ alerts: [child, ...state.alerts] }));
   },
   setMaxReportingDistance: (distance) => set({ maxReportingDistance: distance }),
   setSOSActive: (active) => set({ sosActive: active }),

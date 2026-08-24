@@ -1,13 +1,18 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
   Platform,
   Pressable,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from "react-native";
 import MapView, { Heatmap, Marker, PROVIDER_GOOGLE } from "../../components/ExpoMapView";
+import { RiskGrid } from "../../components/RiskGrid";
+import { ZoneRiskCard } from "../../components/ZoneRiskCard";
+import { buildRiskGrid, scoreAt, type RiskAssessment } from "../../lib/alerty/risk";
 import { GlassView, GlassContainer } from "expo-glass-effect";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
@@ -17,11 +22,12 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { GlowMarker } from "../../components/GlowMarker";
 import { SOSButton } from "../../components/SOSButton";
-import { CULIACAN_CENTER } from "../../lib/alerty/constants";
+import { CATEGORY_LABELS, CULIACAN_CENTER } from "../../lib/alerty/constants";
 import { useAlertyTheme } from "../../lib/useAlertyTheme";
 import { useAlertyStore } from "../../lib/alerty/store";
 import { supabase } from "../../lib/supabase";
 import {
+  calculateDistance,
   formatRelativeTime,
   getIntensityColor,
   getPulseDuration,
@@ -33,6 +39,11 @@ export default function MapScreen() {
   const router = useRouter();
   const mapRef = useRef<MapView | null>(null);
   const [locating, setLocating] = useState(false);
+  const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [showGrid, setShowGrid] = useState(false);
+  const [searchText, setSearchText] = useState("");
+  const [searching, setSearching] = useState(false);
+  const [riskResult, setRiskResult] = useState<{ assessment: RiskAssessment; label: string } | null>(null);
   const isWeb = Platform.OS === "web";
 
   const {
@@ -58,6 +69,7 @@ export default function MapScreen() {
       alerts.filter(
         (alert) =>
           alert.status === "active" &&
+          !alert.parentAlertId &&
           activeCategories.includes(alert.category) &&
           isAlertInWindow(alert, timeFilter) &&
           !shouldSuppressAlert(alert),
@@ -78,6 +90,47 @@ export default function MapScreen() {
     [filteredAlerts],
   );
 
+  // Alerta activa más cercana dentro de 500m del usuario
+  const nearbyAlert = useMemo(() => {
+    if (!userLocation) return null;
+    const withDist = filteredAlerts
+      .map((alert) => ({
+        alert,
+        dist: calculateDistance(userLocation.latitude, userLocation.longitude, alert.lat, alert.lng),
+      }))
+      .filter((x) => x.dist <= 0.5)
+      .sort((a, b) => a.dist - b.dist);
+    return withDist[0] ?? null;
+  }, [userLocation, filteredAlerts]);
+
+  const isPremium = Boolean(currentUser.isPremium);
+
+  // Para el riesgo usamos todas las alertas activas (sin filtro de categoría ni
+  // ventana de tiempo) — no queremos ocultar peligro por las preferencias del feed.
+  const riskAlerts = useMemo(
+    () => alerts.filter(
+      (alert) => alert.status === "active" && !alert.parentAlertId && !shouldSuppressAlert(alert),
+    ),
+    [alerts],
+  );
+
+  const riskGrid = useMemo(
+    () => (showGrid ? buildRiskGrid(riskAlerts, CULIACAN_CENTER) : []),
+    [showGrid, riskAlerts],
+  );
+
+  useEffect(() => {
+    if (isWeb) return;
+    void (async () => {
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== "granted") return;
+        const loc = await Location.getCurrentPositionAsync({});
+        setUserLocation({ latitude: loc.coords.latitude, longitude: loc.coords.longitude });
+      } catch {}
+    })();
+  }, []);
+
   const handleCenterLocation = async () => {
     try {
       if (isWeb) {
@@ -92,6 +145,7 @@ export default function MapScreen() {
       }
 
       const location = await Location.getCurrentPositionAsync({});
+      setUserLocation({ latitude: location.coords.latitude, longitude: location.coords.longitude });
       mapRef.current?.animateToRegion({
         latitude: location.coords.latitude,
         longitude: location.coords.longitude,
@@ -104,6 +158,53 @@ export default function MapScreen() {
     } finally {
       setLocating(false);
     }
+  };
+
+  const runRiskCheck = (lat: number, lng: number, label: string) => {
+    setRiskResult({ assessment: scoreAt(riskAlerts, lat, lng), label });
+  };
+
+  const handleMapLongPress = (e: { nativeEvent?: { coordinate?: { latitude: number; longitude: number } } }) => {
+    const coord = e?.nativeEvent?.coordinate;
+    if (!coord) return;
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    runRiskCheck(coord.latitude, coord.longitude, "Punto seleccionado en el mapa");
+  };
+
+  const handleSearch = async () => {
+    const query = searchText.trim();
+    if (!query || searching) return;
+    setSearching(true);
+    try {
+      const results = await Location.geocodeAsync(query);
+      if (!results.length) {
+        Alert.alert("Sin resultados", "No encontramos esa dirección. Intenta con otra.");
+        return;
+      }
+      const { latitude, longitude } = results[0];
+      mapRef.current?.animateToRegion({
+        latitude,
+        longitude,
+        latitudeDelta: 0.02,
+        longitudeDelta: 0.02,
+      });
+      runRiskCheck(latitude, longitude, query);
+    } catch {
+      Alert.alert("Búsqueda", "No se pudo buscar la dirección. Intenta de nuevo.");
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  // El mapa de calor y los cuadrantes de riesgo son features de Pulso Plus.
+  const selectLayer = (layer: "markers" | "heat" | "grid") => {
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    if (layer !== "markers" && !isPremium) {
+      router.push("/premium");
+      return;
+    }
+    setShowHeatmap(layer === "heat");
+    setShowGrid(layer === "grid");
   };
 
   const styles = createStyles(theme, themeMode);
@@ -130,6 +231,7 @@ export default function MapScreen() {
             rotateEnabled={false}
             provider={Platform.OS === "android" ? PROVIDER_GOOGLE : undefined}
             userInterfaceStyle={isDark ? "dark" : "light"}
+            onLongPress={handleMapLongPress}
           >
             {showHeatmap && !isWeb && (
               <Heatmap
@@ -143,7 +245,8 @@ export default function MapScreen() {
                 }}
               />
             )}
-            {!showHeatmap && filteredAlerts.map((alert) => (
+            {showGrid && <RiskGrid cells={riskGrid} />}
+            {!showHeatmap && !showGrid && filteredAlerts.map((alert) => (
               <Marker
                 key={alert.id}
                 coordinate={{ latitude: alert.lat, longitude: alert.lng }}
@@ -165,7 +268,7 @@ export default function MapScreen() {
             ))}
             
             {/* Zonas Patrocinadas */}
-            {!showHeatmap && sponsoredZones.map((zone) => (
+            {!showHeatmap && !showGrid && sponsoredZones.map((zone) => (
               <Marker
                 key={zone.id}
                 coordinate={{ latitude: zone.lat, longitude: zone.lng }}
@@ -237,22 +340,63 @@ export default function MapScreen() {
           </View>
         </GlassView>
 
-        {/* Heatmap Toggle */}
+        {/* Buscador de zona: dime si una dirección es peligrosa */}
         {!isWeb && (
-          <View style={styles.heatmapToggleContainer}>
-            <Pressable
-              style={[styles.heatmapButton, showHeatmap && styles.heatmapButtonActive]}
-              onPress={() => {
-                setShowHeatmap(!showHeatmap);
-                void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              }}
-            >
-              <Ionicons
-                name="flame"
-                size={18}
-                color={showHeatmap ? "#FFFFFF" : theme.colors.textMuted}
-              />
-            </Pressable>
+          <View style={styles.searchBar}>
+            <Ionicons name="search" size={16} color={theme.colors.textMuted} />
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Busca una dirección o colonia…"
+              placeholderTextColor={theme.colors.textMuted}
+              value={searchText}
+              onChangeText={setSearchText}
+              onSubmitEditing={handleSearch}
+              returnKeyType="search"
+            />
+            {searching ? (
+              <ActivityIndicator size="small" color={theme.colors.accent} />
+            ) : searchText.length > 0 ? (
+              <Pressable onPress={handleSearch} hitSlop={8}>
+                <Ionicons name="arrow-forward-circle" size={22} color={theme.colors.accent} />
+              </Pressable>
+            ) : null}
+          </View>
+        )}
+
+        {/* Selector de capa del mapa (calor y cuadrantes son Plus) */}
+        {!isWeb && (
+          <View style={styles.layerSelector}>
+            {([
+              { key: "markers", icon: "location" },
+              { key: "heat", icon: "flame" },
+              { key: "grid", icon: "grid" },
+            ] as const).map((item) => {
+              const active =
+                item.key === "markers"
+                  ? !showHeatmap && !showGrid
+                  : item.key === "heat"
+                    ? showHeatmap
+                    : showGrid;
+              const locked = item.key !== "markers" && !isPremium;
+              return (
+                <Pressable
+                  key={item.key}
+                  style={[styles.layerButton, active && styles.layerButtonActive]}
+                  onPress={() => selectLayer(item.key)}
+                >
+                  <Ionicons
+                    name={item.icon}
+                    size={18}
+                    color={active ? "#FFFFFF" : theme.colors.textMuted}
+                  />
+                  {locked && (
+                    <View style={styles.layerLock}>
+                      <Ionicons name="lock-closed" size={9} color="#fff" />
+                    </View>
+                  )}
+                </Pressable>
+              );
+            })}
           </View>
         )}
 
@@ -264,8 +408,36 @@ export default function MapScreen() {
           </View>
         )}
 
-        {/* Live Ticker */}
-        {filteredAlerts[0] ? (
+        {/* Tarjeta de riesgo de zona — prioridad sobre banner y ticker */}
+        {riskResult ? (
+          <ZoneRiskCard
+            assessment={riskResult.assessment}
+            label={riskResult.label}
+            onClose={() => setRiskResult(null)}
+          />
+        ) : nearbyAlert ? (
+          <Pressable
+            style={styles.proximityBanner}
+            onPress={() => {
+              void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+              router.push(`/alert/${nearbyAlert.alert.id}`);
+            }}
+          >
+            <View style={styles.proximityIcon}>
+              <Ionicons name="warning" size={18} color="#fff" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.proximityTitle}>Alerta activa cerca de ti</Text>
+              <Text style={styles.proximitySub} numberOfLines={1}>
+                {CATEGORY_LABELS[nearbyAlert.alert.category]} · a{" "}
+                {nearbyAlert.dist < 1
+                  ? `${Math.round(nearbyAlert.dist * 1000)} m`
+                  : `${nearbyAlert.dist.toFixed(1)} km`}
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color="#fff" />
+          </Pressable>
+        ) : filteredAlerts[0] ? (
           <GlassView
             colorScheme={isDark ? "dark" : "light"}
             glassEffectStyle="regular"
@@ -356,24 +528,59 @@ const createStyles = (theme: any, themeMode: string) => StyleSheet.create({
     backgroundColor: theme.colors.border,
     opacity: 0.5,
   },
-  heatmapToggleContainer: {
+  searchBar: {
     position: "absolute",
-    top: 96,
+    top: 156,
     left: 16,
+    right: 16,
+    height: 44,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 14,
+    borderRadius: theme.radius.pill,
+    backgroundColor: themeMode === "light" ? "rgba(255,255,255,0.95)" : "rgba(18,18,18,0.9)",
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    zIndex: 20,
+  },
+  searchInput: {
+    flex: 1,
+    color: theme.colors.text,
+    fontSize: 13,
+    fontFamily: theme.fonts.body,
+    paddingVertical: 0,
+  },
+  layerSelector: {
+    position: "absolute",
+    top: 214,
+    right: 16,
     borderRadius: theme.radius.pill,
     overflow: "hidden",
     borderWidth: 1,
     borderColor: theme.colors.border,
+    zIndex: 20,
   },
-  heatmapButton: {
+  layerButton: {
     width: 44,
     height: 44,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: themeMode === "light" ? "rgba(255,255,255,0.7)" : "rgba(26,26,26,0.6)",
+    backgroundColor: themeMode === "light" ? "rgba(255,255,255,0.85)" : "rgba(26,26,26,0.7)",
   },
-  heatmapButtonActive: {
+  layerButtonActive: {
     backgroundColor: theme.colors.reportAction,
+  },
+  layerLock: {
+    position: "absolute",
+    top: 5,
+    right: 5,
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    backgroundColor: theme.colors.accent,
+    alignItems: "center",
+    justifyContent: "center",
   },
   cityLabel: {
     color: theme.colors.text,
@@ -421,6 +628,43 @@ const createStyles = (theme: any, themeMode: string) => StyleSheet.create({
     borderWidth: 1,
     borderColor: theme.colors.border,
     overflow: "hidden",
+  },
+  proximityBanner: {
+    position: "absolute",
+    left: 16,
+    right: 16,
+    bottom: 120,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: theme.radius.xl,
+    backgroundColor: "#E84F1F",
+    shadowColor: "#E84F1F",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.45,
+    shadowRadius: 14,
+    elevation: 10,
+  },
+  proximityIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "rgba(255,255,255,0.2)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  proximityTitle: {
+    color: "#fff",
+    fontSize: 13,
+    fontFamily: theme.fonts.heading,
+  },
+  proximitySub: {
+    color: "rgba(255,255,255,0.88)",
+    fontSize: 12,
+    fontFamily: theme.fonts.body,
+    marginTop: 1,
   },
   liveText: {
     flex: 1,

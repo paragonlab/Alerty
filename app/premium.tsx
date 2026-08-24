@@ -41,7 +41,7 @@ export default function PremiumScreen() {
         if (latest.isPremium || attempts >= 6) {
           clearInterval(interval);
           if (latest.isPremium) {
-            Alert.alert("¡Felicidades!", "Ahora eres usuario de Alerty Plus. 🎉");
+            Alert.alert("¡Felicidades!", "Ahora eres usuario de Pulso Plus. 🎉");
           } else {
             Alert.alert(
               "Pago recibido",
@@ -103,7 +103,7 @@ export default function PremiumScreen() {
       if (Platform.OS !== "web") {
         await new Promise((resolve) => setTimeout(resolve, 1500));
         await useAlertyStore.getState().loadUserProfile();
-        Alert.alert("¡Felicidades!", "Ahora eres usuario de Alerty Plus. 🎉", [
+        Alert.alert("¡Felicidades!", "Ahora eres usuario de Pulso Plus. 🎉", [
           { text: "Continuar", onPress: () => router.back() },
         ]);
       }
@@ -167,26 +167,26 @@ export default function PremiumScreen() {
       <ScrollView contentContainerStyle={styles.container}>
         <View style={styles.heroSection}>
           <Ionicons name="shield-checkmark" size={60} color={theme.colors.accent} />
-          <Text style={styles.title}>Alerty <Text style={{ color: theme.colors.accent }}>Plus</Text></Text>
+          <Text style={styles.title}>Pulso <Text style={{ color: theme.colors.accent }}>Plus</Text></Text>
           <Text style={styles.subtitle}>Desbloquea la seguridad definitiva para ti y tu familia.</Text>
         </View>
 
         <View style={styles.featuresList}>
-          <FeatureItem 
-            icon="flame" 
-            title="Mapa de Calor de Riesgos" 
-            description="Visualiza áreas peligrosas según el histórico de incidentes." 
+          <FeatureItem
+            icon="flame"
+            title="Mapa de Calor de Riesgos"
+            description="Visualiza áreas peligrosas según el histórico de incidentes."
             theme={theme}
           />
-          <FeatureItem 
-            icon="chatbubbles" 
-            title="Alertas por SMS Inmediatas" 
-            description="Recibe alertas críticas incluso sin conexión a internet o datos móviles." 
+          <FeatureItem
+            icon="grid"
+            title="Mapa de Zonas por Cuadrantes"
+            description="Ve la ciudad dividida en cuadrantes de color según el nivel de peligro."
             theme={theme}
           />
-          <FeatureItem 
-            icon="people" 
-            title="Zonas Múltiples Seguras" 
+          <FeatureItem
+            icon="people"
+            title="Zonas Múltiples Seguras"
             description="Agrega hasta 5 zonas para notificar a tu familia." 
             theme={theme}
           />
@@ -204,7 +204,7 @@ export default function PremiumScreen() {
               <View style={styles.activePlanCard}>
                 <Ionicons name="checkmark-circle" size={24} color={theme.colors.success} />
                 <Text style={[styles.priceText, { color: theme.colors.success }]}>
-                  Ya eres Alerty Plus
+                  Ya eres Pulso Plus
                 </Text>
               </View>
               {Platform.OS === "web" && (
@@ -227,7 +227,7 @@ export default function PremiumScreen() {
                 <ActivityIndicator color="#fff" />
               ) : (
                 <>
-                  <Text style={styles.subscribeText}>Mejorar por $99 MXN/mes</Text>
+                  <Text style={styles.subscribeText}>Mejorar por $49 MXN/mes</Text>
                   <Text style={styles.cancelText}>Cancela cuando quieras</Text>
                 </>
               )}

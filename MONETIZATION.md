@@ -45,7 +45,7 @@ Cuando lo hagas, dime y yo recreo los productos en test mode.
 ### 2.3 Crear productos y precios en Stripe (test mode)
 
 Una vez con el MCP en test mode, te creo:
-- Producto: **Alerty Plus** + precio recurring $4.99/mes USD
+- Producto: **Pulso Plus** + precio recurring $49 MXN/mes
 - Producto: **Pin Patrocinado** + precio recurring $X/mes MXN (decide el precio)
 
 Anota los `price_id` que devuelva Stripe (empiezan con `price_...`).
@@ -144,7 +144,7 @@ Si usas EAS Build, no necesitas prebuild local — EAS lo hace en cloud.
 
 1. Levanta web: `npm run web`
 2. Login → ir a `/premium`
-3. Click "Mejorar por $4.99/mes"
+3. Click "Mejorar por $49 MXN/mes"
 4. Stripe Checkout abre. Usa tarjeta de prueba: `4242 4242 4242 4242`, CVV `123`, expiry futura
 5. Tras el pago, Stripe envía webhook → Supabase actualiza `is_premium = true`
 6. Volver a la app → al recargar el perfil, debe verse como Plus activo

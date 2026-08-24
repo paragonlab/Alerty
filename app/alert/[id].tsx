@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
   Image,
   Pressable,
@@ -14,7 +15,8 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import * as Location from "expo-location";
-import { Audio } from "expo-av";
+import * as ImagePicker from "expo-image-picker";
+import { Audio, Video, ResizeMode } from "expo-av";
 import * as FileSystem from "expo-file-system/legacy";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useAlertyTheme } from "../../lib/useAlertyTheme";
@@ -24,13 +26,13 @@ import { CATEGORY_ICONS, CATEGORY_LABELS, REPUTATION_LEVELS } from "../../lib/al
 import { useAlertyStore } from "../../lib/alerty/store";
 import { Sounds } from "../../lib/sounds";
 import { calculateDistance, formatRelativeTime, getIntensityColor } from "../../lib/alerty/utils";
-import type { AlertUpdate } from "../../lib/alerty/types";
+import type { AlertMedia, AlertUpdate } from "../../lib/alerty/types";
 
 
 export default function AlertDetailScreen() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { alerts, voteAlert, votedAlerts, followingAlertIds, toggleFollowAlert, addUpdateToAlert, getReportingRange, themeMode } = useAlertyStore();
+  const { alerts, voteAlert, votedAlerts, followingAlertIds, toggleFollowAlert, addUpdateToAlert, getReportingRange, themeMode, openReels } = useAlertyStore();
   const theme = useAlertyTheme();
   const isDark = themeMode === "darkHighVisibility";
   const styles = createStyles(theme, themeMode);
@@ -38,6 +40,10 @@ export default function AlertDetailScreen() {
   
   const [updateText, setUpdateText] = useState("");
   const [showUpdateInput, setShowUpdateInput] = useState(false);
+  const [updateMedia, setUpdateMedia] = useState<AlertMedia[]>([]);
+  const [publishing, setPublishing] = useState(false);
+  const [recording, setRecording] = useState<Audio.Recording | null>(null);
+  const [isRecordingVoice, setIsRecordingVoice] = useState(false);
 
   const alert = useMemo(() => alerts.find((item) => item.id === id), [alerts, id]);
   const isFollowing = useMemo(() => followingAlertIds.includes(id ?? ""), [followingAlertIds, id]);
@@ -118,7 +124,7 @@ export default function AlertDetailScreen() {
   const handleShare = async () => {
     try {
       await Share.share({
-        message: `Alerta en Alerty: ${alert.title ?? CATEGORY_LABELS[alert.category]}\n\n${alert.description ?? ""}\n\nUbicación: ${alert.neighborhood ?? "Culiacán"}`,
+        message: `Alerta en Pulso: ${alert.title ?? CATEGORY_LABELS[alert.category]}\n\n${alert.description ?? ""}\n\nUbicación: ${alert.neighborhood ?? "Culiacán"}`,
       });
     } catch (error) {
       console.error(error);
@@ -126,7 +132,7 @@ export default function AlertDetailScreen() {
   };
 
   const handleAddUpdate = async () => {
-    if (!updateText.trim()) return;
+    if (!updateText.trim() && updateMedia.length === 0) return;
 
     // Verify distance
     try {
@@ -152,11 +158,69 @@ export default function AlertDetailScreen() {
       console.warn("Could not verify location for update proximity", err);
     }
     
-    addUpdateToAlert(alert.id, updateText.trim());
-    
+    setPublishing(true);
+    await addUpdateToAlert(alert.id, updateText.trim(), updateMedia);
+    setPublishing(false);
+
     setUpdateText("");
+    setUpdateMedia([]);
     setShowUpdateInput(false);
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+  };
+
+  const pickUpdateMedia = async (kind: "image" | "video") => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== "granted") {
+      Alert.alert("Permiso", "Necesitamos acceso a tu galería.");
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: kind === "video" ? "videos" : "images",
+      quality: 0.8,
+    });
+    if (result.canceled) return;
+    const picked: AlertMedia[] = result.assets.map((a) => ({
+      id: `m-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      url: a.uri,
+      type: kind,
+    }));
+    setUpdateMedia((prev) => [...prev, ...picked]);
+  };
+
+  const toggleVoiceRecording = async () => {
+    if (isRecordingVoice && recording) {
+      try {
+        await recording.stopAndUnloadAsync();
+        const uri = recording.getURI();
+        setRecording(null);
+        setIsRecordingVoice(false);
+        if (uri) {
+          const dest = `${FileSystem.documentDirectory}upd-${Date.now()}.m4a`;
+          await FileSystem.copyAsync({ from: uri, to: dest });
+          setUpdateMedia((prev) => [...prev, { id: `a-${Date.now()}`, url: dest, type: "audio" }]);
+        }
+      } catch (e) {
+        console.warn("stop voice recording", e);
+      }
+      return;
+    }
+    try {
+      const { status } = await Audio.requestPermissionsAsync();
+      if (status !== "granted") {
+        Alert.alert("Permiso", "Necesitamos el micrófono para grabar.");
+        return;
+      }
+      await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
+      const { recording: rec } = await Audio.Recording.createAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
+      setRecording(rec);
+      setIsRecordingVoice(true);
+    } catch (e) {
+      console.warn("start voice recording", e);
+    }
+  };
+
+  const removeUpdateMedia = (mid: string) => {
+    setUpdateMedia((prev) => prev.filter((m) => m.id !== mid));
   };
 
   const intensityColor = getIntensityColor(alert.createdAt);
@@ -234,15 +298,27 @@ export default function AlertDetailScreen() {
                 <View key={item.id} style={styles.mediaContainer}>
                   {item.type === "audio" ? (
                     <AudioPlayer uri={item.url} />
+                  ) : item.type === "video" ? (
+                    <Pressable
+                      style={styles.mediaVideoPress}
+                      onPress={() => {
+                        openReels(alert.id);
+                        router.navigate("/(tabs)/feed");
+                      }}
+                    >
+                      <Video
+                        source={{ uri: item.url }}
+                        style={styles.mediaThumb}
+                        resizeMode={ResizeMode.COVER}
+                        shouldPlay={false}
+                        isMuted
+                      />
+                      <View style={styles.videoOverlay}>
+                        <Ionicons name="play-circle" size={46} color="#fff" />
+                      </View>
+                    </Pressable>
                   ) : (
-                    <>
-                      <Image source={{ uri: item.url }} style={styles.mediaThumb} />
-                      {item.type === "video" && (
-                        <View style={styles.videoOverlay}>
-                          <Ionicons name="play-circle" size={32} color="white" />
-                        </View>
-                      )}
-                    </>
+                    <Image source={{ uri: item.url }} style={styles.mediaThumb} />
                   )}
                 </View>
               ))}
@@ -330,12 +406,65 @@ export default function AlertDetailScreen() {
                 onChangeText={setUpdateText}
                 multiline
               />
+
+              {updateMedia.length > 0 && (
+                <View style={styles.mediaChips}>
+                  {updateMedia.map((m) => (
+                    <View key={m.id} style={styles.mediaChip}>
+                      <Ionicons
+                        name={m.type === "video" ? "videocam" : m.type === "audio" ? "mic" : "image"}
+                        size={12}
+                        color={theme.colors.text}
+                      />
+                      <Text style={styles.mediaChipText}>
+                        {m.type === "video" ? "Video" : m.type === "audio" ? "Audio" : "Foto"}
+                      </Text>
+                      <Pressable onPress={() => removeUpdateMedia(m.id)} hitSlop={6}>
+                        <Ionicons name="close" size={13} color={theme.colors.textMuted} />
+                      </Pressable>
+                    </View>
+                  ))}
+                </View>
+              )}
+
+              <View style={styles.attachRow}>
+                <Pressable style={styles.attachBtn} onPress={() => pickUpdateMedia("image")}>
+                  <Ionicons name="image-outline" size={18} color={theme.colors.accent} />
+                </Pressable>
+                <Pressable style={styles.attachBtn} onPress={() => pickUpdateMedia("video")}>
+                  <Ionicons name="videocam-outline" size={18} color={theme.colors.accent} />
+                </Pressable>
+                <Pressable
+                  style={[styles.attachBtn, isRecordingVoice && styles.attachBtnRec]}
+                  onPress={toggleVoiceRecording}
+                >
+                  <Ionicons
+                    name={isRecordingVoice ? "stop" : "mic-outline"}
+                    size={18}
+                    color={isRecordingVoice ? "#fff" : theme.colors.accent}
+                  />
+                </Pressable>
+                {isRecordingVoice && <Text style={styles.recHint}>Grabando voz…</Text>}
+              </View>
+
               <View style={styles.updateActions}>
-                <Pressable style={styles.cancelUpdate} onPress={() => setShowUpdateInput(false)}>
+                <Pressable
+                  style={styles.cancelUpdate}
+                  onPress={() => setShowUpdateInput(false)}
+                  disabled={publishing}
+                >
                   <Text style={styles.cancelUpdateText}>Cancelar</Text>
                 </Pressable>
-                <Pressable style={styles.submitUpdate} onPress={handleAddUpdate}>
-                  <Text style={styles.submitUpdateText}>Publicar</Text>
+                <Pressable
+                  style={[styles.submitUpdate, publishing && { opacity: 0.6 }]}
+                  onPress={handleAddUpdate}
+                  disabled={publishing}
+                >
+                  {publishing ? (
+                    <ActivityIndicator size="small" color={theme.colors.surface} />
+                  ) : (
+                    <Text style={styles.submitUpdateText}>Publicar</Text>
+                  )}
                 </Pressable>
               </View>
             </GlassView>
@@ -388,7 +517,28 @@ export default function AlertDetailScreen() {
                       );
                     })()}
                   </View>
-                  <Text style={styles.threadBody}>{update.content}</Text>
+                  {update.content ? (
+                    <Text style={styles.threadBody}>{update.content}</Text>
+                  ) : null}
+                  {(update.media ?? []).length > 0 && (
+                    <View style={styles.threadMedia}>
+                      {update.media!.map((m) =>
+                        m.type === "audio" ? (
+                          <AudioPlayer key={m.id} uri={m.url} />
+                        ) : m.type === "video" ? (
+                          <Video
+                            key={m.id}
+                            source={{ uri: m.url }}
+                            style={styles.threadMediaItem}
+                            resizeMode={ResizeMode.COVER}
+                            useNativeControls
+                          />
+                        ) : (
+                          <Image key={m.id} source={{ uri: m.url }} style={styles.threadMediaItem} />
+                        )
+                      )}
+                    </View>
+                  )}
                   <Text style={styles.threadTime}>{formatRelativeTime(update.createdAt)}</Text>
                 </View>
               </View>
@@ -561,6 +711,10 @@ const createStyles = (theme: any, themeMode: string) => StyleSheet.create({
     width: "100%",
     height: "100%",
   },
+  mediaVideoPress: {
+    width: "100%",
+    height: "100%",
+  },
   audioPlayer: {
     flexDirection: "row",
     alignItems: "center",
@@ -671,6 +825,64 @@ const createStyles = (theme: any, themeMode: string) => StyleSheet.create({
     color: theme.colors.surface,
     fontSize: 14,
     fontFamily: theme.fonts.heading,
+  },
+  mediaChips: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+    marginTop: 8,
+  },
+  mediaChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: theme.radius.pill,
+    backgroundColor: theme.colors.surfaceAlt,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+  },
+  mediaChipText: {
+    color: theme.colors.text,
+    fontSize: 11,
+    fontFamily: theme.fonts.body,
+  },
+  attachRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 10,
+    marginBottom: 4,
+  },
+  attachBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: theme.radius.md,
+    backgroundColor: theme.colors.accentSoft,
+    borderWidth: 1,
+    borderColor: theme.colors.accent + "40",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  attachBtnRec: {
+    backgroundColor: theme.colors.danger,
+    borderColor: theme.colors.danger,
+  },
+  recHint: {
+    color: theme.colors.danger,
+    fontSize: 12,
+    fontFamily: theme.fonts.heading,
+  },
+  threadMedia: {
+    marginTop: 8,
+    gap: 8,
+  },
+  threadMediaItem: {
+    width: "100%",
+    height: 180,
+    borderRadius: theme.radius.md,
+    backgroundColor: theme.colors.surfaceAlt,
   },
   threadList: {
     gap: 4,

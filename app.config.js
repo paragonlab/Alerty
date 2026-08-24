@@ -2,7 +2,7 @@ const googleMapsKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_KEY;
 
 /** @type {import('expo/config').ExpoConfig} */
 module.exports = {
-  name: "Alerty",
+  name: "Pulso",
   slug: "alerty",
   scheme: "alerty",
   version: "1.0.0",
@@ -18,6 +18,7 @@ module.exports = {
   ios: {
     supportsTablet: true,
     bundleIdentifier: "com.mrparagon.alerty",
+    usesAppleSignIn: true,
     config: {
       googleMapsApiKey: googleMapsKey,
     },
@@ -32,18 +33,24 @@ module.exports = {
         "Permite capturar evidencia para tus reportes.",
       NSMicrophoneUsageDescription:
         "Permite grabar audio como evidencia en tus reportes.",
+      NSLocationAlwaysUsageDescription:
+        "Permite alertas críticas cerca de tus zonas guardadas incluso con la app en segundo plano.",
       ITSAppUsesNonExemptEncryption: false,
     },
   },
   android: {
-    package: "com.mrparagon.alerty",
+    package: "com.paragonlabs.alerty",
     adaptiveIcon: {
       foregroundImage: "./assets/adaptive-icon.png",
       backgroundColor: "#F6F2EA",
     },
     edgeToEdgeEnabled: true,
     predictiveBackGestureEnabled: false,
-    permissions: ["ACCESS_FINE_LOCATION", "ACCESS_COARSE_LOCATION"],
+    permissions: [
+      "ACCESS_FINE_LOCATION",
+      "ACCESS_COARSE_LOCATION",
+      "POST_NOTIFICATIONS",
+    ],
     config: {
       googleMaps: {
         apiKey: googleMapsKey,
@@ -64,8 +71,11 @@ module.exports = {
       },
     ],
     "expo-image-picker",
+    "expo-camera",
     "expo-av",
+    "expo-notifications",
     "expo-web-browser",
+    "expo-apple-authentication",
   ],
   extra: {
     router: {},

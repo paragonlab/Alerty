@@ -10,11 +10,17 @@ import { darkHighVisibility, lightTheme } from "../lib/theme";
 import { isSupabaseConfigured, supabase } from "../lib/supabase";
 import { useAlertyStore } from "../lib/alerty/store";
 import { calculateDistance } from "../lib/alerty/utils";
+import {
+  syncPushRegistration,
+  addNotificationTapListener,
+  getInitialNotificationAlertId,
+} from "../lib/notifications";
+import { identifyUser as identifyRevenueCatUser } from "../lib/revenuecat";
 import * as Location from "expo-location";
 import * as Haptics from "expo-haptics";
 
 export default function RootLayout() {
-  const { loadAlertsFromSupabase, startRealtime, themeMode, loadUserProfile } = useAlertyStore();
+  const { loadAlertsFromSupabase, startRealtime, themeMode, loadUserProfile, loadSponsoredZones, startDemo } = useAlertyStore();
   const currentTheme = themeMode === "darkHighVisibility" ? darkHighVisibility : lightTheme;
   const router = useRouter();
   const segments = useSegments();
@@ -35,12 +41,18 @@ export default function RootLayout() {
     }
 
     let mounted = true;
-    supabase.auth.getSession().then(({ data }) => {
-      if (!mounted) return;
-      if (data.session) loadUserProfile();
-      setHasSession(Boolean(data.session));
-      setIsReady(true);
-    });
+    supabase.auth.getSession()
+      .then(({ data }) => {
+        if (!mounted) return;
+        if (data.session) loadUserProfile();
+        setHasSession(Boolean(data.session));
+        setIsReady(true);
+      })
+      .catch((err) => {
+        if (!mounted) return;
+        console.warn("getSession failed", err);
+        setIsReady(true);
+      });
 
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
       if (_event === "SIGNED_IN") {
@@ -141,14 +153,40 @@ export default function RootLayout() {
   }, [alerts]);
 
   useEffect(() => {
+    if (!isReady) return;
+    if (!isSupabaseConfigured) {
+      startDemo();
+      return;
+    }
     if (hasSession) {
       void loadAlertsFromSupabase();
+      void loadSponsoredZones();
+      void syncPushRegistration();
+      void supabase?.auth.getUser().then(({ data }) => {
+        if (data.user?.id) void identifyRevenueCatUser(data.user.id);
+      });
       const unsubscribeRealtime = startRealtime();
       return () => {
         if (unsubscribeRealtime) unsubscribeRealtime();
       };
     }
-  }, [hasSession]);
+  }, [hasSession, isReady]);
+
+  // Tap en notificación → abrir la alerta
+  const handledColdStart = useRef(false);
+  useEffect(() => {
+    return addNotificationTapListener((alertId) => {
+      router.push(`/alert/${alertId}` as any);
+    });
+  }, [router]);
+
+  useEffect(() => {
+    if (!rootNavigationState?.key || handledColdStart.current) return;
+    handledColdStart.current = true;
+    void getInitialNotificationAlertId().then((alertId) => {
+      if (alertId) router.push(`/alert/${alertId}` as any);
+    });
+  }, [rootNavigationState?.key]);
 
   useEffect(() => {
     if (!isReady || !rootNavigationState?.key) return;

@@ -10,6 +10,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { AlertCard } from "../../components/AlertCard";
+import { VideoReelsList } from "../../components/VideoReelsList";
 import { TIME_FILTERS } from "../../lib/alerty/constants";
 import { useAlertyTheme } from "../../lib/useAlertyTheme";
 import { useAlertyStore } from "../../lib/alerty/store";
@@ -19,11 +20,11 @@ import { AdCard } from "../../components/AdCard";
 
 export default function FeedScreen() {
   const router = useRouter();
-  const { alerts, timeFilter, setTimeFilter, activeCategories, sponsoredZones } = useAlertyStore();
+  const { alerts, timeFilter, setTimeFilter, activeCategories, sponsoredZones, feedViewMode: viewMode, setFeedViewMode: setViewMode, openReels, reelsInitialAlertId } = useAlertyStore();
   const theme = useAlertyTheme();
   const styles = createStyles(theme);
 
-  const filteredAlerts = useMemo(
+  const baseFilteredAlerts = useMemo(
     () =>
       alerts.filter(
         (alert) =>
@@ -34,6 +35,29 @@ export default function FeedScreen() {
       ),
     [alerts, activeCategories, timeFilter],
   );
+
+  // Los "otros ángulos" solo se muestran como Pulsos — fuera del feed para
+  // no duplicar la tarjeta del reporte original.
+  const filteredAlerts = useMemo(
+    () => baseFilteredAlerts.filter((a) => !a.parentAlertId),
+    [baseFilteredAlerts],
+  );
+
+  const videoAlerts = useMemo(
+    () => baseFilteredAlerts.filter((a) => a.media.some((m) => m.type === "video")),
+    [baseFilteredAlerts],
+  );
+
+  // Lista para los Pulsos. Garantiza que el video tocado esté incluido aunque
+  // quede fuera de la ventana de tiempo / filtros del feed.
+  const reelsAlerts = useMemo(() => {
+    if (!reelsInitialAlertId) return videoAlerts;
+    if (videoAlerts.some((a) => a.id === reelsInitialAlertId)) return videoAlerts;
+    const target = alerts.find(
+      (a) => a.id === reelsInitialAlertId && a.media.some((m) => m.type === "video"),
+    );
+    return target ? [target, ...videoAlerts] : videoAlerts;
+  }, [videoAlerts, reelsInitialAlertId, alerts]);
 
   const total24h = useMemo(
     () =>
@@ -51,7 +75,6 @@ export default function FeedScreen() {
     [filteredAlerts],
   );
 
-  // Mezclamos alertas y anuncios (1 anuncio cada 5 alertas)
   const feedItems = useMemo(() => {
     const items: (AlertItem | SponsoredZone)[] = [];
     let adIndex = 0;
@@ -73,20 +96,19 @@ export default function FeedScreen() {
           <AlertCard
             alert={item as AlertItem}
             onPress={() => router.push(`/alert/${item.id}`)}
+            onPressVideo={() => openReels(item.id)}
           />
         );
       } else {
         return (
-          <AdCard 
-            zone={item as SponsoredZone} 
-            onPress={() => {
-              router.push("/(tabs)");
-            }} 
+          <AdCard
+            zone={item as SponsoredZone}
+            onPress={() => { router.push("/(tabs)"); }}
           />
         );
       }
     },
-    [router],
+    [router, openReels],
   );
 
   const keyExtractor = useCallback((item: AlertItem | SponsoredZone) => item.id, []);
@@ -145,19 +167,61 @@ export default function FeedScreen() {
     </View>
   );
 
+  if (viewMode === "reels") {
+    return (
+      <View style={styles.reelsRoot}>
+        {reelsAlerts.length === 0 ? (
+          <SafeAreaView style={styles.emptyReelsContainer}>
+            <Pressable onPress={() => setViewMode("list")} style={styles.reelsBackBtn} hitSlop={10}>
+              <Ionicons name="chevron-back" size={20} color="rgba(255,255,255,0.75)" />
+              <Text style={styles.reelsBackLabel}>Volver</Text>
+            </Pressable>
+            <View style={styles.emptyReels}>
+              <Ionicons name="videocam-off-outline" size={52} color="rgba(255,255,255,0.2)" />
+              <Text style={styles.emptyReelsTitle}>Sin videos en este período</Text>
+              <Text style={styles.emptyReelsSubtitle}>
+                Cambia el filtro de tiempo o publica una alerta con video.
+              </Text>
+            </View>
+          </SafeAreaView>
+        ) : (
+          <VideoReelsList
+            alerts={reelsAlerts}
+            initialAlertId={reelsInitialAlertId}
+            onClose={() => setViewMode("list")}
+          />
+        )}
+      </View>
+    );
+  }
+
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <FlatList
-        data={feedItems}
-        renderItem={renderItem}
-        keyExtractor={keyExtractor}
-        ListHeaderComponent={ListHeader}
-        ListEmptyComponent={ListEmpty}
-        contentContainerStyle={styles.container}
-        showsVerticalScrollIndicator={false}
-        ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
-      />
-    </SafeAreaView>
+    <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
+      <SafeAreaView style={styles.safeArea}>
+        <FlatList
+          data={feedItems}
+          renderItem={renderItem}
+          keyExtractor={keyExtractor}
+          ListHeaderComponent={ListHeader}
+          ListEmptyComponent={ListEmpty}
+          contentContainerStyle={styles.container}
+          showsVerticalScrollIndicator={false}
+          ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
+        />
+      </SafeAreaView>
+      <View style={styles.modePillWrap} pointerEvents="box-none">
+        <View style={styles.modePill} pointerEvents="auto">
+          <View style={[styles.modePillBtn, styles.modePillBtnActive]}>
+            <Ionicons name="list" size={13} color="#fff" />
+            <Text style={[styles.modePillText, { color: "#fff" }]}>LISTA</Text>
+          </View>
+          <Pressable style={styles.modePillBtn} onPress={() => openReels(null)}>
+            <Ionicons name="film" size={13} color="rgba(255,255,255,0.45)" />
+            <Text style={styles.modePillText}>PULSOS</Text>
+          </Pressable>
+        </View>
+      </View>
+    </View>
   );
 }
 
@@ -183,6 +247,49 @@ const createStyles = (theme: any) => StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
+  },
+  modePillWrap: {
+    position: "absolute",
+    bottom: 18,
+    left: 0,
+    right: 0,
+    alignItems: "center",
+    zIndex: 30,
+  },
+  modePill: {
+    flexDirection: "row",
+    padding: 4,
+    backgroundColor: "rgba(10,10,10,0.82)",
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.12)",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.35,
+    shadowRadius: 12,
+    elevation: 12,
+  },
+  modePillBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 999,
+  },
+  modePillBtnActive: {
+    backgroundColor: "#FF4500",
+    shadowColor: "#FF4500",
+    shadowOpacity: 0.45,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+  },
+  modePillText: {
+    fontSize: 11,
+    fontWeight: "700" as const,
+    letterSpacing: 1.1,
+    color: "rgba(255,255,255,0.45)",
+    fontFamily: "SpaceGrotesk_700Bold",
   },
   title: {
     color: theme.colors.text,
@@ -268,5 +375,48 @@ const createStyles = (theme: any) => StyleSheet.create({
     fontFamily: theme.fonts.body,
     textAlign: "center",
     lineHeight: 20,
+  },
+  // Reels mode
+  reelsRoot: {
+    position: "absolute",
+    top: 0, left: 0, right: 0, bottom: -100,
+    zIndex: 100,
+    backgroundColor: "#090909",
+  },
+  emptyReelsContainer: {
+    flex: 1,
+    backgroundColor: "#090909",
+  },
+  reelsBackBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  reelsBackLabel: {
+    color: "rgba(255,255,255,0.75)",
+    fontSize: 14,
+    fontFamily: theme.fonts.body,
+  },
+  emptyReels: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 16,
+    padding: 32,
+  },
+  emptyReelsTitle: {
+    color: "rgba(255,255,255,0.75)",
+    fontSize: 20,
+    fontFamily: theme.fonts.heading,
+    textAlign: "center",
+  },
+  emptyReelsSubtitle: {
+    color: "rgba(255,255,255,0.35)",
+    fontSize: 14,
+    fontFamily: theme.fonts.body,
+    textAlign: "center",
+    lineHeight: 21,
   },
 });
