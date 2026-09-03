@@ -78,8 +78,10 @@ export default function ReportScreen() {
   const [media, setMedia] = useState<AlertMedia[]>([]);
   const [locationLoading, setLocationLoading] = useState(true);
   const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [usingFallbackLocation, setUsingFallbackLocation] = useState(false);
   const [locationLabel, setLocationLabel] = useState("Mi ubicación");
   const [submitting, setSubmitting] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
   const [recording, setRecording] = useState<Audio.Recording | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [recSeconds, setRecSeconds] = useState(0);
@@ -154,6 +156,23 @@ export default function ReportScreen() {
   const haloScale = successHalo.interpolate({ inputRange: [0, 1], outputRange: [1, 1.55] });
   const haloOpacity = successHalo.interpolate({ inputRange: [0, 0.6, 1], outputRange: [0.6, 0.15, 0] });
 
+  function applyCuliacanFallback() {
+    setUserLocation({
+      latitude: CULIACAN_CENTER.latitude,
+      longitude: CULIACAN_CENTER.longitude,
+    });
+    setUsingFallbackLocation(true);
+    setLocationLabel("Culiacán (sin GPS)");
+  }
+
+  /** En web Alert.alert suele ser fácil de pasar por alto; también mostramos el error en la UI. */
+  function notifyUser(title: string, message: string) {
+    setFormError(`${title}. ${message}`);
+    if (Platform.OS !== "web") {
+      Alert.alert(title, message);
+    }
+  }
+
   async function getLocation() {
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
@@ -161,14 +180,18 @@ export default function ReportScreen() {
         const current = await Location.getCurrentPositionAsync({});
         const coords = { latitude: current.coords.latitude, longitude: current.coords.longitude };
         setUserLocation(coords);
+        setUsingFallbackLocation(false);
         try {
           const [place] = await Location.reverseGeocodeAsync(coords);
           if (place) {
             setLocationLabel(place.district ?? place.subregion ?? place.city ?? "Mi ubicación");
           }
         } catch {}
+        setLocationLoading(false);
+        return;
       }
     } catch {}
+    applyCuliacanFallback();
     setLocationLoading(false);
   }
 
@@ -290,42 +313,55 @@ export default function ReportScreen() {
   }
 
   async function handleSubmit() {
-    if (!category) { Alert.alert("Falta categoría", "Selecciona el tipo de incidente."); return; }
-    if (!userLocation) { Alert.alert("Ubicación no disponible", "Activa el GPS e intenta de nuevo."); return; }
+    setFormError(null);
+    if (!category) {
+      notifyUser("Falta categoría", "Selecciona el tipo de incidente.");
+      return;
+    }
+    const coords = userLocation ?? {
+      latitude: CULIACAN_CENTER.latitude,
+      longitude: CULIACAN_CENTER.longitude,
+    };
+    const placeLabel = userLocation ? locationLabel : "Culiacán (sin GPS)";
+    if (!userLocation) {
+      applyCuliacanFallback();
+    }
     setSubmitting(true);
     const newAlert = {
       id: `local-${Date.now()}`,
       category,
-      lat: userLocation.latitude,
-      lng: userLocation.longitude,
-      title: title.trim() || `${CATEGORY_LABELS[category]} · ${locationLabel}`,
+      lat: coords.latitude,
+      lng: coords.longitude,
+      title: title.trim() || `${CATEGORY_LABELS[category]} · ${placeLabel}`,
       description: `Cómo lo sé: ${sourceTag}`,
       createdAt: new Date().toISOString(),
       status: "active" as const,
       media,
       upvotes: 0,
       downvotes: 0,
-      neighborhood: locationLabel,
+      neighborhood: placeLabel,
       user: currentUser,
     };
-    addAlert(newAlert as any);
     try {
+      addAlert(newAlert as any);
       if (supabase) {
         const { data: ud } = await supabase.auth.getUser();
-        const { data: inserted } = await supabase
+        const { data: inserted, error: insertError } = await supabase
           .from("alerts")
           .insert({
             user_id: ud.user?.id,
             category,
-            lat: userLocation.latitude,
-            lng: userLocation.longitude,
+            lat: coords.latitude,
+            lng: coords.longitude,
             title: newAlert.title,
             description: newAlert.description,
             status: "active",
           })
           .select("id")
           .single();
-        if (inserted?.id) {
+        if (insertError) {
+          console.warn("supabase alert insert failed", insertError);
+        } else if (inserted?.id) {
           const alertId = inserted.id;
           void supabase.functions
             .invoke("notify-on-alert", { body: { type: "alert", alertId } })
@@ -346,11 +382,18 @@ export default function ReportScreen() {
           }
         }
       }
-    } catch {}
-    void Sounds.success();
-    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    setSubmitting(false);
-    setStep(4);
+      void Sounds.success();
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setSubmitting(false);
+      setStep(4);
+    } catch (err) {
+      setSubmitting(false);
+      const detail =
+        err && typeof err === "object" && "message" in err && typeof (err as { message: unknown }).message === "string"
+          ? (err as { message: string }).message
+          : "Intenta de nuevo en unos segundos.";
+      notifyUser("No se pudo enviar la alerta", detail);
+    }
   }
 
   // ── Render helpers ───────────────────────────────────────────────────────
@@ -534,7 +577,7 @@ export default function ReportScreen() {
 
   function renderStep3() {
     const displayTitle = title.trim() || (category ? `${CATEGORY_LABELS[category]} · ${locationLabel}` : "Sin título");
-    const isNearby = true; // they're reporting from their location
+    const isNearby = Boolean(userLocation) && !usingFallbackLocation;
 
     return (
       <>
@@ -557,6 +600,17 @@ export default function ReportScreen() {
             </View>
           </View>
         </View>
+
+        {usingFallbackLocation && (
+          <View style={S.fallbackBanner}>
+            <Ionicons name="navigate-outline" size={16} color="#6BE0FF" />
+            <View style={{ flex: 1 }}>
+              <Text style={S.fallbackBannerText}>
+                Sin GPS: la alerta se publicará en el centro de Culiacán.
+              </Text>
+            </View>
+          </View>
+        )}
 
         <Text style={S.sheetLabel}>Distribución</Text>
 
@@ -659,7 +713,13 @@ export default function ReportScreen() {
         <Text style={S.locLoadingSub}>
           Necesitamos saber dónde ocurre el incidente para que tu reporte llegue a las personas correctas.
         </Text>
-        <Pressable style={S.locSkipBtn} onPress={() => setLocationLoading(false)}>
+        <Pressable
+          style={S.locSkipBtn}
+          onPress={() => {
+            applyCuliacanFallback();
+            setLocationLoading(false);
+          }}
+        >
           <Text style={S.locSkipText}>Continuar sin GPS</Text>
         </Pressable>
       </View>
@@ -736,6 +796,13 @@ export default function ReportScreen() {
           {/* Location chips (steps 1–2) */}
           {step <= 2 && <ContextChips locationLabel={locationLabel} />}
 
+          {usingFallbackLocation && step <= 3 && (
+            <View style={S.fallbackHint}>
+              <Ionicons name="information-circle-outline" size={13} color="#6BE0FF" />
+              <Text style={S.fallbackHintText}>Ubicación aproximada: centro de Culiacán</Text>
+            </View>
+          )}
+
           {/* Step content */}
           <ScrollView
             style={{ flex: 1 }}
@@ -752,10 +819,15 @@ export default function ReportScreen() {
           {/* CTA — steps 2 & 3 */}
           {step === 2 && (
             <View style={S.ctaWrap}>
+              {formError ? <Text style={S.formError}>{formError}</Text> : null}
               <Pressable
                 style={[S.cta, !category && S.ctaDisabled]}
                 onPress={() => {
-                  if (!category) { Alert.alert("Falta categoría", "Selecciona el tipo de incidente."); return; }
+                  setFormError(null);
+                  if (!category) {
+                    notifyUser("Falta categoría", "Selecciona el tipo de incidente.");
+                    return;
+                  }
                   setStep(3);
                 }}
               >
@@ -771,6 +843,7 @@ export default function ReportScreen() {
 
           {step === 3 && (
             <View style={S.ctaWrap}>
+              {formError ? <Text style={S.formError}>{formError}</Text> : null}
               <Pressable style={[S.cta, submitting && S.ctaDisabled]} onPress={handleSubmit} disabled={submitting}>
                 <LinearGradient
                   colors={["#FF6B3A", "#E84F1F"]}
@@ -814,6 +887,43 @@ const S = StyleSheet.create({
     borderRadius: 999, borderWidth: 1, borderColor: "rgba(255,255,255,0.15)",
   },
   locSkipText: { fontSize: 12, color: "rgba(255,255,255,0.45)", fontFamily: "SpaceGrotesk_500Medium" },
+  fallbackHint: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginBottom: 8,
+    paddingHorizontal: 4,
+  },
+  fallbackHintText: {
+    fontSize: 11,
+    color: "rgba(107,224,255,0.85)",
+    fontFamily: "SpaceGrotesk_500Medium",
+  },
+  fallbackBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    padding: 10,
+    paddingHorizontal: 12,
+    backgroundColor: "rgba(0,224,255,0.08)",
+    borderWidth: 1,
+    borderColor: "rgba(0,224,255,0.28)",
+    borderRadius: 12,
+  },
+  fallbackBannerText: {
+    fontSize: 11,
+    color: "rgba(107,224,255,0.9)",
+    fontFamily: "SpaceGrotesk_500Medium",
+    lineHeight: 16,
+  },
+  formError: {
+    fontSize: 12,
+    color: "#FF8A80",
+    textAlign: "center",
+    fontFamily: "SpaceGrotesk_500Medium",
+    lineHeight: 17,
+    paddingHorizontal: 4,
+  },
   safeTop: { position: "absolute", top: 0, left: 0, right: 0, zIndex: 10 },
   safeSheet: { flex: 1, justifyContent: "flex-end" },
 

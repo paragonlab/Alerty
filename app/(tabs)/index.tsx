@@ -214,7 +214,7 @@ export default function MapScreen() {
       <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
           <MapView
             ref={mapRef}
-            style={StyleSheet.absoluteFill}
+            style={[StyleSheet.absoluteFill, isWeb && styles.webMapHost]}
             initialRegion={CULIACAN_CENTER}
             showsUserLocation
             showsMyLocationButton={false}
@@ -391,8 +391,8 @@ export default function MapScreen() {
           </View>
         )}
 
-        {/* Empty state overlay */}
-        {filteredAlerts.length === 0 && !isWeb && (
+        {/* Empty state overlay (también en web: un mapa vacío se ve “roto”) */}
+        {filteredAlerts.length === 0 && (
           <View style={styles.emptyOverlay} pointerEvents="none">
             <Ionicons name="shield-outline" size={28} color={theme.colors.textMuted} />
             <Text style={styles.emptyText}>Sin alertas en esta área</Text>
@@ -459,6 +459,18 @@ const createStyles = (theme: any, themeMode: string) => StyleSheet.create({
   },
   container: {
     flex: 1,
+    position: "relative",
+    minHeight: 0,
+  },
+  webMapHost: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    width: "100%",
+    height: "100%",
+    minHeight: 320,
   },
   headerOverlay: {
     position: "absolute",
