@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useMemo } from "react";
+import { useEffect, useRef, useState, useMemo, type ReactNode } from "react";
 import {
   Alert,
   Animated,
@@ -29,6 +29,119 @@ import { calculateDistance } from "../lib/alerty/utils";
 
 // Categories shown in the 3-column grid (exclude SOS – that's the long-press)
 const GRID_CATS = ALERT_CATEGORIES.filter((c) => c !== "sos");
+
+const SUBMIT_AUTH_TIMEOUT_MS = 8_000;
+const SUBMIT_INSERT_TIMEOUT_MS = 12_000;
+
+function withTimeout<T>(promise: PromiseLike<T>, ms: number, label: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`Tiempo de espera agotado al ${label}. Revisa tu conexión.`));
+    }, ms);
+    Promise.resolve(promise).then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      },
+    );
+  });
+}
+
+/** Cede un par de frames para que React pinte ENVIANDO... antes del await de red. */
+function yieldToPaint(): Promise<void> {
+  return new Promise((resolve) => {
+    if (typeof requestAnimationFrame === "function") {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => resolve());
+      });
+    } else {
+      setTimeout(resolve, 32);
+    }
+  });
+}
+
+/**
+ * CTA del flujo Reportar.
+ * En web usamos <button> nativo: Pressable + LinearGradient absoluteFill a veces
+ * traga el tap en iPhone Safari (sobre todo cerca del chrome inferior).
+ */
+function ReportCta({
+  onPress,
+  disabled,
+  children,
+}: {
+  onPress: () => void;
+  disabled?: boolean;
+  children: ReactNode;
+}) {
+  const gradient = (
+    <LinearGradient
+      colors={["#FF6B3A", "#E84F1F"]}
+      style={StyleSheet.absoluteFill}
+      pointerEvents="none"
+    />
+  );
+
+  if (Platform.OS === "web") {
+    return (
+      // Native <button> keeps iOS Safari clicks reliable near the browser chrome.
+      <button
+        type="button"
+        disabled={Boolean(disabled)}
+        aria-busy={disabled || undefined}
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          if (!disabled) onPress();
+        }}
+        style={{
+          position: "relative",
+          display: "flex",
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 8,
+          width: "100%",
+          boxSizing: "border-box",
+          padding: 14,
+          border: "none",
+          borderRadius: 14,
+          overflow: "hidden",
+          cursor: disabled ? "default" : "pointer",
+          opacity: disabled ? 0.5 : 1,
+          background: "transparent",
+          appearance: "none",
+          WebkitAppearance: "none",
+          WebkitTapHighlightColor: "transparent",
+          touchAction: "manipulation",
+          font: "inherit",
+          color: "inherit",
+          margin: 0,
+          zIndex: 2,
+        }}
+      >
+        {gradient}
+        {children}
+      </button>
+    );
+  }
+
+  return (
+    <Pressable
+      accessibilityRole="button"
+      style={[S.cta, disabled && S.ctaDisabled]}
+      onPress={onPress}
+      disabled={disabled}
+    >
+      {gradient}
+      {children}
+    </Pressable>
+  );
+}
 
 // ── Step indicator ────────────────────────────────────────────────────────────
 function StepDots({ current }: { current: number }) {
@@ -86,6 +199,7 @@ export default function ReportScreen() {
   const [isRecording, setIsRecording] = useState(false);
   const [recSeconds, setRecSeconds] = useState(0);
   const recIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const submittingRef = useRef(false);
   const waveAnims = useRef(Array.from({ length: 18 }, () => new Animated.Value(0.06))).current;
   const waveLoopsRef = useRef<Animated.CompositeAnimation[]>([]);
 
@@ -313,6 +427,7 @@ export default function ReportScreen() {
   }
 
   async function handleSubmit() {
+    if (submittingRef.current) return;
     setFormError(null);
     if (!category) {
       notifyUser("Falta categoría", "Selecciona el tipo de incidente.");
@@ -326,7 +441,12 @@ export default function ReportScreen() {
     if (!userLocation) {
       applyCuliacanFallback();
     }
+
+    submittingRef.current = true;
     setSubmitting(true);
+    // Pintar ENVIANDO... antes de cualquier red (iOS Safari a veces no muestra el estado si el await empieza al instante).
+    await yieldToPaint();
+
     const newAlert = {
       id: `local-${Date.now()}`,
       category,
@@ -342,23 +462,47 @@ export default function ReportScreen() {
       neighborhood: placeLabel,
       user: currentUser,
     };
+
+    let savedLocally = false;
     try {
       addAlert(newAlert as any);
-      if (supabase) {
-        const { data: ud } = await supabase.auth.getUser();
-        const { data: inserted, error: insertError } = await supabase
-          .from("alerts")
-          .insert({
-            user_id: ud.user?.id,
-            category,
-            lat: coords.latitude,
-            lng: coords.longitude,
-            title: newAlert.title,
-            description: newAlert.description,
-            status: "active",
-          })
-          .select("id")
-          .single();
+      savedLocally = true;
+    } catch (err) {
+      submittingRef.current = false;
+      setSubmitting(false);
+      const detail =
+        err && typeof err === "object" && "message" in err && typeof (err as { message: unknown }).message === "string"
+          ? (err as { message: string }).message
+          : "Intenta de nuevo en unos segundos.";
+      notifyUser("No se pudo enviar la alerta", detail);
+      return;
+    }
+
+    // Red: no bloquear el éxito local. Timeouts evitan botones “muertos” si Safari cuelga auth/insert.
+    if (supabase) {
+      try {
+        const { data: ud } = await withTimeout(
+          supabase.auth.getUser(),
+          SUBMIT_AUTH_TIMEOUT_MS,
+          "verificar sesión",
+        );
+        const { data: inserted, error: insertError } = await withTimeout(
+          supabase
+            .from("alerts")
+            .insert({
+              user_id: ud.user?.id,
+              category,
+              lat: coords.latitude,
+              lng: coords.longitude,
+              title: newAlert.title,
+              description: newAlert.description,
+              status: "active",
+            })
+            .select("id")
+            .single(),
+          SUBMIT_INSERT_TIMEOUT_MS,
+          "guardar en la red",
+        );
         if (insertError) {
           console.warn("supabase alert insert failed", insertError);
         } else if (inserted?.id) {
@@ -381,18 +525,24 @@ export default function ReportScreen() {
             })().catch(() => {});
           }
         }
+      } catch (netErr) {
+        console.warn("supabase submit skipped after local save", netErr);
       }
+    }
+
+    try {
       void Sounds.success();
+    } catch {}
+    try {
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      setSubmitting(false);
+    } catch {}
+
+    submittingRef.current = false;
+    setSubmitting(false);
+    if (savedLocally) {
       setStep(4);
-    } catch (err) {
-      setSubmitting(false);
-      const detail =
-        err && typeof err === "object" && "message" in err && typeof (err as { message: unknown }).message === "string"
-          ? (err as { message: string }).message
-          : "Intenta de nuevo en unos segundos.";
-      notifyUser("No se pudo enviar la alerta", detail);
+    } else {
+      notifyUser("No se pudo enviar la alerta", "Intenta de nuevo en unos segundos.");
     }
   }
 
@@ -818,10 +968,10 @@ export default function ReportScreen() {
 
           {/* CTA — steps 2 & 3 */}
           {step === 2 && (
-            <View style={S.ctaWrap}>
+            <View style={[S.ctaWrap, Platform.OS === "web" && S.ctaWrapWeb]}>
               {formError ? <Text style={S.formError}>{formError}</Text> : null}
-              <Pressable
-                style={[S.cta, !category && S.ctaDisabled]}
+              <ReportCta
+                disabled={!category}
                 onPress={() => {
                   setFormError(null);
                   if (!category) {
@@ -831,27 +981,24 @@ export default function ReportScreen() {
                   setStep(3);
                 }}
               >
-                <LinearGradient
-                  colors={["#FF6B3A", "#E84F1F"]}
-                  style={StyleSheet.absoluteFill}
-                />
                 <Text style={S.ctaText}>REVISAR Y ENVIAR</Text>
                 <Ionicons name="arrow-forward" size={16} color="#fff" />
-              </Pressable>
+              </ReportCta>
             </View>
           )}
 
           {step === 3 && (
-            <View style={S.ctaWrap}>
+            <View style={[S.ctaWrap, Platform.OS === "web" && S.ctaWrapWeb]}>
               {formError ? <Text style={S.formError}>{formError}</Text> : null}
-              <Pressable style={[S.cta, submitting && S.ctaDisabled]} onPress={handleSubmit} disabled={submitting}>
-                <LinearGradient
-                  colors={["#FF6B3A", "#E84F1F"]}
-                  style={StyleSheet.absoluteFill}
-                />
+              <ReportCta
+                disabled={submitting}
+                onPress={() => {
+                  void handleSubmit();
+                }}
+              >
                 <Ionicons name="paper-plane" size={16} color="#fff" />
                 <Text style={S.ctaText}>{submitting ? "ENVIANDO..." : "ENVIAR ALERTA"}</Text>
-              </Pressable>
+              </ReportCta>
               <Text style={S.ctaHelper}>Tu identidad permanece anónima · 0 metadatos personales</Text>
             </View>
           )}
@@ -1215,7 +1362,11 @@ const S = StyleSheet.create({
   trustSub: { fontSize: 10, color: "rgba(0,255,65,0.65)", marginTop: 1, fontFamily: "SpaceGrotesk_500Medium" },
 
   // CTA
-  ctaWrap: { paddingTop: 8, paddingBottom: 4, gap: 6 },
+  ctaWrap: { paddingTop: 8, paddingBottom: 4, gap: 6, zIndex: 20, position: "relative" },
+  ctaWrapWeb: {
+    // Extra aire sobre el chrome de Safari iPhone para que el tap no caiga en la barra del browser.
+    paddingBottom: 18,
+  },
   cta: {
     flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
     padding: 14, borderRadius: 14, overflow: "hidden",
