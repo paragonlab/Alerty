@@ -78,12 +78,11 @@ export function AlertCard({ alert, onPress, onPressVideo }: AlertCardProps) {
           )}
           {alert.media.length > 0 && !hasVideo && (() => {
             const hasAudio = alert.media.some((m) => m.type === "audio");
-            const icon = hasVideo ? "film" : hasAudio ? "mic" : "camera";
-            const iconColor = hasVideo ? "#FF6B3A" : theme.colors.textMuted;
+            const icon = hasAudio ? "mic" : "camera";
             return (
-              <View style={[styles.mediaPill, hasVideo && styles.mediaPillVideo]}>
-                <Ionicons name={icon} size={11} color={iconColor} />
-                <Text style={[styles.voteText, hasVideo && { color: "#FF6B3A" }]}>{alert.media.length}</Text>
+              <View style={styles.mediaPill}>
+                <Ionicons name={icon} size={11} color={theme.colors.textMuted} />
+                <Text style={styles.voteText}>{alert.media.length}</Text>
               </View>
             );
           })()}

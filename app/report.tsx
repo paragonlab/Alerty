@@ -2,6 +2,8 @@ import { useEffect, useRef, useState, useMemo } from "react";
 import {
   Alert,
   Animated,
+  Image,
+  Linking,
   Platform,
   Pressable,
   ScrollView,
@@ -26,15 +28,20 @@ import { supabase } from "../lib/supabase";
 import { uploadMediaBatch } from "../lib/upload";
 import type { AlertCategory, AlertMedia } from "../lib/alerty/types";
 import { calculateDistance } from "../lib/alerty/utils";
+import {
+  ReportCaptureViewfinder,
+  type ReportCaptureHandle,
+} from "../components/ReportCaptureViewfinder";
+import type { CaptureResult } from "../components/InAppCamera";
 
 // Categories shown in the 3-column grid (exclude SOS – that's the long-press)
 const GRID_CATS = ALERT_CATEGORIES.filter((c) => c !== "sos");
 
-// ── Step indicator ────────────────────────────────────────────────────────────
+// ── Step indicator (captura → detalles; éxito sin dots) ───────────────────────
 function StepDots({ current }: { current: number }) {
   return (
     <View style={S.stepDots}>
-      {[1, 2, 3].map((n) => (
+      {[1, 2].map((n) => (
         <View
           key={n}
           style={[
@@ -70,7 +77,7 @@ export default function ReportScreen() {
   const insets = useSafeAreaInsets();
   const { addAlert, currentUser, alerts } = useAlertyStore();
 
-  const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
+  const [step, setStep] = useState<1 | 2 | 3>(1);
   const [captureMode, setCaptureMode] = useState<"video" | "photo" | "voice">("video");
   const [category, setCategory] = useState<AlertCategory | null>(null);
   const [title, setTitle] = useState("");
@@ -86,9 +93,9 @@ export default function ReportScreen() {
   const recIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const waveAnims = useRef(Array.from({ length: 18 }, () => new Animated.Value(0.06))).current;
   const waveLoopsRef = useRef<Animated.CompositeAnimation[]>([]);
+  const captureRef = useRef<ReportCaptureHandle>(null);
 
   // Animations
-  const recDotAnim = useRef(new Animated.Value(1)).current;
   const shutterPulse = useRef(new Animated.Value(0)).current;
   const successScale = useRef(new Animated.Value(1)).current;
   const successHalo = useRef(new Animated.Value(0)).current;
@@ -108,22 +115,14 @@ export default function ReportScreen() {
 
   useEffect(() => {
     void getLocation();
-    const recLoop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(recDotAnim, { toValue: 0, duration: 600, useNativeDriver: true }),
-        Animated.timing(recDotAnim, { toValue: 1, duration: 600, useNativeDriver: true }),
-      ]),
-    );
     const shutLoop = Animated.loop(
       Animated.sequence([
         Animated.timing(shutterPulse, { toValue: 1, duration: 700, useNativeDriver: true }),
         Animated.timing(shutterPulse, { toValue: 0, duration: 700, useNativeDriver: true }),
       ]),
     );
-    recLoop.start();
     shutLoop.start();
     return () => {
-      recLoop.stop();
       shutLoop.stop();
       if (recIntervalRef.current) clearInterval(recIntervalRef.current);
       waveLoopsRef.current.forEach((l) => l.stop());
@@ -132,7 +131,7 @@ export default function ReportScreen() {
   }, []);
 
   useEffect(() => {
-    if (step !== 4) return;
+    if (step !== 3) return;
     const scaleLoop = Animated.loop(
       Animated.sequence([
         Animated.timing(successScale, { toValue: 1.04, duration: 1000, useNativeDriver: true }),
@@ -167,27 +166,59 @@ export default function ReportScreen() {
             setLocationLabel(place.district ?? place.subregion ?? place.city ?? "Mi ubicación");
           }
         } catch {}
+      } else {
+        setUserLocation({ latitude: CULIACAN_CENTER.latitude, longitude: CULIACAN_CENTER.longitude });
+        setLocationLabel("Culiacán");
       }
-    } catch {}
+    } catch {
+      setUserLocation({ latitude: CULIACAN_CENTER.latitude, longitude: CULIACAN_CENTER.longitude });
+      setLocationLabel("Culiacán");
+    }
     setLocationLoading(false);
   }
 
   async function handleGallery() {
-    if (Platform.OS === "web") return;
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== "granted") { Alert.alert("Permiso requerido", "Necesitamos acceso a tu galería."); return; }
+    if (status !== "granted") {
+      Alert.alert(
+        "Sin acceso a la galería",
+        "Necesitamos permiso para adjuntar fotos o videos ya guardados. Puedes activarlo en Ajustes.",
+        Platform.OS === "web"
+          ? undefined
+          : [
+              { text: "Cancelar", style: "cancel" },
+              { text: "Abrir ajustes", onPress: () => void Linking.openSettings() },
+            ],
+      );
+      return;
+    }
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ["images", "videos"],
       quality: 0.8,
+      allowsMultipleSelection: Platform.OS !== "web",
+      selectionLimit: 4,
     });
     if (result.canceled) return;
     const picked: AlertMedia[] = result.assets.map((a) => ({
-      id: a.assetId ?? `local-${Date.now()}`,
+      id: a.assetId ?? `local-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       url: a.uri,
       type: (a.type === "video" ? "video" : "image") as "image" | "video",
     }));
     setMedia((prev) => [...prev, ...picked]);
     if (step === 1) setStep(2);
+  }
+
+  function handleInAppCaptured(result: CaptureResult) {
+    setMedia((prev) => [
+      ...prev,
+      {
+        id: `cap-${Date.now()}`,
+        url: result.uri,
+        type: result.type,
+      },
+    ]);
+    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    setStep(2);
   }
 
   async function handleShutter() {
@@ -203,30 +234,8 @@ export default function ReportScreen() {
       return;
     }
 
-    const { status } = await ImagePicker.requestCameraPermissionsAsync();
-    if (status !== "granted") {
-      Alert.alert("Permiso", "Necesitamos acceso a la cámara para capturar evidencia.");
-      return;
-    }
-    try {
-      const result = await ImagePicker.launchCameraAsync({
-        mediaTypes: captureMode === "video" ? "videos" : "images",
-        quality: 0.85,
-        videoMaxDuration: 60,
-      });
-      if (!result.canceled) {
-        const picked: AlertMedia[] = result.assets.map((a) => ({
-          id: `cap-${Date.now()}`,
-          url: a.uri,
-          type: (a.type === "video" ? "video" : "image") as "image" | "video",
-        }));
-        setMedia((prev) => [...prev, ...picked]);
-        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        if (step === 1) setStep(2);
-      }
-    } catch {
-      await handleGallery();
-    }
+    if (captureRef.current?.hasPreview()) return;
+    await captureRef.current?.capture();
   }
 
   function startWave() {
@@ -256,7 +265,19 @@ export default function ReportScreen() {
   async function handleStartRecording() {
     try {
       const { status } = await Audio.requestPermissionsAsync();
-      if (status !== "granted") { Alert.alert("Permiso", "Necesitamos el micrófono para grabar."); return; }
+      if (status !== "granted") {
+        Alert.alert(
+          "Sin acceso al micrófono",
+          "Necesitamos el micrófono para grabar audio como evidencia.",
+          Platform.OS === "web"
+            ? undefined
+            : [
+                { text: "Cancelar", style: "cancel" },
+                { text: "Abrir ajustes", onPress: () => void Linking.openSettings() },
+              ],
+        );
+        return;
+      }
       await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
       const { recording: rec } = await Audio.Recording.createAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
       setRecording(rec);
@@ -266,6 +287,7 @@ export default function ReportScreen() {
       startWave();
     } catch (e) {
       console.error("start recording", e);
+      Alert.alert("No se pudo grabar", "Revisa el permiso del micrófono e intenta de nuevo.");
     }
   }
 
@@ -291,13 +313,18 @@ export default function ReportScreen() {
 
   async function handleSubmit() {
     if (!category) { Alert.alert("Falta categoría", "Selecciona el tipo de incidente."); return; }
-    if (!userLocation) { Alert.alert("Ubicación no disponible", "Activa el GPS e intenta de nuevo."); return; }
+    const coords =
+      userLocation ??
+      { latitude: CULIACAN_CENTER.latitude, longitude: CULIACAN_CENTER.longitude };
+    if (!userLocation) {
+      setUserLocation(coords);
+    }
     setSubmitting(true);
     const newAlert = {
       id: `local-${Date.now()}`,
       category,
-      lat: userLocation.latitude,
-      lng: userLocation.longitude,
+      lat: coords.latitude,
+      lng: coords.longitude,
       title: title.trim() || `${CATEGORY_LABELS[category]} · ${locationLabel}`,
       description: `Cómo lo sé: ${sourceTag}`,
       createdAt: new Date().toISOString(),
@@ -317,8 +344,8 @@ export default function ReportScreen() {
           .insert({
             user_id: ud.user?.id,
             category,
-            lat: userLocation.latitude,
-            lng: userLocation.longitude,
+            lat: coords.latitude,
+            lng: coords.longitude,
             title: newAlert.title,
             description: newAlert.description,
             status: "active",
@@ -350,48 +377,31 @@ export default function ReportScreen() {
     void Sounds.success();
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     setSubmitting(false);
-    setStep(4);
+    setStep(3);
   }
 
   // ── Render helpers ───────────────────────────────────────────────────────
 
   function renderStep1() {
-    const isCapturing = isRecording;
-    const timer = `${Math.floor(recSeconds / 60)}:${String(recSeconds % 60).padStart(2, "0")}`;
+    const camRecording = captureRef.current?.isRecording() ?? false;
+    const isCapturing = isRecording || camRecording;
 
     return (
       <>
-        {/* Viewfinder */}
-        <View style={S.viewfinder}>
-          <View style={[S.corner, S.cornerTL]} />
-          <View style={[S.corner, S.cornerTR]} />
-          <View style={[S.corner, S.cornerBL]} />
-          <View style={[S.corner, S.cornerBR]} />
-          <View style={[S.recChip, isCapturing && S.recChipActive]}>
-            {isCapturing && <Animated.View style={[S.recDot, { opacity: recDotAnim }]} />}
-            <Text style={S.recText}>{isCapturing ? "REC" : captureMode === "video" ? "VIDEO" : captureMode === "photo" ? "FOTO" : "VOZ"}</Text>
-          </View>
-          {isCapturing && (
-            <View style={S.vfTimer}>
-              <Text style={S.vfTimerText}>{timer}</Text>
-            </View>
-          )}
-          {captureMode === "voice" && isRecording ? (
+        <ReportCaptureViewfinder
+          ref={captureRef}
+          captureMode={captureMode}
+          isVoiceRecording={isRecording}
+          voiceSeconds={recSeconds}
+          onCaptured={handleInAppCaptured}
+          voiceContent={
             <View style={S.waveformWrap}>
               {waveAnims.map((anim, i) => (
                 <Animated.View key={i} style={[S.wavebar, { transform: [{ scaleY: anim }] }]} />
               ))}
             </View>
-          ) : (
-            <View style={S.vfHint}>
-              <Ionicons
-                name={captureMode === "video" ? "videocam" : captureMode === "photo" ? "camera" : "mic"}
-                size={32}
-                color="rgba(255,255,255,0.25)"
-              />
-            </View>
-          )}
-        </View>
+          }
+        />
 
         {/* Mode selector */}
         <View style={S.modeRow}>
@@ -399,11 +409,15 @@ export default function ReportScreen() {
             <Pressable
               key={mode}
               style={[S.modeBtn, captureMode === mode && S.modeBtnActive]}
-              onPress={() => setCaptureMode(mode)}
+              onPress={() => {
+                if (isCapturing) return;
+                setCaptureMode(mode);
+              }}
+              accessibilityLabel={mode === "video" ? "Modo video" : mode === "photo" ? "Modo foto" : "Modo voz"}
             >
               <Ionicons
                 name={mode === "video" ? "videocam" : mode === "photo" ? "camera" : "mic"}
-                size={13}
+                size={14}
                 color={captureMode === mode ? "#fff" : "rgba(255,255,255,0.5)"}
               />
               <Text style={[S.modeBtnText, captureMode === mode && S.modeBtnTextActive]}>
@@ -415,19 +429,39 @@ export default function ReportScreen() {
 
         {/* Shutter row */}
         <View style={S.shutterRow}>
-          <Pressable style={S.shutterSide} onPress={handleGallery}>
+          <Pressable style={S.shutterSide} onPress={handleGallery} accessibilityLabel="Abrir galería">
             <View style={S.shutterSideBtn}>
-              <Ionicons name="images-outline" size={16} color="#fff" />
+              <Ionicons name="images-outline" size={18} color="#fff" />
             </View>
             <Text style={S.shutterSideLabel}>GALERÍA</Text>
           </Pressable>
 
-          <Pressable onPress={handleShutter}>
+          <Pressable
+            onPress={handleShutter}
+            onLongPress={() => {
+              if (captureMode === "video" && !captureRef.current?.isRecording()) {
+                void captureRef.current?.capture();
+              }
+            }}
+            delayLongPress={280}
+            accessibilityLabel={
+              captureMode === "photo"
+                ? "Tomar foto"
+                : captureMode === "voice"
+                  ? isRecording
+                    ? "Detener grabación"
+                    : "Grabar audio"
+                  : captureRef.current?.isRecording()
+                    ? "Detener video"
+                    : "Grabar video"
+            }
+          >
             <View style={S.shutterRing}>
               <Animated.View
                 style={[
                   S.shutterInner,
                   isCapturing && S.shutterInnerRec,
+                  captureMode === "video" && !isCapturing && S.shutterInnerVideo,
                   { transform: [{ scale: shutterScale }] },
                 ]}
               />
@@ -436,6 +470,18 @@ export default function ReportScreen() {
 
           <View style={S.shutterSide} />
         </View>
+
+        <Text style={S.captureHint}>
+          {Platform.OS === "web"
+            ? "En la web usa Galería · la cámara en vivo está en la app"
+            : captureMode === "photo"
+              ? "Toca para foto · confirma con Usar"
+              : captureMode === "video"
+                ? "Toca o mantén para grabar · máx. 60 s"
+                : isRecording
+                  ? "Toca de nuevo para detener"
+                  : "Toca para grabar audio"}
+        </Text>
 
         <Pressable style={S.skipBtn} onPress={() => setStep(2)}>
           <Text style={S.skipBtnText}>Continuar sin evidencia</Text>
@@ -453,10 +499,20 @@ export default function ReportScreen() {
         {media.length > 0 ? (
           <View style={S.evidenceRow}>
             <View style={S.evidenceThumb}>
-              <Ionicons name={previewMedia?.type === "audio" ? "mic" : previewMedia?.type === "video" ? "videocam" : "image"} size={14} color="rgba(255,255,255,0.5)" style={{ position: "absolute" }} />
-              <View style={S.evidenceThumbPlay}>
-                <View style={S.evidencePlayTriangle} />
-              </View>
+              {previewMedia?.type === "image" ? (
+                <Image source={{ uri: previewMedia.url }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+              ) : (
+                <Ionicons
+                  name={previewMedia?.type === "audio" ? "mic" : "videocam"}
+                  size={16}
+                  color="rgba(255,255,255,0.55)"
+                />
+              )}
+              {previewMedia?.type === "video" && (
+                <View style={S.evidenceThumbPlay}>
+                  <View style={S.evidencePlayTriangle} />
+                </View>
+              )}
             </View>
             <View style={{ flex: 1 }}>
               <Text style={S.evidenceLabel}>
@@ -465,8 +521,8 @@ export default function ReportScreen() {
               </Text>
               <Text style={S.evidenceSub}>Listo · {media.length} archivo{media.length > 1 ? "s" : ""}</Text>
             </View>
-            <Pressable style={S.evidenceAdd} onPress={handleGallery}>
-              <Ionicons name="add" size={16} color="rgba(255,255,255,0.6)" />
+            <Pressable style={S.evidenceAdd} onPress={() => setStep(1)} accessibilityLabel="Agregar más evidencia">
+              <Ionicons name="add" size={18} color="rgba(255,255,255,0.6)" />
             </Pressable>
           </View>
         ) : (
@@ -476,10 +532,8 @@ export default function ReportScreen() {
           </Pressable>
         )}
 
-        {/* Category label */}
         <Text style={S.sheetLabel}>¿Qué está pasando?</Text>
 
-        {/* Category grid */}
         <View style={S.catGrid}>
           {GRID_CATS.map((cat) => (
             <Pressable
@@ -499,7 +553,6 @@ export default function ReportScreen() {
           ))}
         </View>
 
-        {/* Title input */}
         <TextInput
           style={S.titleInput}
           placeholder={category ? `${CATEGORY_LABELS[category]} · ${locationLabel}` : "Describe brevemente lo que pasa..."}
@@ -510,7 +563,6 @@ export default function ReportScreen() {
           selectionColor="#FF6B3A"
         />
 
-        {/* Source tag */}
         <Text style={S.sheetLabel}>Cómo sabes</Text>
         <View style={S.tagRow}>
           {([
@@ -528,79 +580,30 @@ export default function ReportScreen() {
             </Pressable>
           ))}
         </View>
+
+        <View style={S.trustBlock}>
+          <Ionicons name="shield-checkmark" size={18} color="#66FF8C" />
+          <View style={{ flex: 1 }}>
+            <Text style={S.trustText}>
+              {userLocation ? "Tu reporte usa tu ubicación actual." : "Se usará Culiacán como referencia."}
+            </Text>
+            <Text style={S.trustSub}>Identidad anónima · sin metadatos personales.</Text>
+          </View>
+        </View>
       </>
     );
   }
 
   function renderStep3() {
     const displayTitle = title.trim() || (category ? `${CATEGORY_LABELS[category]} · ${locationLabel}` : "Sin título");
-    const isNearby = true; // they're reporting from their location
 
     return (
       <>
-        <Text style={S.sheetLabel}>Así se verá en la red</Text>
-
-        {/* Preview card */}
-        <View style={S.previewCard}>
-          <View style={S.previewHead}>
-            <View style={S.previewThumb} />
-            <View style={{ flex: 1, gap: 4 }}>
-              <View style={S.previewCat}>
-                <Ionicons name={(category ? CATEGORY_ICONS[category] : "alert-circle") as any} size={10} color="#FF6060" />
-                <Text style={S.previewCatText}>{category ? CATEGORY_LABELS[category].toUpperCase() : "INCIDENTE"}</Text>
-              </View>
-              <Text style={S.previewTitle} numberOfLines={2}>{displayTitle}</Text>
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
-                <Ionicons name="location-outline" size={11} color="rgba(255,255,255,0.55)" />
-                <Text style={S.previewMeta}>{locationLabel} · Ahora</Text>
-              </View>
-            </View>
-          </View>
-        </View>
-
-        <Text style={S.sheetLabel}>Distribución</Text>
-
-        {/* Distribution cells */}
-        <View style={S.distRow}>
-          <View style={S.distCell}>
-            <Text style={S.distNum}>{vigias.toLocaleString()}</Text>
-            <Text style={S.distLabel}>VIGÍAS A 5 KM</Text>
-          </View>
-          <View style={S.distCell}>
-            <Text style={S.distNum}>8</Text>
-            <Text style={S.distLabel}>CONF. PARA VERIFICAR</Text>
-          </View>
-        </View>
-
-        {/* Geo trust bonus */}
-        {isNearby && (
-          <View style={S.trustBlock}>
-            <Ionicons name="shield-checkmark" size={18} color="#66FF8C" />
-            <View style={{ flex: 1 }}>
-              <Text style={S.trustText}>
-                Estás en el lugar del evento.
-              </Text>
-              <Text style={S.trustSub}>Tu reporte pesa 5× en confirmaciones cercanas.</Text>
-            </View>
-          </View>
-        )}
-      </>
-    );
-  }
-
-  function renderStep4() {
-    const displayTitle = title.trim() || (category ? `${CATEGORY_LABELS[category]} · ${locationLabel}` : "Sin título");
-
-    return (
-      <>
-        {/* Success mark */}
         <View style={S.successWrap}>
-          {/* Halo ring */}
           <Animated.View
             pointerEvents="none"
             style={[S.successHaloRing, { transform: [{ scale: haloScale }], opacity: haloOpacity }]}
           />
-          {/* Main circle */}
           <Animated.View style={[S.successMark, { transform: [{ scale: successScale }] }]}>
             <Ionicons name="checkmark" size={38} color="#001a07" />
           </Animated.View>
@@ -610,10 +613,20 @@ export default function ReportScreen() {
           </Text>
         </View>
 
-        {/* Preview card */}
         <View style={S.previewCard}>
           <View style={S.previewHead}>
-            <View style={S.previewThumb} />
+            {media[0]?.type === "image" ? (
+              <Image source={{ uri: media[0].url }} style={S.previewThumb} resizeMode="cover" />
+            ) : (
+              <View style={S.previewThumb}>
+                <Ionicons
+                  name={media[0]?.type === "video" ? "videocam" : media[0]?.type === "audio" ? "mic" : "alert-circle"}
+                  size={18}
+                  color="rgba(255,255,255,0.4)"
+                  style={{ alignSelf: "center", marginTop: 26 }}
+                />
+              </View>
+            )}
             <View style={{ flex: 1, gap: 4 }}>
               <View style={S.previewCat}>
                 <Ionicons name={(category ? CATEGORY_ICONS[category] : "alert-circle") as any} size={10} color="#FF6060" />
@@ -629,7 +642,6 @@ export default function ReportScreen() {
           </View>
         </View>
 
-        {/* Actions */}
         <View style={S.successActions}>
           <Pressable style={S.successActionSec} onPress={() => router.replace("/(tabs)/")}>
             <Ionicons name="map" size={14} color="#fff" />
@@ -646,7 +658,7 @@ export default function ReportScreen() {
 
   // ── Main render ──────────────────────────────────────────────────────────
 
-  const isStep4 = step === 4;
+  const isStep3 = step === 3;
 
   if (locationLoading) {
     return (
@@ -659,7 +671,19 @@ export default function ReportScreen() {
         <Text style={S.locLoadingSub}>
           Necesitamos saber dónde ocurre el incidente para que tu reporte llegue a las personas correctas.
         </Text>
-        <Pressable style={S.locSkipBtn} onPress={() => setLocationLoading(false)}>
+        <Pressable
+          style={S.locSkipBtn}
+          onPress={() => {
+            if (!userLocation) {
+              setUserLocation({
+                latitude: CULIACAN_CENTER.latitude,
+                longitude: CULIACAN_CENTER.longitude,
+              });
+              setLocationLabel("Culiacán");
+            }
+            setLocationLoading(false);
+          }}
+        >
           <Text style={S.locSkipText}>Continuar sin GPS</Text>
         </Pressable>
       </View>
@@ -675,7 +699,7 @@ export default function ReportScreen() {
       />
 
       {/* Nearby alert context widget */}
-      {nearbyAlert && !isStep4 && (
+      {nearbyAlert && !isStep3 && (
         <SafeAreaView style={S.safeTop} edges={["top"]}>
           <Pressable
             style={({ pressed }) => [S.nearbyWidget, pressed && S.nearbyWidgetPressed]}
@@ -706,7 +730,7 @@ export default function ReportScreen() {
       <SafeAreaView
         style={[
           S.safeSheet,
-          nearbyAlert && !isStep4 && { paddingTop: insets.top + 78 },
+          nearbyAlert && !isStep3 && { paddingTop: insets.top + 78 },
         ]}
         edges={["bottom"]}
       >
@@ -715,7 +739,7 @@ export default function ReportScreen() {
           <View style={S.handle} />
 
           {/* Head */}
-          {isStep4 ? (
+          {isStep3 ? (
             <View style={S.sheetHead}>
               <Text style={S.sheetTitle}>Reporte enviado</Text>
               <View style={S.chipAnon}>
@@ -725,9 +749,9 @@ export default function ReportScreen() {
             </View>
           ) : (
             <View style={S.sheetHead}>
-              <Text style={S.sheetTitle}>{step === 3 ? "Revisa" : "Reportar"}</Text>
+              <Text style={S.sheetTitle}>{step === 2 ? "Detalles" : "Reportar"}</Text>
               <StepDots current={step} />
-              <Pressable style={S.closeBtn} onPress={() => router.back()}>
+              <Pressable style={S.closeBtn} onPress={() => router.back()} hitSlop={8}>
                 <Ionicons name="close" size={14} color="#fff" />
               </Pressable>
             </View>
@@ -746,32 +770,16 @@ export default function ReportScreen() {
             {step === 1 && renderStep1()}
             {step === 2 && renderStep2()}
             {step === 3 && renderStep3()}
-            {step === 4 && renderStep4()}
           </ScrollView>
 
-          {/* CTA — steps 2 & 3 */}
+          {/* CTA — step 2 envía directo (sin paso de revisión) */}
           {step === 2 && (
             <View style={S.ctaWrap}>
               <Pressable
-                style={[S.cta, !category && S.ctaDisabled]}
-                onPress={() => {
-                  if (!category) { Alert.alert("Falta categoría", "Selecciona el tipo de incidente."); return; }
-                  setStep(3);
-                }}
+                style={[S.cta, (!category || submitting) && S.ctaDisabled]}
+                onPress={handleSubmit}
+                disabled={submitting}
               >
-                <LinearGradient
-                  colors={["#FF6B3A", "#E84F1F"]}
-                  style={StyleSheet.absoluteFill}
-                />
-                <Text style={S.ctaText}>REVISAR Y ENVIAR</Text>
-                <Ionicons name="arrow-forward" size={16} color="#fff" />
-              </Pressable>
-            </View>
-          )}
-
-          {step === 3 && (
-            <View style={S.ctaWrap}>
-              <Pressable style={[S.cta, submitting && S.ctaDisabled]} onPress={handleSubmit} disabled={submitting}>
                 <LinearGradient
                   colors={["#FF6B3A", "#E84F1F"]}
                   style={StyleSheet.absoluteFill}
@@ -898,40 +906,6 @@ const S = StyleSheet.create({
 
   scrollContent: { gap: 12, paddingBottom: 8 },
 
-  // Viewfinder (step 1)
-  viewfinder: {
-    aspectRatio: 1, borderRadius: 18,
-    backgroundColor: "#0d0605",
-    overflow: "hidden",
-    alignItems: "center", justifyContent: "center",
-    borderWidth: 1, borderColor: "rgba(255,255,255,0.06)",
-  },
-  corner: { position: "absolute", width: 18, height: 18, borderColor: "rgba(255,255,255,0.8)", borderWidth: 2 },
-  cornerTL: { top: 12, left: 12, borderRightWidth: 0, borderBottomWidth: 0 },
-  cornerTR: { top: 12, right: 12, borderLeftWidth: 0, borderBottomWidth: 0 },
-  cornerBL: { bottom: 12, left: 12, borderRightWidth: 0, borderTopWidth: 0 },
-  cornerBR: { bottom: 12, right: 12, borderLeftWidth: 0, borderTopWidth: 0 },
-  recChip: {
-    position: "absolute", top: 10, right: 10,
-    flexDirection: "row", alignItems: "center", gap: 5,
-    paddingHorizontal: 9, paddingVertical: 4,
-    backgroundColor: "rgba(255,255,255,0.12)", borderRadius: 999,
-  },
-  recChipActive: {
-    backgroundColor: "rgba(255,0,0,0.85)",
-  },
-  recDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: "#fff" },
-  recText: { fontSize: 9, fontWeight: "800", letterSpacing: 1.6, color: "#fff", fontFamily: "SpaceGrotesk_700Bold" },
-  vfTimer: {
-    position: "absolute", bottom: 10, alignSelf: "center",
-    backgroundColor: "rgba(0,0,0,0.5)",
-    paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6,
-  },
-  vfTimerText: { fontSize: 12, fontWeight: "700", color: "#fff", fontFamily: "SpaceGrotesk_700Bold" },
-  vfHint: { alignItems: "center", justifyContent: "center" },
-  camPermBtn: { alignItems: "center", gap: 10 },
-  camPermText: { fontSize: 12, color: "rgba(255,255,255,0.45)", fontFamily: "SpaceGrotesk_500Medium" },
-
   // Mode selector
   modeRow: {
     flexDirection: "row",
@@ -941,7 +915,8 @@ const S = StyleSheet.create({
   },
   modeBtn: {
     flexDirection: "row", alignItems: "center", gap: 5,
-    paddingHorizontal: 14, paddingVertical: 6,
+    paddingHorizontal: 16, paddingVertical: 10,
+    minHeight: 40,
     borderRadius: 999,
   },
   modeBtnActive: {
@@ -958,26 +933,34 @@ const S = StyleSheet.create({
   },
   shutterSide: { alignItems: "center", gap: 4, flex: 1 },
   shutterSideBtn: {
-    width: 36, height: 36, borderRadius: 999,
+    width: 44, height: 44, borderRadius: 999,
     backgroundColor: "rgba(255,255,255,0.06)",
     borderWidth: 1, borderColor: "rgba(255,255,255,0.12)",
     alignItems: "center", justifyContent: "center",
   },
   shutterSideLabel: { fontSize: 9, fontWeight: "700", letterSpacing: 1.2, color: "rgba(255,255,255,0.6)", fontFamily: "SpaceGrotesk_700Bold" },
   shutterRing: {
-    width: 64, height: 64, borderRadius: 32,
+    width: 72, height: 72, borderRadius: 36,
     borderWidth: 3, borderColor: "#fff",
     alignItems: "center", justifyContent: "center",
   },
   shutterInner: {
-    width: 46, height: 46, borderRadius: 23,
+    width: 52, height: 52, borderRadius: 26,
     backgroundColor: "#FF0000",
     shadowColor: "#FF0000", shadowOpacity: 0.7, shadowRadius: 8, shadowOffset: { width: 0, height: 0 },
   },
-  shutterInnerRec: { backgroundColor: "#FF6060" },
+  shutterInnerVideo: { backgroundColor: "#FF3030" },
+  shutterInnerRec: { width: 28, height: 28, borderRadius: 6, backgroundColor: "#FF6060" },
+  captureHint: {
+    textAlign: "center",
+    fontSize: 11,
+    color: "rgba(255,255,255,0.4)",
+    fontFamily: "SpaceGrotesk_500Medium",
+    paddingHorizontal: 12,
+  },
   skipBtn: {
     flexDirection: "row", alignItems: "center", gap: 5,
-    alignSelf: "center", paddingVertical: 8,
+    alignSelf: "center", paddingVertical: 10, minHeight: 40,
   },
   skipBtnText: { fontSize: 12, color: "rgba(255,255,255,0.35)", fontFamily: "SpaceGrotesk_500Medium" },
 
@@ -1021,7 +1004,8 @@ const S = StyleSheet.create({
   catGrid: { display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 6 },
   catCell: {
     width: "31.5%", alignItems: "center", gap: 4,
-    paddingVertical: 9, paddingHorizontal: 4,
+    paddingVertical: 12, paddingHorizontal: 4,
+    minHeight: 64,
     borderRadius: 12,
     backgroundColor: "rgba(255,255,255,0.04)",
     borderWidth: 1, borderColor: "rgba(255,255,255,0.08)",
@@ -1060,7 +1044,7 @@ const S = StyleSheet.create({
   tagText: { fontSize: 10.5, fontWeight: "700", color: "rgba(255,255,255,0.6)", fontFamily: "SpaceGrotesk_700Bold" },
   tagTextActive: { color: "#6BE0FF" },
 
-  // Preview card (steps 3 & 4)
+  // Preview card (éxito)
   previewCard: {
     padding: 12,
     backgroundColor: "rgba(255,255,255,0.04)",
@@ -1082,18 +1066,7 @@ const S = StyleSheet.create({
   previewTitle: { fontSize: 13, fontWeight: "700", color: "#fff", letterSpacing: -0.1, lineHeight: 18, fontFamily: "SpaceGrotesk_700Bold" },
   previewMeta: { fontSize: 10.5, color: "rgba(255,255,255,0.6)", fontFamily: "SpaceGrotesk_500Medium" },
 
-  // Distribution (step 3)
-  distRow: { flexDirection: "row", gap: 6 },
-  distCell: {
-    flex: 1, padding: 10,
-    backgroundColor: "rgba(0,224,255,0.08)",
-    borderWidth: 1, borderColor: "rgba(0,224,255,0.22)",
-    borderRadius: 10,
-  },
-  distNum: { fontSize: 16, fontWeight: "700", color: "#6BE0FF", letterSpacing: -0.1, fontFamily: "SpaceGrotesk_700Bold" },
-  distLabel: { fontSize: 9.5, fontWeight: "700", letterSpacing: 1, textTransform: "uppercase", color: "rgba(107,224,255,0.7)", marginTop: 2, fontFamily: "SpaceGrotesk_700Bold" },
-
-  // Trust block (step 3)
+  // Trust block
   trustBlock: {
     flexDirection: "row", alignItems: "center", gap: 10,
     padding: 10, paddingHorizontal: 12,
@@ -1108,7 +1081,7 @@ const S = StyleSheet.create({
   ctaWrap: { paddingTop: 8, paddingBottom: 4, gap: 6 },
   cta: {
     flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
-    padding: 14, borderRadius: 14, overflow: "hidden",
+    padding: 16, minHeight: 52, borderRadius: 14, overflow: "hidden",
   },
   ctaDisabled: { opacity: 0.5 },
   ctaText: { fontSize: 13, fontWeight: "800", letterSpacing: 1.6, color: "#fff", fontFamily: "SpaceGrotesk_700Bold" },

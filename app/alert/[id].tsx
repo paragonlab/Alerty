@@ -3,6 +3,8 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  Linking,
+  Platform,
   Pressable,
   ScrollView,
   Share,
@@ -171,7 +173,18 @@ export default function AlertDetailScreen() {
   const pickUpdateMedia = async (kind: "image" | "video") => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== "granted") {
-      Alert.alert("Permiso", "Necesitamos acceso a tu galería.");
+      Alert.alert(
+        "Sin acceso a la galería",
+        kind === "video"
+          ? "Necesitamos permiso para adjuntar un video a esta actualización."
+          : "Necesitamos permiso para adjuntar una foto a esta actualización.",
+        Platform.OS === "web"
+          ? undefined
+          : [
+              { text: "Cancelar", style: "cancel" },
+              { text: "Abrir ajustes", onPress: () => void Linking.openSettings() },
+            ],
+      );
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -207,7 +220,16 @@ export default function AlertDetailScreen() {
     try {
       const { status } = await Audio.requestPermissionsAsync();
       if (status !== "granted") {
-        Alert.alert("Permiso", "Necesitamos el micrófono para grabar.");
+        Alert.alert(
+          "Sin acceso al micrófono",
+          "Necesitamos el micrófono para grabar una nota de voz en la actualización.",
+          Platform.OS === "web"
+            ? undefined
+            : [
+                { text: "Cancelar", style: "cancel" },
+                { text: "Abrir ajustes", onPress: () => void Linking.openSettings() },
+              ],
+        );
         return;
       }
       await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
