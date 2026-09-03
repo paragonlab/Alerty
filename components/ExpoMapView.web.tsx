@@ -81,6 +81,22 @@ function regionToZoom(delta?: number) {
   return Math.min(18, Math.max(8, zoom));
 }
 
+function readBackgroundColor(style: unknown): string | null {
+  if (!style) return null;
+  if (Array.isArray(style)) {
+    for (let i = style.length - 1; i >= 0; i -= 1) {
+      const found = readBackgroundColor(style[i]);
+      if (found) return found;
+    }
+    return null;
+  }
+  if (typeof style === "object" && style !== null && "backgroundColor" in style) {
+    const bg = (style as { backgroundColor?: unknown }).backgroundColor;
+    return typeof bg === "string" ? bg : null;
+  }
+  return null;
+}
+
 function markerColor(children: React.ReactNode): string {
   let color = "#E53935";
   Children.forEach(children, (child) => {
@@ -90,12 +106,33 @@ function markerColor(children: React.ReactNode): string {
       color = props.color;
       return;
     }
-    const style = props.style as { backgroundColor?: string } | undefined;
-    if (style && typeof style === "object" && "backgroundColor" in style && typeof style.backgroundColor === "string") {
-      color = style.backgroundColor;
-    }
+    const fromStyle = readBackgroundColor(props.style);
+    if (fromStyle) color = fromStyle;
   });
   return color;
+}
+
+/** Flatten fragments/arrays/conditionals and collect Marker-like props by `coordinate`. */
+function collectMarkerProps(node: React.ReactNode, out: MarkerProps[] = []): MarkerProps[] {
+  Children.forEach(node, (child) => {
+    if (!isValidElement(child)) return;
+    const props = child.props as MarkerProps & { children?: React.ReactNode };
+    const coord = props?.coordinate;
+    if (
+      coord &&
+      typeof coord.latitude === "number" &&
+      typeof coord.longitude === "number" &&
+      Number.isFinite(coord.latitude) &&
+      Number.isFinite(coord.longitude)
+    ) {
+      out.push(props);
+      return;
+    }
+    if (props?.children != null) {
+      collectMarkerProps(props.children, out);
+    }
+  });
+  return out;
 }
 
 const DARK_STYLES = [
@@ -142,6 +179,8 @@ const ExpoMapView = forwardRef<MapHandle, MapViewProps>(function ExpoMapView(pro
 
   useEffect(() => {
     let cancelled = false;
+    let resizeObserver: ResizeObserver | null = null;
+
     loadGoogleMaps()
       .then(() => {
         if (cancelled || !hostRef.current) return;
@@ -192,6 +231,20 @@ const ExpoMapView = forwardRef<MapHandle, MapViewProps>(function ExpoMapView(pro
           }
         });
 
+        const triggerResize = () => {
+          if (!mapRef.current || !hostRef.current) return;
+          g.maps.event.trigger(mapRef.current, "resize");
+          const center = mapRef.current.getCenter?.();
+          if (center) mapRef.current.setCenter(center);
+        };
+
+        // RN-web parents often report 0×0 on first paint; refresh tiles once sized.
+        requestAnimationFrame(triggerResize);
+        if (typeof ResizeObserver !== "undefined" && hostRef.current) {
+          resizeObserver = new ResizeObserver(() => triggerResize());
+          resizeObserver.observe(hostRef.current);
+        }
+
         setReady(true);
       })
       .catch((err) => {
@@ -205,6 +258,7 @@ const ExpoMapView = forwardRef<MapHandle, MapViewProps>(function ExpoMapView(pro
 
     return () => {
       cancelled = true;
+      resizeObserver?.disconnect();
       if (longPressTimer.current) window.clearTimeout(longPressTimer.current);
     };
     // Map instance is created once; region/theme updates aren't remounted on purpose.
@@ -219,10 +273,8 @@ const ExpoMapView = forwardRef<MapHandle, MapViewProps>(function ExpoMapView(pro
     markersRef.current.forEach((m) => m.setMap(null));
     markersRef.current = [];
 
-    Children.forEach(props.children, (child) => {
-      if (!isValidElement(child)) return;
-      const p = child.props as MarkerProps;
-      if (!p?.coordinate) return;
+    const markers = collectMarkerProps(props.children);
+    markers.forEach((p) => {
       const color = markerColor(p.children);
       const marker = new g.maps.Marker({
         map,
@@ -251,10 +303,19 @@ const ExpoMapView = forwardRef<MapHandle, MapViewProps>(function ExpoMapView(pro
   }
 
   return (
-    <View style={(props.style as object) ?? styles.fill}>
+    <View style={[styles.fill, props.style as object]}>
       {createElement("div", {
         ref: hostRef,
-        style: { width: "100%", height: "100%", minHeight: 320 },
+        style: {
+          position: "absolute",
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          width: "100%",
+          height: "100%",
+          minHeight: 320,
+        },
       })}
     </View>
   );
@@ -264,7 +325,14 @@ export const MapView = ExpoMapView;
 export default ExpoMapView;
 
 const styles = StyleSheet.create({
-  fill: { flex: 1 },
+  fill: {
+    flex: 1,
+    position: "relative",
+    width: "100%",
+    height: "100%",
+    minHeight: 320,
+    overflow: "hidden",
+  },
   fallback: {
     flex: 1,
     alignItems: "center",
@@ -272,6 +340,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#1a1a1a",
     padding: 24,
     gap: 8,
+    minHeight: 320,
   },
   fallbackTitle: { color: "#fff", fontSize: 16, fontWeight: "600" },
   fallbackText: { color: "#aaa", fontSize: 13, textAlign: "center" },
