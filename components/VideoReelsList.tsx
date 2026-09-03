@@ -4,6 +4,8 @@ import {
   Animated,
   Dimensions,
   FlatList,
+  Linking,
+  Platform,
   Pressable,
   Share,
   StyleSheet,
@@ -26,6 +28,7 @@ import {
 } from "../lib/alerty/utils";
 import { Sounds } from "../lib/sounds";
 import type { AlertItem } from "../lib/alerty/types";
+import { InAppCamera, type CaptureResult } from "./InAppCamera";
 
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
 const VERIFICATION_THRESHOLD = 40;
@@ -269,6 +272,7 @@ export function VideoReelCard({
   const [showConfirm, setShowConfirm] = useState(false);
   const [avoided, setAvoided] = useState(false);
   const [contributing, setContributing] = useState(false);
+  const [showCamera, setShowCamera] = useState(false);
   const barPulse = useRef(new Animated.Value(1)).current;
   const aportarPulse = useRef(new Animated.Value(0.9)).current;
 
@@ -322,34 +326,55 @@ export function VideoReelCard({
     if (distKm !== null && distKm > maxReportingDistance) {
       Alert.alert(
         "Fuera de rango",
-        `Debes estar a menos de ${maxReportingDistance}km del evento para aportar tu video. (Distancia actual: ${distKm.toFixed(2)}km)`,
+        `Debes estar a menos de ${maxReportingDistance} km del evento para aportar tu video. (Distancia actual: ${distKm.toFixed(2)} km)`,
       );
       return;
     }
-    const { status } = await ImagePicker.requestCameraPermissionsAsync();
-    if (status !== "granted") {
-      Alert.alert("Permiso", "Necesitamos la cámara para aportar tu video.");
+    if (Platform.OS === "web") {
+      // Web: galería como degradación segura
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== "granted") {
+        Alert.alert(
+          "Sin acceso a la galería",
+          "En la web puedes aportar un video desde tus archivos. Activa el permiso e intenta de nuevo.",
+        );
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: "videos",
+        quality: 0.85,
+        videoMaxDuration: 60,
+      });
+      if (result.canceled || !result.assets[0]) return;
+      await publishAngle(result.assets[0].uri);
       return;
     }
-    const result = await ImagePicker.launchCameraAsync({
-      mediaTypes: "videos",
-      quality: 0.85,
-      videoMaxDuration: 60,
-    });
-    if (result.canceled || !result.assets[0]) return;
-    setContributing(true);
-    // El reporte original: si esta alerta ya es un ángulo, el nuevo aporte
-    // cuelga del mismo reporte raíz, no de un ángulo.
-    const referenceId = alert.parentAlertId ?? alert.id;
-    await addAngleAlert(referenceId, {
-      id: `cap-${Date.now()}`,
-      url: result.assets[0].uri,
-      type: "video" as const,
-    });
-    setContributing(false);
-    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    Alert.alert("¡Gracias!", "Tu video se publicó como otro ángulo en los Pulsos.");
+    setShowCamera(true);
   }
+
+  async function publishAngle(uri: string) {
+    setContributing(true);
+    const referenceId = alert.parentAlertId ?? alert.id;
+    try {
+      await addAngleAlert(referenceId, {
+        id: `cap-${Date.now()}`,
+        url: uri,
+        type: "video" as const,
+      });
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Alert.alert("Gracias", "Tu video se publicó como otro ángulo en los Pulsos.");
+    } catch {
+      Alert.alert("No se pudo publicar", "Intenta de nuevo en un momento.");
+    } finally {
+      setContributing(false);
+    }
+  }
+
+  async function handleCameraCapture(result: CaptureResult) {
+    setShowCamera(false);
+    await publishAngle(result.uri);
+  }
+
 
   if (!videoUri) return null;
 
@@ -614,6 +639,40 @@ export function VideoReelCard({
             <Pressable
               style={styles.aportarBtn}
               onPress={handleAportar}
+              onLongPress={() => {
+                if (contributing) return;
+                void (async () => {
+                  if (distKm !== null && distKm > maxReportingDistance) {
+                    Alert.alert(
+                      "Fuera de rango",
+                      `Debes estar a menos de ${maxReportingDistance} km del evento.`,
+                    );
+                    return;
+                  }
+                  const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+                  if (status !== "granted") {
+                    Alert.alert(
+                      "Sin acceso a la galería",
+                      "Mantén pulsado Aportar para elegir un video guardado. Activa el permiso en Ajustes.",
+                      Platform.OS === "web"
+                        ? undefined
+                        : [
+                            { text: "Cancelar", style: "cancel" },
+                            { text: "Abrir ajustes", onPress: () => void Linking.openSettings() },
+                          ],
+                    );
+                    return;
+                  }
+                  const result = await ImagePicker.launchImageLibraryAsync({
+                    mediaTypes: "videos",
+                    quality: 0.85,
+                    videoMaxDuration: 60,
+                  });
+                  if (result.canceled || !result.assets[0]) return;
+                  await publishAngle(result.assets[0].uri);
+                })();
+              }}
+              delayLongPress={400}
               disabled={contributing}
             >
               <LinearGradient
@@ -658,6 +717,14 @@ export function VideoReelCard({
         visible={showConfirm}
         onClose={() => setShowConfirm(false)}
         distKm={distKm}
+      />
+
+      <InAppCamera
+        visible={showCamera}
+        onClose={() => setShowCamera(false)}
+        onCapture={(r) => void handleCameraCapture(r)}
+        initialMode="video"
+        allowedModes={["video"]}
       />
     </View>
   );
