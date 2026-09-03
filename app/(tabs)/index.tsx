@@ -212,14 +212,6 @@ export default function MapScreen() {
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
-        {isWeb ? (
-          <View style={styles.webMap}>
-            <Ionicons name="map" size={28} color={theme.colors.textMuted} />
-            <Text style={[styles.webMapText, { color: theme.colors.textMuted }]}>
-              El mapa interactivo está disponible en iOS y Android.
-            </Text>
-          </View>
-        ) : (
           <MapView
             ref={mapRef}
             style={StyleSheet.absoluteFill}
@@ -294,7 +286,6 @@ export default function MapScreen() {
               </Marker>
             ))}
           </MapView>
-        )}
 
         {/* Top Header Overlays */}
         <LinearGradient
