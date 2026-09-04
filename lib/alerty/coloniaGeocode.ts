@@ -1,6 +1,6 @@
 /**
- * Diccionario de colonias/zonas de Culiacán para geocode textual (edge functions).
- * Misma lista semántica que lib/alerty/coloniaGeocode.ts — mantener alineada al editar.
+ * Gazetteer + extracción de colonias (cliente).
+ * Mantener alineado con supabase/functions/_shared/culiacanPlaces.ts
  */
 
 export type CuliacanPlace = {
@@ -48,31 +48,16 @@ export const CULIACAN_PLACES: CuliacanPlace[] = [
 
 export type GeoSource = "tweet_coords" | "place_bbox" | "text_colonia" | "none";
 
-export type TextColoniaHit = {
+type TextColoniaHit = {
   place: CuliacanPlace;
   score: number;
   matchedAs: string;
   index: number;
 };
 
-export type TextGeoResolution = {
-  lat: number | null;
-  lng: number | null;
-  placeLabel: string;
-  geoSource: GeoSource;
-  /** Lugar reportado por publisher (check-in / place / feed). */
-  placeNameSource: string | null;
-  /** Colonia resuelta desde el cuerpo/título. */
-  geocodedFromText: string | null;
-  /** false = no pin en mapa (ambiguo o sin geo usable); Feed sí. */
-  mapEligible: boolean;
-  confidence: "high" | "low" | "none";
-};
-
 const EVENT_CONTEXT =
   /\b(ocurri[oó]\s+en|se\s+registr[oó]|reportan|reportan?\s+en|alerta\s+en|balacera\s+en|accidente\s+en|bloqueo\s+en|en\s+la\s+colonia|en\s+colonia|col\.\s*|colonia)\b/i;
 
-/** Patrones explícitos: "colonia X", "col. X", "en la colonia X". */
 const COLONIA_PHRASE =
   /\b(?:en\s+la\s+)?(?:colonia|col\.?)\s+([A-Za-zÁÉÍÓÚÜÑáéíóúüñ0-9][A-Za-zÁÉÍÓÚÜÑáéíóúüñ0-9\s\-']{1,40})/gi;
 
@@ -109,10 +94,6 @@ function findPlaceByNameFragment(fragment: string): CuliacanPlace | null {
   return best?.place ?? null;
 }
 
-/**
- * Extrae menciones de colonias del gazetteer en título/cuerpo.
- * Prioriza frases "colonia X" y contexto de evento ("ocurrió en", headline).
- */
 export function extractColoniasFromText(text: string): TextColoniaHit[] {
   if (!text?.trim()) return [];
   const hay = text;
@@ -120,7 +101,6 @@ export function extractColoniasFromText(text: string): TextColoniaHit[] {
   const hits: TextColoniaHit[] = [];
   const seen = new Set<string>();
 
-  // 1) Frases explícitas colonia/col.
   let m: RegExpExecArray | null;
   const phraseRe = new RegExp(COLONIA_PHRASE.source, COLONIA_PHRASE.flags);
   while ((m = phraseRe.exec(hay)) !== null) {
@@ -133,7 +113,6 @@ export function extractColoniasFromText(text: string): TextColoniaHit[] {
     hits.push({ place, score, matchedAs: raw, index: m.index });
   }
 
-  // 2) Nombres del gazetteer (más largos primero para no comer "Humaya" antes de "Infonavit Humaya")
   const ranked = [...CULIACAN_PLACES].sort(
     (a, b) =>
       Math.max(...placeNames(b).map((n) => n.length)) -
@@ -147,21 +126,22 @@ export function extractColoniasFromText(text: string): TextColoniaHit[] {
       if (nn.length < 4 && place.name !== "Centro") continue;
       const idx = normHay.indexOf(nn);
       if (idx < 0) continue;
-      // Evitar match genérico de "Centro" sin ancla de colonia/evento
       if (place.name === "Centro") {
         const window = hay.slice(Math.max(0, idx - 24), idx + nn.length + 24);
         if (!/\b(colonia|col\.?|centro de culiac|zona centro|en el centro)\b/i.test(window)) {
           continue;
         }
       }
-      // Hidalgo solo con colonia/ancla (muy genérico)
       if (place.name === "Miguel Hidalgo" && normalize(n) === "hidalgo") {
         const window = hay.slice(Math.max(0, idx - 20), idx + nn.length + 12);
         if (!/\b(colonia|col\.?)\b/i.test(window)) continue;
       }
       seen.add(place.name);
       const origIdx = hay.toLowerCase().indexOf(n.toLowerCase());
-      const around = hay.slice(Math.max(0, (origIdx >= 0 ? origIdx : 0) - 40), (origIdx >= 0 ? origIdx : 0) + n.length + 10);
+      const around = hay.slice(
+        Math.max(0, (origIdx >= 0 ? origIdx : 0) - 40),
+        (origIdx >= 0 ? origIdx : 0) + n.length + 10,
+      );
       const score = EVENT_CONTEXT.test(around) ? 70 : 40;
       hits.push({
         place,
@@ -176,7 +156,6 @@ export function extractColoniasFromText(text: string): TextColoniaHit[] {
   return hits.sort((a, b) => b.score - a.score || a.index - b.index);
 }
 
-/** Mejor colonia del texto, o null si ambiguo / ausente. */
 export function resolveTextColonia(text: string): {
   place: CuliacanPlace;
   confidence: "high" | "low";
@@ -189,7 +168,6 @@ export function resolveTextColonia(text: string): {
   const top = hits[0];
   const rivals = hits.filter((h) => h.place.name !== top.place.name && h.score >= top.score - 15);
 
-  // Varias colonias con score similar y sin ganador claro de evento → ambiguo
   if (rivals.length > 0 && top.score < 80) {
     return { place: top.place, confidence: "low", ambiguous: true, hits };
   }
@@ -224,7 +202,6 @@ function textColoniaDiffersFromPublisher(
     const nn = normalize(n);
     if (pub.includes(nn) || nn.includes(pub)) return false;
   }
-  // Publisher nombra otra colonia del gazetteer
   for (const place of CULIACAN_PLACES) {
     if (place.name === textPlace.name) continue;
     for (const n of placeNames(place)) {
@@ -232,14 +209,21 @@ function textColoniaDiffersFromPublisher(
       if (nn.length >= 5 && pub.includes(nn)) return true;
     }
   }
-  // Label no coincide con la colonia del texto
   return true;
 }
 
-/**
- * Política v1: preferir colonia del texto cuando es clara y discrepa del place/check-in.
- * Si el texto es ambiguo (varias colonias), no pin (mapEligible=false).
- */
+export type TextGeoResolution = {
+  lat: number | null;
+  lng: number | null;
+  placeLabel: string;
+  geoSource: GeoSource;
+  placeNameSource: string | null;
+  geocodedFromText: string | null;
+  mapEligible: boolean;
+  confidence: "high" | "low" | "none";
+};
+
+/** Misma política que supabase/functions/_shared/culiacanPlaces.ts */
 export function resolveCommunityGeo(opts: {
   text: string;
   title?: string | null;
@@ -301,7 +285,6 @@ export function resolveCommunityGeo(opts: {
     Number.isFinite(opts.placeBboxCenter.lat) &&
     Number.isFinite(opts.placeBboxCenter.lng)
   ) {
-    // Place bbox genérico de ciudad + colonia clara en texto → preferir texto
     if (textHit && textHit.confidence === "high" && placeLabelLooksLikeCityOnly(placeNameSource)) {
       return {
         lat: textHit.place.lat,
@@ -349,11 +332,4 @@ export function resolveCommunityGeo(opts: {
     mapEligible: false,
     confidence: "none",
   };
-}
-
-/** @deprecated Prefer resolveCommunityGeo / resolveTextColonia. Mantiene API previa. */
-export function geocodeCuliacanText(text: string): { lat: number; lng: number; placeLabel: string } | null {
-  const hit = resolveTextColonia(text);
-  if (!hit || hit.ambiguous || hit.confidence === "low") return null;
-  return { lat: hit.place.lat, lng: hit.place.lng, placeLabel: hit.place.name };
 }

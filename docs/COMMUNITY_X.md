@@ -22,10 +22,10 @@ Pulso muestra señales externas de seguridad en Culiacán en el **Feed** y el **
 
 | Pieza | Ruta |
 |---|---|
-| Migraciones | `202609040001_community_posts.sql`, `202609040002_community_multi_source.sql`, `202609040003_community_author_avatar.sql` |
+| Migraciones | `202609040001_community_posts.sql`, `202609040002_community_multi_source.sql`, `202609040003_community_author_avatar.sql`, `202609040004_community_geo_source.sql` |
 | Sync X | `supabase/functions/sync-x-community/` |
 | Sync RSS | `supabase/functions/sync-news-rss/` |
-| Allowlist / places | `supabase/functions/_shared/xAllowlist.ts`, `culiacanPlaces.ts` |
+| Allowlist / places | `supabase/functions/_shared/xAllowlist.ts`, `culiacanPlaces.ts` (+ `lib/alerty/coloniaGeocode.ts`) |
 | UI | `CommunityMarker`, `GlowMarker`, `CommunityPostCard`, `CommunityPostPreview` |
 
 ## Allowlist X (medios / oficiales)
@@ -49,15 +49,37 @@ Un handle en allowlist se sincroniza aunque el texto no tenga keyword fuerte; si
 
 ## Política de geo (mapa)
 
-Marcadores **solo** si hay:
+Marcadores **solo** si hay geo usable y `mapEligible`:
 
 1. coordenadas del tweet, o
 2. centro de `place.geo.bbox`, o
-3. match de colonia/calle en texto contra el diccionario `culiacanPlaces` / `CULIACAN_NEIGHBORHOODS`.
+3. **colonia extraída del título/cuerpo** contra el gazetteer `culiacanPlaces` / `coloniaGeocode` (patrones `colonia X`, `col. X`, `ocurrió en…`).
 
-**Sin jitter** para posts en vivo. Sin geo → `lat`/`lng` null → Feed sí, mapa no. DEMO puede tener coords de muestra.
+### Preferencia texto vs place del publisher (v1)
 
-Límite honesto: la mayoría de tweets no traen geo; RSS tampoco — muchos ítems serán Feed-only o geocode aproximado por colonia.
+Si el cuerpo nombra con confianza una colonia de Culiacán **distinta** del check-in / `place` del autor (p. ej. place=Guadalupe pero el texto dice “colonia Adolfo López Mateos”), el pin usa el geocode del **texto**.
+
+Columnas:
+
+| Columna | Uso |
+|---|---|
+| `place_label` | Etiqueta del pin (la que se muestra) |
+| `place_name_source` | Lugar del publisher (si existía) |
+| `geocoded_from_text` | Colonia del cuerpo cuando aplica |
+| `geo_source` | `tweet_coords` \| `place_bbox` \| `text_colonia` \| `none` |
+
+Si hay **varias colonias** en el texto sin ganador claro (contexto de evento / headline) → `lat`/`lng` null (Feed sí, mapa no).
+
+**Sin jitter** para posts en vivo. DEMO puede tener coords de muestra.
+
+Límite honesto: gazetteer determinista (no Google Geocoding) para evitar matches en otra ciudad; colonias fuera de lista no se pines por texto.
+
+### Prueba manual colonia
+
+1. Seed DEMO `demo-rss-colonia-mismatch`: pin en Adolfo López Mateos; preview muestra “pin por texto” y nota si el publisher decía Guadalupe.
+2. `deno test supabase/functions/_shared/culiacanPlaces.test.ts`
+3. `npx tsx lib/alerty/coloniaGeocode.test.ts` (o node con strip-types).
+4. Tras deploy sync: noticia/tweet con “colonia Adolfo López Mateos” + place Guadalupe → `geo_source=text_colonia`.
 
 ## Pines (mapa)
 

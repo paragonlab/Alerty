@@ -10,7 +10,7 @@
 // Geo: geocode de colonias en título/descripción; si no hay match → Feed-only.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.97.0";
-import { geocodeCuliacanText } from "../_shared/culiacanPlaces.ts";
+import { resolveCommunityGeo } from "../_shared/culiacanPlaces.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -178,7 +178,12 @@ Deno.serve(async (req) => {
         // Preferir piezas locales / con señal de evento; no inundar con portada nacional.
         if (!EVENT_HINT.test(blob)) continue;
 
-        const geo = geocodeCuliacanText(blob);
+        const geo = resolveCommunityGeo({
+          text: item.description,
+          title: item.title,
+          publisherPlaceLabel: null,
+          fallbackLabel: "Sinaloa (noticia)",
+        });
         const externalId = item.link.slice(0, 240);
         rows.push({
           source: "rss",
@@ -189,9 +194,12 @@ Deno.serve(async (req) => {
           url: item.link,
           media_url: item.mediaUrl,
           author_avatar_url: feed.logoUrl ?? null,
-          lat: geo?.lat ?? null,
-          lng: geo?.lng ?? null,
-          place_label: geo?.placeLabel ?? "Sinaloa (noticia)",
+          lat: geo.mapEligible ? geo.lat : null,
+          lng: geo.mapEligible ? geo.lng : null,
+          place_label: geo.placeLabel,
+          geo_source: geo.geoSource,
+          place_name_source: geo.placeNameSource,
+          geocoded_from_text: geo.geocodedFromText,
           created_at: item.pubDate ? new Date(item.pubDate).toISOString() : new Date().toISOString(),
           fetched_at: new Date().toISOString(),
           category_guess: guessCategory(blob),

@@ -12,6 +12,7 @@
     "start:local": "PATH=\"$(pwd)/.local/node/bin:$PATH\" expo start",
     "typecheck": "tsc --noEmit",
     "verify": "npm run typecheck",
+    "test:colonia": "npx --yes tsx lib/alerty/coloniaGeocode.test.ts",
     "supabase:db:push": "npx supabase db push"
   },
   "dependencies": {
