@@ -1,16 +1,46 @@
 import { create } from "zustand";
-import type { AlertCategory, AlertItem, AlertMedia, AlertUpdate, SponsoredZone, TimeFilter } from "./types";
-import { ALERT_CATEGORIES, REPUTATION_LEVELS } from "./constants";
-import { baseAlerts, createRandomAlert } from "./mock";
+import type {
+  AlertCategory,
+  AlertItem,
+  AlertMedia,
+  AlertUpdate,
+  CommunityPost,
+  SponsoredZone,
+  TimeFilter,
+} from "./types";
+import { ALERT_CATEGORIES, CULIACAN_CENTER, REPUTATION_LEVELS } from "./constants";
+import { baseAlerts, createRandomAlert, demoCommunityPosts } from "./mock";
 import { isSupabaseConfigured, supabase } from "../supabase";
 import { uploadMediaBatch } from "../upload";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import type { AlertUser } from "./types";
 
+const mapCommunityRow = (row: any): CommunityPost => {
+  const hasGeo = typeof row.lat === "number" && typeof row.lng === "number";
+  return {
+    id: row.id,
+    source: "x",
+    externalId: row.external_id,
+    authorHandle: row.author_handle,
+    authorName: row.author_name ?? null,
+    text: row.text,
+    url: row.url,
+    mediaUrl: row.media_url ?? null,
+    lat: hasGeo ? row.lat : CULIACAN_CENTER.latitude,
+    lng: hasGeo ? row.lng : CULIACAN_CENTER.longitude,
+    placeLabel: row.place_label ?? "Culiacán (X)",
+    createdAt: row.created_at,
+    fetchedAt: row.fetched_at ?? row.created_at,
+    categoryGuess: row.category_guess ?? null,
+    isDemo: Boolean(row.is_demo),
+  };
+};
+
 type VoteType = "upvote" | "downvote";
 
 type AlertyState = {
   alerts: AlertItem[];
+  communityPosts: CommunityPost[];
   timeFilter: TimeFilter;
   activeCategories: AlertCategory[];
   lowConnection: boolean;
@@ -38,6 +68,7 @@ type AlertyState = {
   setLowConnection: (value: boolean) => void;
   setPushEnabled: (value: boolean) => void;
   loadAlertsFromSupabase: () => Promise<void>;
+  loadCommunityPosts: () => Promise<void>;
   toggleFollowAlert: (id: string) => void;
   addUpdateToAlert: (alertId: string, content: string, media?: AlertMedia[]) => Promise<void>;
   addAngleAlert: (parentAlertId: string, video: AlertMedia) => Promise<void>;
@@ -76,6 +107,7 @@ const isDbId = (id: string) =>
 
 export const useAlertyStore = create<AlertyState>((set, get) => ({
   alerts: [],
+  communityPosts: [],
   timeFilter: "6h",
   activeCategories: [...ALERT_CATEGORIES],
   lowConnection: false,
@@ -108,11 +140,14 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
   unreadAlerts: 0,
   clearUnreadAlerts: () => set({ unreadAlerts: 0 }),
   startDemo: () => {
-    const { demoStarted, demoInterval, alerts } = get();
+    const { demoStarted, demoInterval, alerts, communityPosts } = get();
     if (demoStarted) return;
 
     if (alerts.length === 0) {
       set({ alerts: baseAlerts });
+    }
+    if (communityPosts.length === 0) {
+      set({ communityPosts: demoCommunityPosts });
     }
 
     const interval = setInterval(() => {
@@ -253,6 +288,20 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
             return { ...alert, downvotes: alert.downvotes + 1 };
           }),
         }));
+      },
+    );
+
+    channel.on(
+      "postgres_changes",
+      { event: "INSERT", schema: "public", table: "community_posts" },
+      (payload) => {
+        const post = mapCommunityRow(payload.new);
+        set((state) => {
+          if (state.communityPosts.some((p) => p.id === post.id || p.externalId === post.externalId)) {
+            return state;
+          }
+          return { communityPosts: [post, ...state.communityPosts] };
+        });
       },
     );
 
@@ -400,6 +449,38 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
       logoUrl: row.logo_url ?? undefined,
     }));
     set({ sponsoredZones: zones });
+  },
+  loadCommunityPosts: async () => {
+    if (!isSupabaseConfigured || !supabase) {
+      set({ communityPosts: demoCommunityPosts });
+      return;
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from("community_posts")
+        .select(
+          "id,source,external_id,author_handle,author_name,text,url,media_url,lat,lng,place_label,created_at,fetched_at,category_guess,is_demo",
+        )
+        .order("created_at", { ascending: false })
+        .limit(50);
+
+      if (error) {
+        console.warn("loadCommunityPosts failed", error.message);
+        set({ communityPosts: demoCommunityPosts });
+        return;
+      }
+
+      if (!data || data.length === 0) {
+        set({ communityPosts: demoCommunityPosts });
+        return;
+      }
+
+      set({ communityPosts: data.map(mapCommunityRow) });
+    } catch (err) {
+      console.warn("loadCommunityPosts failed", err);
+      set({ communityPosts: demoCommunityPosts });
+    }
   },
   updateUsername: async (newUsername) => {
     if (!isSupabaseConfigured || !supabase) return { error: "Sin conexión" };

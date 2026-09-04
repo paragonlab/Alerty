@@ -1,5 +1,5 @@
-import { ALERT_CATEGORIES, CULIACAN_NEIGHBORHOODS, REPUTATION_LEVELS } from "./constants";
-import type { AlertItem, AlertUser } from "./types";
+import { ALERT_CATEGORIES, CULIACAN_CENTER, CULIACAN_NEIGHBORHOODS, REPUTATION_LEVELS } from "./constants";
+import type { AlertItem, AlertUser, CommunityPost } from "./types";
 
 const randomPick = <T,>(values: readonly T[]): T =>
   values[Math.floor(Math.random() * values.length)];
@@ -60,6 +60,61 @@ export const baseAlerts: AlertItem[] = Array.from({ length: 20 }).map((_, index)
     downvotes: Math.floor(Math.random() * 4),
   };
 });
+
+/** Posts DEMO de X — solo para UI sin token / sin Supabase. Nunca fingir que son live. */
+export const demoCommunityPosts: CommunityPost[] = [
+  {
+    id: "demo-x-1",
+    source: "x",
+    externalId: "demo-culiacan-1",
+    authorHandle: "@DemoPulsoX",
+    authorName: "Demo Comunidad X",
+    text: "DEMO — Ejemplo de post de X: reportan congestión y posible bloqueo cerca del centro de Culiacán. Esto NO es una alerta oficial de Pulso ni un tweet en vivo.",
+    url: "https://x.com/DemoPulsoX/status/demo-culiacan-1",
+    mediaUrl: null,
+    lat: CULIACAN_CENTER.latitude,
+    lng: CULIACAN_CENTER.longitude,
+    placeLabel: "Culiacán (X)",
+    createdAt: new Date(Date.now() - 25 * 60 * 1000).toISOString(),
+    fetchedAt: new Date().toISOString(),
+    categoryGuess: "bloqueo",
+    isDemo: true,
+  },
+  {
+    id: "demo-x-2",
+    source: "x",
+    externalId: "demo-culiacan-2",
+    authorHandle: "@DemoPulsoX",
+    authorName: "Demo Comunidad X",
+    text: "DEMO — Ejemplo de post de X: vecinos comentan detonaciones lejanas por la zona de Las Quintas. Contenido de muestra, no en vivo.",
+    url: "https://x.com/DemoPulsoX/status/demo-culiacan-2",
+    mediaUrl: null,
+    lat: 24.8125,
+    lng: -107.388,
+    placeLabel: "Culiacán (X)",
+    createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+    fetchedAt: new Date().toISOString(),
+    categoryGuess: "detonaciones",
+    isDemo: true,
+  },
+  {
+    id: "demo-x-3",
+    source: "x",
+    externalId: "demo-culiacan-3",
+    authorHandle: "@DemoPulsoX",
+    authorName: "Demo Comunidad X",
+    text: "DEMO — Ejemplo de post de X: accidente vial reportado en redes cerca de Tres Ríos. Etiquetado como demo para no confundir con alertas ciudadanas.",
+    url: "https://x.com/DemoPulsoX/status/demo-culiacan-3",
+    mediaUrl: null,
+    lat: 24.818,
+    lng: -107.401,
+    placeLabel: "Culiacán (X)",
+    createdAt: new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString(),
+    fetchedAt: new Date().toISOString(),
+    categoryGuess: "accidente",
+    isDemo: true,
+  },
+];
 
 export const createRandomAlert = (): AlertItem => {
   const neighborhood = randomPick(CULIACAN_NEIGHBORHOODS);

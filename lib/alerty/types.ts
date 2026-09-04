@@ -60,3 +60,23 @@ export type SponsoredZone = {
   logoUrl?: string;
   type: "refugio" | "anuncio";
 };
+
+/** Post de comunidad desde X (Twitter). No es una alerta ciudadana de Pulso. */
+export type CommunityPost = {
+  id: string;
+  source: "x";
+  externalId: string;
+  authorHandle: string;
+  authorName?: string | null;
+  text: string;
+  url: string;
+  mediaUrl?: string | null;
+  lat: number;
+  lng: number;
+  placeLabel: string;
+  createdAt: string;
+  fetchedAt: string;
+  categoryGuess?: string | null;
+  /** true = seed de muestra; nunca tratarlo como X en vivo */
+  isDemo: boolean;
+};

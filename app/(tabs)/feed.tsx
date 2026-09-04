@@ -10,17 +10,34 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { AlertCard } from "../../components/AlertCard";
+import { CommunityPostCard } from "../../components/CommunityPostCard";
 import { VideoReelsList } from "../../components/VideoReelsList";
 import { TIME_FILTERS } from "../../lib/alerty/constants";
 import { useAlertyTheme } from "../../lib/useAlertyTheme";
 import { useAlertyStore } from "../../lib/alerty/store";
-import { isAlertInWindow, shouldSuppressAlert } from "../../lib/alerty/utils";
-import type { AlertItem, SponsoredZone } from "../../lib/alerty/types";
+import { isAlertInWindow, isCreatedAtInWindow, shouldSuppressAlert } from "../../lib/alerty/utils";
+import type { AlertItem, CommunityPost, SponsoredZone } from "../../lib/alerty/types";
 import { AdCard } from "../../components/AdCard";
+
+type FeedRow =
+  | { kind: "alert"; item: AlertItem }
+  | { kind: "community"; item: CommunityPost }
+  | { kind: "ad"; item: SponsoredZone };
 
 export default function FeedScreen() {
   const router = useRouter();
-  const { alerts, timeFilter, setTimeFilter, activeCategories, sponsoredZones, feedViewMode: viewMode, setFeedViewMode: setViewMode, openReels, reelsInitialAlertId } = useAlertyStore();
+  const {
+    alerts,
+    communityPosts,
+    timeFilter,
+    setTimeFilter,
+    activeCategories,
+    sponsoredZones,
+    feedViewMode: viewMode,
+    setFeedViewMode: setViewMode,
+    openReels,
+    reelsInitialAlertId,
+  } = useAlertyStore();
   const theme = useAlertyTheme();
   const styles = createStyles(theme);
 
@@ -41,6 +58,12 @@ export default function FeedScreen() {
   const filteredAlerts = useMemo(
     () => baseFilteredAlerts.filter((a) => !a.parentAlertId),
     [baseFilteredAlerts],
+  );
+
+  const filteredCommunity = useMemo(
+    () =>
+      communityPosts.filter((post) => isCreatedAtInWindow(post.createdAt, timeFilter)),
+    [communityPosts, timeFilter],
   );
 
   const videoAlerts = useMemo(
@@ -76,42 +99,66 @@ export default function FeedScreen() {
   );
 
   const feedItems = useMemo(() => {
-    const items: (AlertItem | SponsoredZone)[] = [];
-    let adIndex = 0;
+    type Timed = { at: number; row: FeedRow };
+    const timed: Timed[] = [
+      ...filteredAlerts.map((item) => ({
+        at: new Date(item.createdAt).getTime(),
+        row: { kind: "alert" as const, item },
+      })),
+      ...filteredCommunity.map((item) => ({
+        at: new Date(item.createdAt).getTime(),
+        row: { kind: "community" as const, item },
+      })),
+    ].sort((a, b) => b.at - a.at);
 
-    filteredAlerts.forEach((alert, index) => {
-      items.push(alert);
-      if ((index + 1) % 5 === 0 && sponsoredZones[adIndex]) {
-        items.push(sponsoredZones[adIndex]);
-        adIndex = (adIndex + 1) % sponsoredZones.length;
+    const items: FeedRow[] = [];
+    let adIndex = 0;
+    let alertCount = 0;
+
+    timed.forEach(({ row }) => {
+      items.push(row);
+      if (row.kind === "alert") {
+        alertCount += 1;
+        if (alertCount % 5 === 0 && sponsoredZones[adIndex]) {
+          items.push({ kind: "ad", item: sponsoredZones[adIndex] });
+          adIndex = (adIndex + 1) % sponsoredZones.length;
+        }
       }
     });
     return items;
-  }, [filteredAlerts, sponsoredZones]);
+  }, [filteredAlerts, filteredCommunity, sponsoredZones]);
 
   const renderItem = useCallback(
-    ({ item }: { item: AlertItem | SponsoredZone }) => {
-      if ("category" in item) {
+    ({ item }: { item: FeedRow }) => {
+      if (item.kind === "alert") {
         return (
           <AlertCard
-            alert={item as AlertItem}
-            onPress={() => router.push(`/alert/${item.id}`)}
-            onPressVideo={() => openReels(item.id)}
-          />
-        );
-      } else {
-        return (
-          <AdCard
-            zone={item as SponsoredZone}
-            onPress={() => { router.push("/(tabs)"); }}
+            alert={item.item}
+            onPress={() => router.push(`/alert/${item.item.id}`)}
+            onPressVideo={() => openReels(item.item.id)}
           />
         );
       }
+      if (item.kind === "community") {
+        return <CommunityPostCard post={item.item} />;
+      }
+      return (
+        <AdCard
+          zone={item.item}
+          onPress={() => {
+            router.push("/(tabs)");
+          }}
+        />
+      );
     },
     [router, openReels],
   );
 
-  const keyExtractor = useCallback((item: AlertItem | SponsoredZone) => item.id, []);
+  const keyExtractor = useCallback((item: FeedRow) => {
+    if (item.kind === "community") return `x-${item.item.id}`;
+    if (item.kind === "ad") return `ad-${item.item.id}`;
+    return item.item.id;
+  }, []);
 
   const ListHeader = (
     <View style={styles.listHeader}>
@@ -120,8 +167,20 @@ export default function FeedScreen() {
           <Text style={styles.title}>Feed</Text>
           <View style={styles.liveDot} />
         </View>
-        <Text style={styles.subtitle}>Reportes en tiempo real de la comunidad.</Text>
+        <Text style={styles.subtitle}>
+          Alertas ciudadanas y noticias de comunidad desde X (etiquetadas).
+        </Text>
       </View>
+
+      {filteredCommunity.length > 0 ? (
+        <View style={styles.communityBanner}>
+          <Ionicons name="logo-twitter" size={14} color="#1D9BF0" />
+          <Text style={styles.communityBannerText}>
+            {filteredCommunity.length} desde X / Comunidad
+            {filteredCommunity.every((p) => p.isDemo) ? " · DEMO (no en vivo)" : ""}
+          </Text>
+        </View>
+      ) : null}
 
       <View style={styles.statsRow}>
         <View style={styles.statCard}>
@@ -247,6 +306,23 @@ const createStyles = (theme: any) => StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
+  },
+  communityBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: theme.radius.xl,
+    borderWidth: 1,
+    borderColor: "#1D9BF055",
+    backgroundColor: "#1D9BF012",
+  },
+  communityBannerText: {
+    flex: 1,
+    color: theme.colors.text,
+    fontSize: 12,
+    fontFamily: theme.fonts.body,
   },
   modePillWrap: {
     position: "absolute",
