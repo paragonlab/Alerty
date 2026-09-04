@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Image,
   Linking,
@@ -19,6 +19,8 @@ import { useAlertyStore } from "../lib/alerty/store";
 
 const X_ACCENT = "#1D9BF0";
 const NEWS_ACCENT = "#0D9488";
+/** Ignore backdrop dismiss right after open (ghost click from map pin on web). */
+const BACKDROP_GUARD_MS = 450;
 
 const CATEGORY_GUESS_LABELS: Record<string, string> = {
   balacera: "Balacera",
@@ -47,6 +49,16 @@ export function CommunityPostPreview({ post, onClose }: CommunityPostPreviewProp
   const router = useRouter();
   const setPendingCommunityConfirm = useAlertyStore((s) => s.setPendingCommunityConfirm);
   const [mediaFailed, setMediaFailed] = useState(false);
+  const openedAtRef = useRef(Date.now());
+
+  useEffect(() => {
+    openedAtRef.current = Date.now();
+  }, [post.id]);
+
+  const requestClose = () => {
+    if (Date.now() - openedAtRef.current < BACKDROP_GUARD_MS) return;
+    onClose();
+  };
 
   const categoryLabel = post.categoryGuess
     ? CATEGORY_GUESS_LABELS[post.categoryGuess] ?? post.categoryGuess
@@ -164,12 +176,27 @@ export function CommunityPostPreview({ post, onClose }: CommunityPostPreviewProp
 
         <View style={styles.metaRow}>
           <Ionicons name="location-outline" size={12} color={theme.colors.textMuted} />
-          <Text style={styles.metaText} numberOfLines={1}>
+          <Text style={styles.metaText} numberOfLines={2}>
             {post.placeLabel}
+            {post.geoSource === "text_colonia" && post.geocodedFromText
+              ? ` · pin por texto (${post.geocodedFromText})`
+              : post.geoSource === "tweet_coords"
+                ? " · coords del autor"
+                : post.geoSource === "place_bbox"
+                  ? " · lugar del autor"
+                  : ""}
           </Text>
           <View style={styles.dot} />
           <Text style={styles.metaText}>{formatRelativeTime(post.createdAt)}</Text>
         </View>
+
+        {post.placeNameSource &&
+        post.geocodedFromText &&
+        post.placeNameSource.toLowerCase() !== post.geocodedFromText.toLowerCase() ? (
+          <Text style={styles.sourceHint}>
+            El lugar del publisher decía “{post.placeNameSource}”; el pin usa la colonia del texto.
+          </Text>
+        ) : null}
 
         {post.isDemo ? (
           <Text style={styles.demoHint}>
@@ -213,7 +240,7 @@ export function CommunityPostPreview({ post, onClose }: CommunityPostPreviewProp
 
   return (
     <Modal visible animationType="slide" transparent onRequestClose={onClose}>
-      <Pressable style={styles.backdrop} onPress={onClose} />
+      <Pressable style={styles.backdrop} onPress={requestClose} />
       <View style={styles.modalSheet} pointerEvents="box-none">
         {body}
       </View>

@@ -10,7 +10,7 @@
 // Sin geo usable → lat/lng null (Feed sí, mapa no). Sin jitter.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.97.0";
-import { geocodeCuliacanText } from "../_shared/culiacanPlaces.ts";
+import { resolveCommunityGeo } from "../_shared/culiacanPlaces.ts";
 import {
   mergeAllowlist,
   trustForHandle,
@@ -112,6 +112,9 @@ type CommunityRow = {
   lat: number | null;
   lng: number | null;
   place_label: string;
+  geo_source: string;
+  place_name_source: string | null;
+  geocoded_from_text: string | null;
   created_at: string;
   fetched_at: string;
   category_guess: string | null;
@@ -158,38 +161,48 @@ async function searchRecent(
 function resolveGeo(
   tweet: XTweet,
   placeById: Map<string, XPlace>,
-): { lat: number | null; lng: number | null; placeLabel: string } {
+): {
+  lat: number | null;
+  lng: number | null;
+  placeLabel: string;
+  geoSource: string;
+  placeNameSource: string | null;
+  geocodedFromText: string | null;
+} {
   const placeId = tweet.geo?.place_id;
   const place = placeId ? placeById.get(placeId) : undefined;
-  const placeLabel = place?.full_name ?? PLACE_FALLBACK;
+  const publisherPlaceLabel = place?.full_name ?? null;
 
-  const coords = tweet.geo?.coordinates?.coordinates;
-  if (coords && coords.length >= 2) {
-    return { lng: coords[0], lat: coords[1], placeLabel };
+  let coords: { lat: number; lng: number } | null = null;
+  const rawCoords = tweet.geo?.coordinates?.coordinates;
+  if (rawCoords && rawCoords.length >= 2) {
+    coords = { lng: rawCoords[0], lat: rawCoords[1] };
   }
 
+  let placeBboxCenter: { lat: number; lng: number } | null = null;
   if (place?.geo?.bbox && place.geo.bbox.length >= 4) {
     const [minLng, minLat, maxLng, maxLat] = place.geo.bbox;
-    return {
+    placeBboxCenter = {
       lng: (minLng + maxLng) / 2,
       lat: (minLat + maxLat) / 2,
-      placeLabel,
     };
   }
 
-  const fromText = geocodeCuliacanText(tweet.text);
-  if (fromText) {
-    return {
-      lat: fromText.lat,
-      lng: fromText.lng,
-      placeLabel: place?.full_name ?? fromText.placeLabel,
-    };
-  }
+  const resolved = resolveCommunityGeo({
+    text: tweet.text,
+    coords,
+    placeBboxCenter,
+    publisherPlaceLabel,
+    fallbackLabel: PLACE_FALLBACK,
+  });
 
   return {
-    lat: null,
-    lng: null,
-    placeLabel: place?.full_name ?? PLACE_FALLBACK,
+    lat: resolved.mapEligible ? resolved.lat : null,
+    lng: resolved.mapEligible ? resolved.lng : null,
+    placeLabel: resolved.placeLabel,
+    geoSource: resolved.geoSource,
+    placeNameSource: resolved.placeNameSource,
+    geocodedFromText: resolved.geocodedFromText,
   };
 }
 
@@ -212,7 +225,10 @@ function tweetToRow(
   if (!onAllowlist && !category) return null;
 
   const handle = username ? `@${username}` : "@desconocido";
-  const { lat, lng, placeLabel } = resolveGeo(tweet, placeById);
+  const { lat, lng, placeLabel, geoSource, placeNameSource, geocodedFromText } = resolveGeo(
+    tweet,
+    placeById,
+  );
 
   let mediaUrl: string | null = null;
   for (const key of tweet.attachments?.media_keys ?? []) {
@@ -238,6 +254,9 @@ function tweetToRow(
     lat,
     lng,
     place_label: placeLabel,
+    geo_source: geoSource,
+    place_name_source: placeNameSource,
+    geocoded_from_text: geocodedFromText,
     created_at: tweet.created_at ?? new Date().toISOString(),
     fetched_at: new Date().toISOString(),
     category_guess: category,

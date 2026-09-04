@@ -663,12 +663,20 @@ type OverlayHandle = {
   setMap: (map: unknown) => void;
 };
 
+/**
+ * Pin HTML overlay.
+ * - Cancels map long-press on pointerdown (map mousedown still arms the timer;
+ *   pin stopPropagation often blocks map mouseup → ZoneRiskCard stole the preview).
+ * - Fires onPress on click only (not pointerup) so the opening click cannot hit a
+ *   freshly mounted Modal backdrop and immediately dismiss it.
+ */
 function createHtmlOverlay(
   g: any,
   map: any,
   position: { lat: number; lng: number },
   content: HTMLElement,
-  onPress?: () => void
+  onPress?: () => void,
+  onPinInteract?: () => void,
 ): OverlayHandle {
   class PulsoOverlay extends g.maps.OverlayView {
     div: HTMLElement | null = null;
@@ -680,24 +688,33 @@ function createHtmlOverlay(
       panes?.overlayMouseTarget.appendChild(content);
 
       let lastFire = 0;
+      const cancelMapGesture = (e: Event) => {
+        e.stopPropagation();
+        onPinInteract?.();
+      };
       const fire = (e: Event) => {
         e.preventDefault?.();
         e.stopPropagation();
+        onPinInteract?.();
         const now = Date.now();
         if (now - lastFire < 400) return;
         lastFire = now;
         onPress?.();
       };
+      content.addEventListener("pointerdown", cancelMapGesture);
+      content.addEventListener("mousedown", cancelMapGesture);
+      content.addEventListener("touchstart", cancelMapGesture, { passive: true });
       content.addEventListener("click", fire);
-      content.addEventListener("pointerup", fire);
       content.addEventListener("keydown", (e: KeyboardEvent) => {
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
           fire(e);
         }
       });
+      this.listeners.push(() => content.removeEventListener("pointerdown", cancelMapGesture));
+      this.listeners.push(() => content.removeEventListener("mousedown", cancelMapGesture));
+      this.listeners.push(() => content.removeEventListener("touchstart", cancelMapGesture));
       this.listeners.push(() => content.removeEventListener("click", fire));
-      this.listeners.push(() => content.removeEventListener("pointerup", fire));
     }
 
     draw() {
@@ -754,6 +771,14 @@ const ExpoMapView = forwardRef<MapHandle, MapViewProps>(function ExpoMapView(pro
   const longPressTimer = useRef<number | null>(null);
   const onLongPressRef = useRef(props.onLongPress);
   onLongPressRef.current = props.onLongPress;
+  const cancelLongPress = () => {
+    if (longPressTimer.current) {
+      window.clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  };
+  const cancelLongPressRef = useRef(cancelLongPress);
+  cancelLongPressRef.current = cancelLongPress;
   const [error, setError] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
 
@@ -809,16 +834,10 @@ const ExpoMapView = forwardRef<MapHandle, MapViewProps>(function ExpoMapView(pro
           longPressTimer.current = window.setTimeout(() => emitLongPress(latLng), 550);
         });
         map.addListener("mouseup", () => {
-          if (longPressTimer.current) {
-            window.clearTimeout(longPressTimer.current);
-            longPressTimer.current = null;
-          }
+          cancelLongPressRef.current();
         });
         map.addListener("dragstart", () => {
-          if (longPressTimer.current) {
-            window.clearTimeout(longPressTimer.current);
-            longPressTimer.current = null;
-          }
+          cancelLongPressRef.current();
         });
 
         const triggerResize = () => {
@@ -879,7 +898,14 @@ const ExpoMapView = forwardRef<MapHandle, MapViewProps>(function ExpoMapView(pro
       } else {
         content = buildAlertPinElement(p.meta, simplify);
       }
-      const overlay = createHtmlOverlay(g, map, position, content, p.onPress);
+      const overlay = createHtmlOverlay(
+        g,
+        map,
+        position,
+        content,
+        p.onPress,
+        () => cancelLongPressRef.current(),
+      );
       overlaysRef.current.push(overlay);
     });
   }, [props.children, ready]);

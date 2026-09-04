@@ -45,6 +45,15 @@ const mapCommunityRow = (row: any): CommunityPost => {
     lat: hasGeo ? row.lat : null,
     lng: hasGeo ? row.lng : null,
     placeLabel: row.place_label ?? (source === "rss" ? "Sinaloa (noticia)" : "Culiacán (X)"),
+    geoSource:
+      row.geo_source === "tweet_coords" ||
+      row.geo_source === "place_bbox" ||
+      row.geo_source === "text_colonia" ||
+      row.geo_source === "none"
+        ? row.geo_source
+        : null,
+    placeNameSource: row.place_name_source ?? null,
+    geocodedFromText: row.geocoded_from_text ?? null,
     createdAt: row.created_at,
     fetchedAt: row.fetched_at ?? row.created_at,
     categoryGuess: row.category_guess ?? null,
@@ -491,7 +500,7 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
       const { data, error } = await supabase
         .from("community_posts")
         .select(
-          "id,source,external_id,author_handle,author_name,text,url,media_url,author_avatar_url,lat,lng,place_label,created_at,fetched_at,category_guess,is_demo,trust_tier",
+          "id,source,external_id,author_handle,author_name,text,url,media_url,author_avatar_url,lat,lng,place_label,geo_source,place_name_source,geocoded_from_text,created_at,fetched_at,category_guess,is_demo,trust_tier",
         )
         .order("created_at", { ascending: false })
         .limit(50);

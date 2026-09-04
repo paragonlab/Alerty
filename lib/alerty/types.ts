@@ -67,6 +67,9 @@ export type CommunitySource = "x" | "rss";
 /** community=Desde X; medio/oficial=allowlist; news=RSS */
 export type CommunityTrustTier = "community" | "medio" | "oficial" | "news";
 
+/** Cómo se eligió lat/lng del post (sync). */
+export type CommunityGeoSource = "tweet_coords" | "place_bbox" | "text_colonia" | "none";
+
 export type CommunityPost = {
   id: string;
   source: CommunitySource;
@@ -82,6 +85,12 @@ export type CommunityPost = {
   lat: number | null;
   lng: number | null;
   placeLabel: string;
+  /** Provenance del pin; opcional en filas viejas / demo */
+  geoSource?: CommunityGeoSource | null;
+  /** Lugar del publisher (puede discrepar del cuerpo) */
+  placeNameSource?: string | null;
+  /** Colonia extraída del texto cuando aplica */
+  geocodedFromText?: string | null;
   createdAt: string;
   fetchedAt: string;
   categoryGuess?: string | null;

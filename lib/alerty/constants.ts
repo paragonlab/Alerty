@@ -128,6 +128,7 @@ export const CULIACAN_NEIGHBORHOODS = [
   { name: "La Conquista", latitude: 24.8457, longitude: -107.3743 },
   { name: "Azteca", latitude: 24.7989, longitude: -107.4311 },
   { name: "Guadalupe", latitude: 24.7997, longitude: -107.4068 },
+  { name: "Adolfo Lopez Mateos", latitude: 24.7848, longitude: -107.4015 },
   { name: "Las Flores", latitude: 24.7905, longitude: -107.3842 },
   { name: "Villa Universidad", latitude: 24.8351, longitude: -107.3869 },
   { name: "6 de Enero", latitude: 24.7863, longitude: -107.3972 },
