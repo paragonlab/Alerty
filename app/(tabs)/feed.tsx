@@ -16,7 +16,12 @@ import { VideoReelsList } from "../../components/VideoReelsList";
 import { TIME_FILTERS } from "../../lib/alerty/constants";
 import { useAlertyTheme } from "../../lib/useAlertyTheme";
 import { useAlertyStore } from "../../lib/alerty/store";
-import { isAlertInWindow, isCreatedAtInWindow, shouldSuppressAlert } from "../../lib/alerty/utils";
+import {
+  getTimeFilterWindowLabel,
+  isAlertInWindow,
+  isCreatedAtInWindow,
+  shouldSuppressAlert,
+} from "../../lib/alerty/utils";
 import type { AlertItem, CommunityPost, SponsoredZone } from "../../lib/alerty/types";
 import { AdCard } from "../../components/AdCard";
 
@@ -228,6 +233,11 @@ export default function FeedScreen() {
           );
         })}
       </View>
+      <Text style={styles.windowCaption}>
+        Ventana: {getTimeFilterWindowLabel(timeFilter)}. Los posts de comunidad permanecen en
+        la base; aquí y en el mapa se muestran los últimos 50 dentro de esta ventana (no
+        caducan en silencio).
+      </Text>
     </View>
   );
 
@@ -487,6 +497,13 @@ const createStyles = (theme: any) => StyleSheet.create({
   filterTextActive: {
     color: theme.colors.text,
     fontFamily: theme.fonts.heading,
+  },
+  windowCaption: {
+    color: theme.colors.textMuted,
+    fontSize: 11,
+    fontFamily: theme.fonts.body,
+    lineHeight: 15,
+    marginTop: -4,
   },
   emptyState: {
     alignItems: "center",

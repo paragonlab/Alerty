@@ -19,21 +19,24 @@ const corsHeaders = {
 };
 
 /** Feeds por defecto — editar o sobrescribir con NEWS_RSS_FEEDS (URLs separadas por coma). */
-const DEFAULT_FEEDS: Array<{ name: string; handle: string; url: string }> = [
+const DEFAULT_FEEDS: Array<{ name: string; handle: string; url: string; logoUrl?: string }> = [
   {
     name: "Línea Directa",
     handle: "@LineaDirectaMX",
     url: "https://lineadirectaportal.com/feed",
+    logoUrl: "https://www.google.com/s2/favicons?domain=lineadirectaportal.com&sz=64",
   },
   {
     name: "Ríodoce",
     handle: "@Riodoce",
     url: "https://riodoce.mx/feed",
+    logoUrl: "https://www.google.com/s2/favicons?domain=riodoce.mx&sz=64",
   },
   {
     name: "Noroeste",
     handle: "@Noroeste",
     url: "https://www.noroeste.com.mx/rss/portada.xml",
+    logoUrl: "https://www.google.com/s2/favicons?domain=noroeste.com.mx&sz=64",
   },
 ];
 
@@ -104,18 +107,27 @@ function parseRss(xml: string): RssItem[] {
   return items;
 }
 
-function resolveFeeds(): Array<{ name: string; handle: string; url: string }> {
+function resolveFeeds(): Array<{ name: string; handle: string; url: string; logoUrl?: string }> {
   const raw = Deno.env.get("NEWS_RSS_FEEDS");
   if (!raw?.trim()) return DEFAULT_FEEDS;
   return raw
     .split(",")
     .map((u) => u.trim())
     .filter(Boolean)
-    .map((url, i) => ({
-      name: `Noticia ${i + 1}`,
-      handle: "@NoticiasLocales",
-      url,
-    }));
+    .map((url, i) => {
+      let logoUrl: string | undefined;
+      try {
+        logoUrl = `https://www.google.com/s2/favicons?domain=${new URL(url).hostname}&sz=64`;
+      } catch {
+        logoUrl = undefined;
+      }
+      return {
+        name: `Noticia ${i + 1}`,
+        handle: "@NoticiasLocales",
+        url,
+        logoUrl,
+      };
+    });
 }
 
 function guessCategory(text: string): string | null {
@@ -176,6 +188,7 @@ Deno.serve(async (req) => {
           text: item.description.slice(0, 800) || item.title,
           url: item.link,
           media_url: item.mediaUrl,
+          author_avatar_url: feed.logoUrl ?? null,
           lat: geo?.lat ?? null,
           lng: geo?.lng ?? null,
           place_label: geo?.placeLabel ?? "Sinaloa (noticia)",

@@ -83,6 +83,35 @@ export const getLevelProgress = (score: number) => {
 
 export const TIME_FILTERS = ["1h", "6h", "24h", "7d"] as const;
 
+/** Etiqueta corta de ventana para UI (Feed / Mapa). */
+export const TIME_FILTER_WINDOW_LABEL: Record<(typeof TIME_FILTERS)[number], string> = {
+  "1h": "últimos 1h",
+  "6h": "últimos 6h",
+  "24h": "últimas 24h",
+  "7d": "últimos 7d",
+};
+
+/**
+ * Colores de pin por categoría / riesgo (misma familia que mapRed/Orange/Yellow).
+ * Usado en GlowMarker (consistencia) y CommunityMarker (categoryGuess).
+ */
+export const CATEGORY_PIN_COLORS: Record<string, string> = {
+  balacera: "#D9342B",
+  narcobloqueo: "#D9342B",
+  enfrentamiento: "#D9342B",
+  sos: "#D9342B",
+  detonaciones: "#E9792F",
+  bloqueo: "#E9792F",
+  captura: "#E9792F",
+  alerta: "#E9792F",
+  robo: "#E5C548",
+  accidente: "#E5C548",
+  "zona segura": "#1F9D6E",
+};
+
+/** Fallback para posts de comunidad sin categoryGuess. */
+export const COMMUNITY_DEFAULT_PIN_COLOR = "#1D9BF0";
+
 export const CULIACAN_NEIGHBORHOODS = [
   { name: "Las Quintas", latitude: 24.8099, longitude: -107.3874 },
   { name: "Tres Rios", latitude: 24.821, longitude: -107.4032 },

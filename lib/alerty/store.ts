@@ -40,6 +40,7 @@ const mapCommunityRow = (row: any): CommunityPost => {
     text: row.text,
     url: row.url,
     mediaUrl: row.media_url ?? null,
+    authorAvatarUrl: row.author_avatar_url ?? null,
     // Sin geo usable → null (Feed sí; mapa no). No centrar en Culiacán artificialmente.
     lat: hasGeo ? row.lat : null,
     lng: hasGeo ? row.lng : null,
@@ -490,7 +491,7 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
       const { data, error } = await supabase
         .from("community_posts")
         .select(
-          "id,source,external_id,author_handle,author_name,text,url,media_url,lat,lng,place_label,created_at,fetched_at,category_guess,is_demo,trust_tier",
+          "id,source,external_id,author_handle,author_name,text,url,media_url,author_avatar_url,lat,lng,place_label,created_at,fetched_at,category_guess,is_demo,trust_tier",
         )
         .order("created_at", { ascending: false })
         .limit(50);

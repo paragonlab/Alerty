@@ -43,6 +43,7 @@ type AlertPinMeta = {
   hasMedia?: boolean;
   isVerified?: boolean;
   lowConnection?: boolean;
+  avatarUrl?: string | null;
 };
 
 type SponsorPinMeta = {
@@ -54,6 +55,10 @@ type SponsorPinMeta = {
 type CommunityPinMeta = {
   kind: "community";
   isDemo: boolean;
+  color: string;
+  avatarUrl?: string | null;
+  mediaUrl?: string | null;
+  source?: "x" | "rss";
 };
 
 type PinMeta = AlertPinMeta | SponsorPinMeta | CommunityPinMeta;
@@ -286,17 +291,44 @@ function ensurePulseStyles() {
   width: 26px;
   height: 26px;
   border-radius: 6px;
-  background: #0F1419;
-  border: 2px solid #1D9BF0;
+  background: var(--pulso-color, #0F1419);
+  border: 2.5px solid var(--pulso-color, #1D9BF0);
   box-shadow: 0 2px 6px rgba(0,0,0,0.35);
   display: flex;
   align-items: center;
   justify-content: center;
   color: #fff;
+  overflow: hidden;
+  position: relative;
 }
 .pulso-community__pin svg {
   width: 12px;
   height: 12px;
+  fill: currentColor;
+}
+.pulso-community__avatar {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.pulso-community__source {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  background: var(--pulso-color, #1D9BF0);
+  border: 1px solid #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+}
+.pulso-community__source svg {
+  width: 7px;
+  height: 7px;
   fill: currentColor;
 }
 .pulso-community__demo {
@@ -314,6 +346,22 @@ function ensurePulseStyles() {
   line-height: 12px;
   text-align: center;
   font-family: system-ui, sans-serif;
+  z-index: 2;
+}
+.pulso-pin__avatar {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 999px;
+  display: block;
+}
+.pulso-pin__avatar-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  border: 2px solid var(--pulso-color);
+  pointer-events: none;
+  z-index: 3;
 }
 @media (prefers-reduced-motion: reduce) {
   .pulso-pin__halo,
@@ -372,6 +420,7 @@ function findGlowProps(node: React.ReactNode): AlertPinMeta | null {
         hasMedia: Boolean(props.hasMedia),
         isVerified: Boolean(props.isVerified),
         lowConnection: Boolean(props.lowConnection),
+        avatarUrl: typeof props.avatarUrl === "string" ? props.avatarUrl : null,
       };
       return;
     }
@@ -414,9 +463,24 @@ function findCommunityMeta(node: React.ReactNode): CommunityPinMeta | null {
   let found: CommunityPinMeta | null = null;
   Children.forEach(node, (child) => {
     if (found || !isValidElement(child)) return;
-    const props = child.props as { markerKind?: string; isDemo?: boolean };
+    const props = child.props as {
+      markerKind?: string;
+      isDemo?: boolean;
+      color?: string;
+      categoryGuess?: string | null;
+      authorAvatarUrl?: string | null;
+      mediaUrl?: string | null;
+      source?: "x" | "rss";
+    };
     if (props.markerKind === "community" || "isDemo" in props) {
-      found = { kind: "community", isDemo: Boolean(props.isDemo) };
+      found = {
+        kind: "community",
+        isDemo: Boolean(props.isDemo),
+        color: typeof props.color === "string" ? props.color : "#1D9BF0",
+        avatarUrl: typeof props.authorAvatarUrl === "string" ? props.authorAvatarUrl : null,
+        mediaUrl: typeof props.mediaUrl === "string" ? props.mediaUrl : null,
+        source: props.source === "rss" ? "rss" : "x",
+      };
     }
   });
   return found;
@@ -482,6 +546,8 @@ const ICON_SVGS: Record<string, string> = {
     '<svg viewBox="0 0 512 512" aria-hidden="true"><path d="M256 48l55 150h158l-128 93 49 151-134-97-134 97 49-151-128-93h158z"/></svg>',
   twitter:
     '<svg viewBox="0 0 512 512" aria-hidden="true"><path d="M389.2 48h70.6L305.6 224.2 487 464H345L233.7 318.6 106.5 464H35.8l164.9-188.5L26.8 48h145.6l100.5 132.9L389.2 48zm-24.8 373.8h39.1L151.1 88h-42l255.3 333.8z"/></svg>',
+  newspaper:
+    '<svg viewBox="0 0 512 512" aria-hidden="true"><path d="M96 80v352a16 16 0 0016 16h288a16 16 0 0016-16V96a16 16 0 00-16-16H112a16 16 0 00-16 16zm48 48h224v48H144zm0 96h224v32H144zm0 80h144v32H144zM64 128v288a32 32 0 0032 32h16V112H80a16 16 0 00-16 16z"/></svg>',
   camera:
     '<svg viewBox="0 0 512 512" aria-hidden="true"><path d="M352 128l-24-48H184l-24 48H80v288h352V128zm-96 240a80 80 0 1180-80 80 80 0 01-80 80z"/></svg>',
   "checkmark-circle":
@@ -496,6 +562,7 @@ function categoryIconSvg(category?: AlertCategory): string {
 function buildAlertPinElement(meta: AlertPinMeta, simplify: boolean): HTMLDivElement {
   const el = document.createElement("div");
   const staticPulse = Boolean(meta.lowConnection);
+  const showAvatar = Boolean(meta.avatarUrl);
   el.className = `pulso-pin${staticPulse ? " pulso-pin--static" : ""}${simplify && !staticPulse ? " pulso-pin--simple" : ""}`;
   el.style.setProperty("--pulso-color", meta.color);
   el.style.setProperty("--pulso-duration", `${Math.max(700, meta.duration)}ms`);
@@ -503,24 +570,25 @@ function buildAlertPinElement(meta: AlertPinMeta, simplify: boolean): HTMLDivEle
   el.setAttribute("tabindex", "0");
   el.setAttribute("aria-label", meta.category ? `Alerta ${meta.category}` : "Alerta");
 
+  const coreInner = showAvatar
+    ? `<img class="pulso-pin__avatar" src="${escapeAttr(meta.avatarUrl!)}" alt="" /><span class="pulso-pin__avatar-ring"></span>`
+    : `
+        <div class="pulso-pin__highlight"></div>
+        ${simplify || staticPulse ? "" : '<div class="pulso-pin__heartbeat"></div>'}
+        <span class="pulso-pin__icon">${categoryIconSvg(meta.category)}</span>
+      `;
+
   if (!staticPulse) {
     el.innerHTML = `
       <div class="pulso-pin__halo"></div>
       <div class="pulso-pin__ring"></div>
       ${simplify ? "" : '<div class="pulso-pin__ring pulso-pin__ring--delayed"></div>'}
-      <div class="pulso-pin__dot">
-        <div class="pulso-pin__highlight"></div>
-        ${simplify ? "" : '<div class="pulso-pin__heartbeat"></div>'}
-        <span class="pulso-pin__icon">${categoryIconSvg(meta.category)}</span>
-      </div>
+      <div class="pulso-pin__dot">${coreInner}</div>
     `;
   } else {
     el.innerHTML = `
       <div class="pulso-pin__halo"></div>
-      <div class="pulso-pin__dot">
-        <div class="pulso-pin__highlight"></div>
-        <span class="pulso-pin__icon">${categoryIconSvg(meta.category)}</span>
-      </div>
+      <div class="pulso-pin__dot">${coreInner}</div>
     `;
   }
 
@@ -541,6 +609,14 @@ function buildAlertPinElement(meta: AlertPinMeta, simplify: boolean): HTMLDivEle
   return el;
 }
 
+function escapeAttr(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
 function buildSponsorPinElement(meta: SponsorPinMeta): HTMLDivElement {
   const el = document.createElement("div");
   el.className = "pulso-sponsor";
@@ -555,11 +631,29 @@ function buildSponsorPinElement(meta: SponsorPinMeta): HTMLDivElement {
 function buildCommunityPinElement(meta: CommunityPinMeta): HTMLDivElement {
   const el = document.createElement("div");
   el.className = "pulso-community";
+  el.style.setProperty("--pulso-color", meta.color);
   el.setAttribute("role", "button");
   el.setAttribute("tabindex", "0");
-  el.setAttribute("aria-label", meta.isDemo ? "Post de X (DEMO)" : "Post de X / Comunidad");
+  const isRss = meta.source === "rss";
+  el.setAttribute(
+    "aria-label",
+    meta.isDemo
+      ? isRss
+        ? "Noticia (DEMO)"
+        : "Post de X (DEMO)"
+      : isRss
+        ? "Noticia / Comunidad"
+        : "Post de X / Comunidad",
+  );
+  const imageUrl = meta.avatarUrl || meta.mediaUrl || null;
+  const fallback = isRss ? ICON_SVGS.newspaper : ICON_SVGS.twitter;
+  const sourceIcon = isRss ? ICON_SVGS.newspaper : ICON_SVGS.twitter;
+  const pinInner = imageUrl
+    ? `<img class="pulso-community__avatar" src="${escapeAttr(imageUrl)}" alt="" />`
+    : fallback;
   el.innerHTML = `
-    <div class="pulso-community__pin">${ICON_SVGS.twitter}</div>
+    <div class="pulso-community__pin">${pinInner}</div>
+    <span class="pulso-community__source">${sourceIcon}</span>
     ${meta.isDemo ? '<span class="pulso-community__demo">D</span>' : ""}
   `;
   return el;
