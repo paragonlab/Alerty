@@ -5,6 +5,7 @@ import {
   Platform,
   Pressable,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
   TextInput,
@@ -107,7 +108,7 @@ function ReportCta({
           gap: 8,
           width: "100%",
           boxSizing: "border-box",
-          padding: 14,
+          padding: 16,
           border: "none",
           borderRadius: 14,
           overflow: "hidden",
@@ -122,6 +123,7 @@ function ReportCta({
           color: "inherit",
           margin: 0,
           zIndex: 2,
+          minHeight: 52,
         }}
       >
         {gradient}
@@ -143,11 +145,11 @@ function ReportCta({
   );
 }
 
-// ── Step indicator ────────────────────────────────────────────────────────────
-function StepDots({ current }: { current: number }) {
+// ── Step indicator (captura → detalles; el envío salta la revisión vacía) ─────
+function StepDots({ current, total = 2 }: { current: number; total?: number }) {
   return (
     <View style={S.stepDots}>
-      {[1, 2, 3].map((n) => (
+      {Array.from({ length: total }, (_, i) => i + 1).map((n) => (
         <View
           key={n}
           style={[
@@ -183,7 +185,8 @@ export default function ReportScreen() {
   const insets = useSafeAreaInsets();
   const { addAlert, currentUser, alerts } = useAlertyStore();
 
-  const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
+  // Web: categoría primero (cámara/galería limitadas). Nativo: captura → detalles → enviado.
+  const [step, setStep] = useState<1 | 2 | 3 | 4>(Platform.OS === "web" ? 2 : 1);
   const [captureMode, setCaptureMode] = useState<"video" | "photo" | "voice">("video");
   const [category, setCategory] = useState<AlertCategory | null>(null);
   const [title, setTitle] = useState("");
@@ -281,9 +284,25 @@ export default function ReportScreen() {
 
   /** En web Alert.alert suele ser fácil de pasar por alto; también mostramos el error en la UI. */
   function notifyUser(title: string, message: string) {
-    setFormError(`${title}. ${message}`);
+    setFormError(`${title}: ${message}`);
     if (Platform.OS !== "web") {
       Alert.alert(title, message);
+    }
+  }
+
+  async function handleShareSent() {
+    const displayTitle =
+      title.trim() || (category ? `${CATEGORY_LABELS[category]} · ${locationLabel}` : "Alerta");
+    const shareUrl = "https://alerty-two.vercel.app";
+    const message = `🚨 Alerta en Pulso: ${displayTitle}\n📍 ${locationLabel}\n\nYa la ven ~${vigias.toLocaleString()} vigías. Ábrela en el mapa: ${shareUrl}`;
+    try {
+      await Share.share(
+        Platform.OS === "web"
+          ? { message, title: "Alerta en Pulso", url: shareUrl }
+          : { message },
+      );
+    } catch {
+      /* usuario canceló */
     }
   }
 
@@ -430,7 +449,7 @@ export default function ReportScreen() {
     if (submittingRef.current) return;
     setFormError(null);
     if (!category) {
-      notifyUser("Falta categoría", "Selecciona el tipo de incidente.");
+      notifyUser("Falta categoría", "Elige el tipo de incidente para publicar.");
       return;
     }
     const coords = userLocation ?? {
@@ -631,8 +650,8 @@ export default function ReportScreen() {
         </View>
 
         <Pressable style={S.skipBtn} onPress={() => setStep(2)}>
-          <Text style={S.skipBtnText}>Continuar sin evidencia</Text>
-          <Ionicons name="arrow-forward" size={12} color="rgba(255,255,255,0.35)" />
+          <Text style={S.skipBtnText}>Continuar sin evidencia · más rápido</Text>
+          <Ionicons name="arrow-forward" size={12} color="rgba(255,255,255,0.45)" />
         </Pressable>
       </>
     );
@@ -658,19 +677,27 @@ export default function ReportScreen() {
               </Text>
               <Text style={S.evidenceSub}>Listo · {media.length} archivo{media.length > 1 ? "s" : ""}</Text>
             </View>
-            <Pressable style={S.evidenceAdd} onPress={handleGallery}>
-              <Ionicons name="add" size={16} color="rgba(255,255,255,0.6)" />
-            </Pressable>
+            {Platform.OS !== "web" && (
+              <Pressable style={S.evidenceAdd} onPress={handleGallery}>
+                <Ionicons name="add" size={16} color="rgba(255,255,255,0.6)" />
+              </Pressable>
+            )}
+          </View>
+        ) : Platform.OS === "web" ? (
+          <View style={[S.evidenceRow, { justifyContent: "center", gap: 8 }]}>
+            <Ionicons name="phone-portrait-outline" size={18} color="rgba(255,255,255,0.35)" />
+            <Text style={S.evidenceSub}>Evidencia con foto/video: usa la app móvil</Text>
           </View>
         ) : (
           <Pressable style={[S.evidenceRow, { justifyContent: "center", gap: 8 }]} onPress={() => setStep(1)}>
             <Ionicons name="camera-outline" size={18} color="rgba(255,255,255,0.35)" />
-            <Text style={S.evidenceSub}>Toca para agregar evidencia</Text>
+            <Text style={S.evidenceSub}>Opcional: toca para agregar evidencia</Text>
           </Pressable>
         )}
 
         {/* Category label */}
         <Text style={S.sheetLabel}>¿Qué está pasando?</Text>
+        <Text style={S.sheetHint}>Elige una categoría para publicar. El título es opcional.</Text>
 
         {/* Category grid */}
         <View style={S.catGrid}>
@@ -678,11 +705,11 @@ export default function ReportScreen() {
             <Pressable
               key={cat}
               style={[S.catCell, category === cat && S.catCellActive]}
-              onPress={() => { void Haptics.selectionAsync(); setCategory(cat); }}
+              onPress={() => { void Haptics.selectionAsync(); setCategory(cat); setFormError(null); }}
             >
               <Ionicons
                 name={(CATEGORY_ICONS[cat] ?? "alert-circle") as any}
-                size={18}
+                size={20}
                 color={category === cat ? "#FF6060" : "rgba(255,255,255,0.65)"}
               />
               <Text style={[S.catLabel, category === cat && S.catLabelActive]}>
@@ -695,7 +722,7 @@ export default function ReportScreen() {
         {/* Title input */}
         <TextInput
           style={S.titleInput}
-          placeholder={category ? `${CATEGORY_LABELS[category]} · ${locationLabel}` : "Describe brevemente lo que pasa..."}
+          placeholder={category ? `${CATEGORY_LABELS[category]} · ${locationLabel}` : "Describe brevemente (opcional)…"}
           placeholderTextColor="rgba(255,255,255,0.3)"
           value={title}
           onChangeText={setTitle}
@@ -720,6 +747,14 @@ export default function ReportScreen() {
               <Text style={[S.tagText, sourceTag === val && S.tagTextActive]}>{label}</Text>
             </Pressable>
           ))}
+        </View>
+
+        {/* Compact social payoff preview (reemplaza el paso de revisión) */}
+        <View style={S.reachHint}>
+          <Ionicons name="people-outline" size={16} color="#6BE0FF" />
+          <Text style={S.reachHintText}>
+            Tu alerta llegará a ~{vigias.toLocaleString()} vigías cerca de {locationLabel}.
+          </Text>
         </View>
       </>
     );
@@ -808,9 +843,12 @@ export default function ReportScreen() {
           <Animated.View style={[S.successMark, { transform: [{ scale: successScale }] }]}>
             <Ionicons name="checkmark" size={38} color="#001a07" />
           </Animated.View>
-          <Text style={S.successTitle}>{vigias.toLocaleString()} vigías ya lo están viendo.</Text>
+          <Text style={S.successEyebrow}>PUBLICADA</Text>
+          <Text style={S.successTitle}>
+            Tu alerta llegó a {vigias.toLocaleString()} vigías
+          </Text>
           <Text style={S.successSub}>
-            Tu alerta llegó a {locationLabel}. Recibirás notificaciones cuando confirmen o desmientan.
+            Ya está visible cerca de {locationLabel}. Cuando alguien confirme, te avisamos.
           </Text>
         </View>
 
@@ -825,24 +863,36 @@ export default function ReportScreen() {
               </View>
               <Text style={S.previewTitle} numberOfLines={2}>{displayTitle}</Text>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
-                <Ionicons name="shield-checkmark" size={11} color="#66FF8C" />
-                <Text style={[S.previewMeta, { color: "#66FF8C", fontWeight: "700" }]}>0/8 confirmaciones</Text>
+                <Ionicons name="people" size={11} color="#6BE0FF" />
+                <Text style={[S.previewMeta, { color: "#6BE0FF", fontWeight: "700" }]}>
+                  ~{vigias.toLocaleString()} vigías
+                </Text>
                 <Text style={S.previewMeta}>· ahora</Text>
               </View>
             </View>
           </View>
         </View>
 
+        <Text style={S.confirmNudge}>
+          Pide a vecinos cercanos que confirmen en el feed — 8 votos la marcan como verificada.
+        </Text>
+
         {/* Actions */}
-        <View style={S.successActions}>
-          <Pressable style={S.successActionSec} onPress={() => router.replace("/(tabs)/")}>
-            <Ionicons name="map" size={14} color="#fff" />
-            <Text style={S.successActionSecText}>Ver en mapa</Text>
-          </Pressable>
-          <Pressable style={S.successActionPri} onPress={() => router.back()}>
-            <Ionicons name="eye-outline" size={14} color="#fff" />
-            <Text style={S.successActionPriText}>Seguir alerta</Text>
-          </Pressable>
+        <View style={S.successActionsCol}>
+          <ReportCta onPress={() => router.replace("/(tabs)/")}>
+            <Ionicons name="map" size={16} color="#fff" />
+            <Text style={S.ctaText}>VER EN EL MAPA</Text>
+          </ReportCta>
+          <View style={S.successActions}>
+            <Pressable style={S.successActionSec} onPress={() => { void handleShareSent(); }}>
+              <Ionicons name="share-outline" size={14} color="#fff" />
+              <Text style={S.successActionSecText}>Compartir</Text>
+            </Pressable>
+            <Pressable style={S.successActionPri} onPress={() => router.replace("/(tabs)/feed")}>
+              <Ionicons name="list" size={14} color="#fff" />
+              <Text style={S.successActionPriText}>Ver en feed</Text>
+            </Pressable>
+          </View>
         </View>
       </>
     );
@@ -861,7 +911,7 @@ export default function ReportScreen() {
         </View>
         <Text style={S.locLoadingTitle}>OBTENIENDO UBICACIÓN</Text>
         <Text style={S.locLoadingSub}>
-          Necesitamos saber dónde ocurre el incidente para que tu reporte llegue a las personas correctas.
+          Para que tu alerta llegue a quienes están cerca. Si tarda, puedes continuar sin GPS.
         </Text>
         <Pressable
           style={S.locSkipBtn}
@@ -927,7 +977,7 @@ export default function ReportScreen() {
           {/* Head */}
           {isStep4 ? (
             <View style={S.sheetHead}>
-              <Text style={S.sheetTitle}>Reporte enviado</Text>
+              <Text style={S.sheetTitle}>Alerta en la red</Text>
               <View style={S.chipAnon}>
                 <Ionicons name="eye-off" size={11} color="#66FF8C" />
                 <Text style={S.chipAnonText}>ANÓNIMO</Text>
@@ -935,8 +985,10 @@ export default function ReportScreen() {
             </View>
           ) : (
             <View style={S.sheetHead}>
-              <Text style={S.sheetTitle}>{step === 3 ? "Revisa" : "Reportar"}</Text>
-              <StepDots current={step} />
+              <Text style={S.sheetTitle}>
+                {step === 3 ? "Revisa" : step === 1 ? "Evidencia" : "Reportar"}
+              </Text>
+              <StepDots current={step === 1 ? 1 : 2} total={2} />
               <Pressable style={S.closeBtn} onPress={() => router.back()}>
                 <Ionicons name="close" size={14} color="#fff" />
               </Pressable>
@@ -966,24 +1018,34 @@ export default function ReportScreen() {
             {step === 4 && renderStep4()}
           </ScrollView>
 
-          {/* CTA — steps 2 & 3 */}
+          {/* CTA — detalles: enviar directo (revisión opcional) */}
           {step === 2 && (
             <View style={[S.ctaWrap, Platform.OS === "web" && S.ctaWrapWeb]}>
               {formError ? <Text style={S.formError}>{formError}</Text> : null}
               <ReportCta
-                disabled={!category}
+                disabled={!category || submitting}
+                onPress={() => {
+                  void handleSubmit();
+                }}
+              >
+                <Ionicons name="paper-plane" size={18} color="#fff" />
+                <Text style={S.ctaText}>{submitting ? "ENVIANDO…" : "ENVIAR ALERTA"}</Text>
+              </ReportCta>
+              <Pressable
+                style={S.reviewLink}
+                disabled={!category || submitting}
                 onPress={() => {
                   setFormError(null);
                   if (!category) {
-                    notifyUser("Falta categoría", "Selecciona el tipo de incidente.");
+                    notifyUser("Falta categoría", "Elige el tipo de incidente para continuar.");
                     return;
                   }
                   setStep(3);
                 }}
               >
-                <Text style={S.ctaText}>REVISAR Y ENVIAR</Text>
-                <Ionicons name="arrow-forward" size={16} color="#fff" />
-              </ReportCta>
+                <Text style={S.reviewLinkText}>Revisar antes de enviar</Text>
+              </Pressable>
+              <Text style={S.ctaHelper}>Anónimo · sin datos personales</Text>
             </View>
           )}
 
@@ -996,8 +1058,8 @@ export default function ReportScreen() {
                   void handleSubmit();
                 }}
               >
-                <Ionicons name="paper-plane" size={16} color="#fff" />
-                <Text style={S.ctaText}>{submitting ? "ENVIANDO..." : "ENVIAR ALERTA"}</Text>
+                <Ionicons name="paper-plane" size={18} color="#fff" />
+                <Text style={S.ctaText}>{submitting ? "ENVIANDO…" : "ENVIAR ALERTA"}</Text>
               </ReportCta>
               <Text style={S.ctaHelper}>Tu identidad permanece anónima · 0 metadatos personales</Text>
             </View>
@@ -1273,49 +1335,68 @@ const S = StyleSheet.create({
     color: "rgba(255,255,255,0.5)", textTransform: "uppercase",
     fontFamily: "SpaceGrotesk_700Bold", marginTop: 4,
   },
+  sheetHint: {
+    fontSize: 12, color: "rgba(255,255,255,0.45)", marginTop: -4,
+    fontFamily: "SpaceGrotesk_500Medium", lineHeight: 17,
+  },
 
   // Category grid
   catGrid: { display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 6 },
   catCell: {
-    width: "31.5%", alignItems: "center", gap: 4,
-    paddingVertical: 9, paddingHorizontal: 4,
+    width: "31.5%", alignItems: "center", gap: 5,
+    paddingVertical: 12, paddingHorizontal: 4,
     borderRadius: 12,
     backgroundColor: "rgba(255,255,255,0.04)",
     borderWidth: 1, borderColor: "rgba(255,255,255,0.08)",
+    minHeight: 64,
   },
   catCellActive: {
     backgroundColor: "rgba(255,0,0,0.16)",
     borderColor: "rgba(255,0,0,0.5)",
     shadowColor: "#FF0000", shadowOpacity: 0.25, shadowRadius: 10, shadowOffset: { width: 0, height: 4 },
   },
-  catLabel: { fontSize: 9.5, fontWeight: "700", letterSpacing: 0.4, color: "rgba(255,255,255,0.65)", textAlign: "center", fontFamily: "SpaceGrotesk_700Bold" },
+  catLabel: { fontSize: 10, fontWeight: "700", letterSpacing: 0.4, color: "rgba(255,255,255,0.65)", textAlign: "center", fontFamily: "SpaceGrotesk_700Bold" },
   catLabelActive: { color: "#FF6060" },
 
   // Title input
   titleInput: {
-    paddingHorizontal: 12, paddingVertical: 10,
+    paddingHorizontal: 12, paddingVertical: 12,
     backgroundColor: "rgba(255,255,255,0.04)",
     borderWidth: 1, borderColor: "rgba(255,255,255,0.1)",
     borderRadius: 12,
-    fontSize: 13, color: "#fff",
+    fontSize: 14, color: "#fff",
     fontFamily: "SpaceGrotesk_500Medium",
+    minHeight: 48,
   },
 
   // Source tags
   tagRow: { flexDirection: "row", gap: 6, flexWrap: "wrap" },
   tag: {
     flexDirection: "row", alignItems: "center", gap: 5,
-    paddingHorizontal: 9, paddingVertical: 5,
+    paddingHorizontal: 10, paddingVertical: 8,
     borderRadius: 999,
     backgroundColor: "rgba(255,255,255,0.04)",
     borderWidth: 1, borderColor: "rgba(255,255,255,0.1)",
+    minHeight: 36,
   },
   tagActive: {
     backgroundColor: "rgba(0,224,255,0.14)",
     borderColor: "rgba(0,224,255,0.5)",
   },
-  tagText: { fontSize: 10.5, fontWeight: "700", color: "rgba(255,255,255,0.6)", fontFamily: "SpaceGrotesk_700Bold" },
+  tagText: { fontSize: 11, fontWeight: "700", color: "rgba(255,255,255,0.6)", fontFamily: "SpaceGrotesk_700Bold" },
   tagTextActive: { color: "#6BE0FF" },
+
+  reachHint: {
+    flexDirection: "row", alignItems: "center", gap: 8,
+    padding: 12, paddingHorizontal: 12,
+    backgroundColor: "rgba(0,224,255,0.08)",
+    borderWidth: 1, borderColor: "rgba(0,224,255,0.22)",
+    borderRadius: 12,
+  },
+  reachHintText: {
+    flex: 1, fontSize: 12, color: "rgba(107,224,255,0.95)",
+    fontFamily: "SpaceGrotesk_500Medium", lineHeight: 17,
+  },
 
   // Preview card (steps 3 & 4)
   previewCard: {
@@ -1362,21 +1443,27 @@ const S = StyleSheet.create({
   trustSub: { fontSize: 10, color: "rgba(0,255,65,0.65)", marginTop: 1, fontFamily: "SpaceGrotesk_500Medium" },
 
   // CTA
-  ctaWrap: { paddingTop: 8, paddingBottom: 4, gap: 6, zIndex: 20, position: "relative" },
+  ctaWrap: { paddingTop: 8, paddingBottom: 4, gap: 8, zIndex: 20, position: "relative" },
   ctaWrapWeb: {
     // Extra aire sobre el chrome de Safari iPhone para que el tap no caiga en la barra del browser.
     paddingBottom: 18,
   },
   cta: {
     flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
-    padding: 14, borderRadius: 14, overflow: "hidden",
+    padding: 16, borderRadius: 14, overflow: "hidden",
+    minHeight: 52,
   },
   ctaDisabled: { opacity: 0.5 },
-  ctaText: { fontSize: 13, fontWeight: "800", letterSpacing: 1.6, color: "#fff", fontFamily: "SpaceGrotesk_700Bold" },
+  ctaText: { fontSize: 14, fontWeight: "800", letterSpacing: 1.6, color: "#fff", fontFamily: "SpaceGrotesk_700Bold" },
   ctaHelper: { textAlign: "center", fontSize: 10.5, color: "rgba(255,255,255,0.4)", fontFamily: "SpaceGrotesk_500Medium" },
+  reviewLink: { alignItems: "center", paddingVertical: 4 },
+  reviewLinkText: {
+    fontSize: 12, color: "rgba(255,255,255,0.45)",
+    fontFamily: "SpaceGrotesk_500Medium", textDecorationLine: "underline",
+  },
 
   // Success (step 4)
-  successWrap: { alignItems: "center", gap: 14, paddingVertical: 16, paddingHorizontal: 12 },
+  successWrap: { alignItems: "center", gap: 12, paddingVertical: 16, paddingHorizontal: 12 },
   successHaloRing: {
     position: "absolute",
     width: 96, height: 96, borderRadius: 48,
@@ -1389,19 +1476,28 @@ const S = StyleSheet.create({
     shadowColor: "#00FF41", shadowOpacity: 0.5, shadowRadius: 20, shadowOffset: { width: 0, height: 0 },
     elevation: 20,
   },
+  successEyebrow: {
+    fontSize: 11, fontWeight: "800", letterSpacing: 2,
+    color: "#00FF41", fontFamily: "SpaceGrotesk_700Bold",
+  },
   successTitle: { fontSize: 22, fontWeight: "700", color: "#fff", textAlign: "center", letterSpacing: -0.4, fontFamily: "SpaceGrotesk_700Bold" },
-  successSub: { fontSize: 12.5, color: "rgba(255,255,255,0.6)", textAlign: "center", lineHeight: 18, fontFamily: "SpaceGrotesk_500Medium" },
+  successSub: { fontSize: 13, color: "rgba(255,255,255,0.6)", textAlign: "center", lineHeight: 19, fontFamily: "SpaceGrotesk_500Medium" },
+  confirmNudge: {
+    fontSize: 12, color: "rgba(255,255,255,0.5)", textAlign: "center",
+    lineHeight: 17, fontFamily: "SpaceGrotesk_500Medium", paddingHorizontal: 8,
+  },
+  successActionsCol: { gap: 10 },
   successActions: { flexDirection: "row", gap: 8 },
   successActionSec: {
     flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6,
-    padding: 12, borderRadius: 12,
+    padding: 14, borderRadius: 12, minHeight: 48,
     backgroundColor: "rgba(255,255,255,0.06)",
     borderWidth: 1, borderColor: "rgba(255,255,255,0.1)",
   },
   successActionSecText: { fontSize: 12, fontWeight: "700", color: "#fff", letterSpacing: 1, fontFamily: "SpaceGrotesk_700Bold" },
   successActionPri: {
     flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6,
-    padding: 12, borderRadius: 12,
+    padding: 14, borderRadius: 12, minHeight: 48,
     backgroundColor: "#FF4500",
   },
   successActionPriText: { fontSize: 12, fontWeight: "700", color: "#fff", letterSpacing: 1, fontFamily: "SpaceGrotesk_700Bold" },
