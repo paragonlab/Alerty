@@ -37,6 +37,7 @@ export default function FeedScreen() {
     setFeedViewMode: setViewMode,
     openReels,
     reelsInitialAlertId,
+    realtimeStarted,
   } = useAlertyStore();
   const theme = useAlertyTheme();
   const styles = createStyles(theme);
@@ -165,10 +166,17 @@ export default function FeedScreen() {
       <View style={styles.header}>
         <View style={styles.titleRow}>
           <Text style={styles.title}>Feed</Text>
-          <View style={styles.liveDot} />
+          <View style={[styles.livePill, realtimeStarted && styles.livePillOn]}>
+            <View style={[styles.liveDot, realtimeStarted && styles.liveDotOn]} />
+            <Text style={[styles.livePillText, realtimeStarted && styles.livePillTextOn]}>
+              {realtimeStarted ? "EN VIVO" : "LOCAL"}
+            </Text>
+          </View>
         </View>
         <Text style={styles.subtitle}>
-          Alertas ciudadanas y noticias de comunidad desde X (etiquetadas).
+          {realtimeStarted
+            ? "Alertas ciudadanas en tiempo real y noticias desde X (etiquetadas)."
+            : "Alertas de la comunidad y noticias desde X (etiquetadas)."}
         </Text>
       </View>
 
@@ -219,9 +227,19 @@ export default function FeedScreen() {
   const ListEmpty = (
     <View style={styles.emptyState}>
       <Ionicons name="shield-outline" size={42} color={theme.colors.border} />
-      <Text style={styles.emptyTitle}>Sin alertas en esta ventana</Text>
+      <Text style={styles.emptyTitle}>Nadie ha reportado aún en esta ventana</Text>
       <Text style={styles.emptySubtitle}>
-        Amplía el filtro de tiempo o revisa tus categorías activas en Ajustes.
+        Sé el primero en avisar a tu colonia. Un reporte anónimo puede ayudar a quien está cerca.
+      </Text>
+      <Pressable
+        style={styles.emptyCta}
+        onPress={() => router.push("/report" as any)}
+      >
+        <Ionicons name="warning" size={16} color="#fff" />
+        <Text style={styles.emptyCtaText}>REPORTAR AHORA</Text>
+      </Pressable>
+      <Text style={styles.emptyHint}>
+        O amplía el filtro de tiempo / revisa categorías en Ajustes.
       </Text>
     </View>
   );
@@ -265,7 +283,7 @@ export default function FeedScreen() {
           ListEmptyComponent={ListEmpty}
           contentContainerStyle={styles.container}
           showsVerticalScrollIndicator={false}
-          ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
+          ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
         />
       </SafeAreaView>
       <View style={styles.modePillWrap} pointerEvents="box-none">
@@ -372,12 +390,39 @@ const createStyles = (theme: any) => StyleSheet.create({
     fontSize: 28,
     fontFamily: theme.fonts.heading,
   },
-  liveDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: theme.colors.accent,
+  livePill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: theme.colors.surfaceAlt,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
     marginTop: 4,
+  },
+  livePillOn: {
+    backgroundColor: theme.colors.accentSoft,
+    borderColor: theme.colors.accent + "55",
+  },
+  liveDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: theme.colors.textMuted,
+  },
+  liveDotOn: {
+    backgroundColor: theme.colors.accent,
+  },
+  livePillText: {
+    fontSize: 10,
+    fontFamily: theme.fonts.heading,
+    letterSpacing: 1,
+    color: theme.colors.textMuted,
+  },
+  livePillTextOn: {
+    color: theme.colors.accent,
   },
   subtitle: {
     color: theme.colors.textMuted,
@@ -435,8 +480,8 @@ const createStyles = (theme: any) => StyleSheet.create({
   },
   emptyState: {
     alignItems: "center",
-    paddingTop: 60,
-    paddingHorizontal: 32,
+    paddingTop: 48,
+    paddingHorizontal: 28,
     gap: 12,
   },
   emptyTitle: {
@@ -451,6 +496,30 @@ const createStyles = (theme: any) => StyleSheet.create({
     fontFamily: theme.fonts.body,
     textAlign: "center",
     lineHeight: 20,
+  },
+  emptyCta: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 8,
+    backgroundColor: theme.colors.reportAction,
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    borderRadius: 14,
+    minHeight: 48,
+  },
+  emptyCtaText: {
+    color: "#fff",
+    fontSize: 13,
+    fontFamily: theme.fonts.heading,
+    letterSpacing: 1.2,
+  },
+  emptyHint: {
+    color: theme.colors.textMuted,
+    fontSize: 11,
+    fontFamily: theme.fonts.body,
+    textAlign: "center",
+    marginTop: 4,
   },
   // Reels mode
   reelsRoot: {
