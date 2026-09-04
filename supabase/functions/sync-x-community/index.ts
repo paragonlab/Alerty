@@ -25,16 +25,25 @@ const corsHeaders = {
 
 const PLACE_FALLBACK = "Culiacán (X)";
 
-const EVENT_TERMS =
-  '(alerta OR alertan OR reportan OR "acaba de" OR "ahora mismo" OR "en estos momentos" OR balacera OR tiroteo OR disparos OR detonaciones OR enfrentamiento OR narcobloqueo OR bloqueo OR bloqueos OR accidente OR choque OR volcadura OR asalto OR "zona de riesgo" OR "toma de" OR persecucion OR persecución OR "elementos armados" OR "grupo armado")';
+const PLACE_TERMS = "(Culiacán OR Culiacan OR #Culiacán)";
 
-const PLACE_TERMS = "(Culiacán OR Culiacan OR #Culiacán OR #Culiacan)";
+// Mantener ≤512 chars (límite Recent Search). Soft-noise filtra el resto en código.
+const EVENT_TERMS =
+  '(alerta OR alertan OR reportan OR "acaba de" OR balacera OR tiroteo OR disparos OR detonaciones OR enfrentamiento OR narcobloqueo OR bloqueo OR accidente OR choque OR asalto OR "zona de riesgo" OR "grupo armado")';
 
 const NOISE_EXCLUSIONS =
-  '-is:retweet -is:reply -promo -oferta -descuento -Airbnb -turismo -vacaciones -partido -gol -estadio -"estoy en" -"paseando" -"visitando" -"comida" -"restaurante" -"clima"';
+  '-is:retweet -is:reply -promo -turismo -partido -gol -"estoy en" -comida';
 
 const X_QUERY_GEO = `${PLACE_TERMS} ${EVENT_TERMS} has:geo ${NOISE_EXCLUSIONS} lang:es`;
 const X_QUERY_FEED = `${PLACE_TERMS} ${EVENT_TERMS} ${NOISE_EXCLUSIONS} lang:es`;
+
+if (X_QUERY_GEO.length > 512 || X_QUERY_FEED.length > 512) {
+  console.warn(
+    "X Recent Search query exceeds 512 chars",
+    X_QUERY_GEO.length,
+    X_QUERY_FEED.length,
+  );
+}
 
 const CATEGORY_KEYWORDS: Array<{ guess: string; pattern: RegExp }> = [
   { guess: "balacera", pattern: /\bbalacera\b|\btiroteo\b|\bdisparos?\b/i },
@@ -87,7 +96,7 @@ type XTweet = {
   attachments?: { media_keys?: string[] };
 };
 
-type XUser = { id: string; name?: string; username?: string };
+type XUser = { id: string; name?: string; username?: string; profile_image_url?: string };
 type XPlace = { id: string; full_name?: string; geo?: { bbox?: number[] } };
 type XMedia = { media_key: string; url?: string; preview_image_url?: string; type?: string };
 
@@ -99,6 +108,7 @@ type CommunityRow = {
   text: string;
   url: string;
   media_url: string | null;
+  author_avatar_url: string | null;
   lat: number | null;
   lng: number | null;
   place_label: string;
@@ -119,7 +129,7 @@ async function searchRecent(
     max_results: String(Math.min(100, Math.max(10, maxResults))),
     "tweet.fields": "created_at,geo,author_id,attachments",
     expansions: "author_id,attachments.media_keys,geo.place_id",
-    "user.fields": "name,username",
+    "user.fields": "name,username,profile_image_url",
     "place.fields": "full_name,geo",
     "media.fields": "url,preview_image_url,type",
   });
@@ -221,6 +231,10 @@ function tweetToRow(
     text: tweet.text,
     url: `https://x.com/${username ?? "i"}/status/${tweet.id}`,
     media_url: mediaUrl,
+    // X suele devolver _normal; preferir versión más grande para pines.
+    author_avatar_url: author?.profile_image_url
+      ? author.profile_image_url.replace("_normal.", "_bigger.")
+      : null,
     lat,
     lng,
     place_label: placeLabel,

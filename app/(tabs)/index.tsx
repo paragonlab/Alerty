@@ -24,7 +24,7 @@ import { GlowMarker } from "../../components/GlowMarker";
 import { CommunityMarker } from "../../components/CommunityMarker";
 import { CommunityPostPreview } from "../../components/CommunityPostPreview";
 import { SOSButton } from "../../components/SOSButton";
-import { CATEGORY_LABELS, CULIACAN_CENTER } from "../../lib/alerty/constants";
+import { CATEGORY_LABELS, CULIACAN_CENTER, TIME_FILTERS } from "../../lib/alerty/constants";
 import { useAlertyTheme } from "../../lib/useAlertyTheme";
 import { useAlertyStore } from "../../lib/alerty/store";
 import { supabase } from "../../lib/supabase";
@@ -32,8 +32,10 @@ import type { CommunityPost } from "../../lib/alerty/types";
 import {
   calculateDistance,
   formatRelativeTime,
+  getCategoryPinColor,
   getIntensityColor,
   getPulseDuration,
+  getTimeFilterWindowLabel,
   isAlertInWindow,
   isCreatedAtInWindow,
   shouldSuppressAlert,
@@ -55,6 +57,7 @@ export default function MapScreen() {
     alerts,
     communityPosts,
     timeFilter,
+    setTimeFilter,
     activeCategories,
     lowConnection,
     showHeatmap,
@@ -286,6 +289,7 @@ export default function MapScreen() {
                   hasMedia={alert.media.length > 0}
                   isVerified={alert.user.isVerified}
                   lowConnection={lowConnection}
+                  avatarUrl={alert.user.avatarUrl}
                 />
               </Marker>
             ))}
@@ -295,14 +299,22 @@ export default function MapScreen() {
               <Marker
                 key={`x-${post.id}`}
                 coordinate={{ latitude: post.lat, longitude: post.lng }}
-                tracksViewChanges={false}
+                tracksViewChanges={Boolean(post.authorAvatarUrl || post.mediaUrl)}
                 onPress={() => {
                   void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                   setRiskResult(null);
                   setSelectedCommunity(post);
                 }}
               >
-                <CommunityMarker isDemo={post.isDemo} markerKind="community" />
+                <CommunityMarker
+                  isDemo={post.isDemo}
+                  markerKind="community"
+                  categoryGuess={post.categoryGuess}
+                  color={getCategoryPinColor(post.categoryGuess)}
+                  authorAvatarUrl={post.authorAvatarUrl}
+                  mediaUrl={post.mediaUrl}
+                  source={post.source}
+                />
               </Marker>
             ))}
             
@@ -438,8 +450,35 @@ export default function MapScreen() {
           </View>
         )}
 
+        {/* Horario: mismo timeFilter que Feed — overlay compacto, no bloquea gestos del mapa */}
+        <View style={[styles.timeFilterWrap, isWeb && styles.timeFilterWrapWeb]} pointerEvents="box-none">
+          <View style={styles.timeFilterRow} pointerEvents="auto">
+            {TIME_FILTERS.map((filter) => {
+              const active = timeFilter === filter;
+              return (
+                <Pressable
+                  key={filter}
+                  style={[styles.timePill, active && styles.timePillActive]}
+                  onPress={() => {
+                    void Haptics.selectionAsync();
+                    setTimeFilter(filter);
+                  }}
+                  hitSlop={4}
+                >
+                  <Text style={[styles.timePillText, active && styles.timePillTextActive]}>
+                    {filter.toUpperCase()}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+          <Text style={styles.timeWindowCaption} pointerEvents="none">
+            Ventana: {getTimeFilterWindowLabel(timeFilter)} · no caducan en DB
+          </Text>
+        </View>
+
         {/* Empty state overlay (también en web: un mapa vacío se ve “roto”) */}
-        {filteredAlerts.length === 0 && (
+        {filteredAlerts.length === 0 && mapCommunity.length === 0 && (
           <View style={styles.emptyOverlay} pointerEvents="none">
             <Ionicons name="shield-outline" size={28} color={theme.colors.textMuted} />
             <Text style={styles.emptyText}>Sin alertas en esta área</Text>
@@ -636,6 +675,53 @@ const createStyles = (theme: any, themeMode: string) => StyleSheet.create({
     backgroundColor: theme.colors.accent,
     alignItems: "center",
     justifyContent: "center",
+  },
+  timeFilterWrap: {
+    position: "absolute",
+    left: 16,
+    bottom: 188,
+    zIndex: 18,
+    maxWidth: "72%",
+    gap: 4,
+  },
+  timeFilterWrapWeb: {
+    bottom: 24,
+  },
+  timeFilterRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+  },
+  timePill: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: theme.radius.pill,
+    backgroundColor: themeMode === "light" ? "rgba(255,255,255,0.92)" : "rgba(18,18,18,0.88)",
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+  },
+  timePillActive: {
+    borderColor: theme.colors.accent,
+    backgroundColor: theme.colors.accentSoft,
+  },
+  timePillText: {
+    color: theme.colors.textMuted,
+    fontSize: 11,
+    fontFamily: theme.fonts.body,
+    letterSpacing: 0.4,
+  },
+  timePillTextActive: {
+    color: theme.colors.text,
+    fontFamily: theme.fonts.heading,
+  },
+  timeWindowCaption: {
+    color: theme.colors.textMuted,
+    fontSize: 10,
+    fontFamily: theme.fonts.body,
+    paddingHorizontal: 2,
+    textShadowColor: themeMode === "light" ? "rgba(255,255,255,0.9)" : "rgba(0,0,0,0.85)",
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
   },
   cityLabel: {
     color: theme.colors.text,

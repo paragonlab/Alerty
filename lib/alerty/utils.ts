@@ -1,4 +1,9 @@
 import { theme } from "../theme";
+import {
+  CATEGORY_PIN_COLORS,
+  COMMUNITY_DEFAULT_PIN_COLOR,
+  TIME_FILTER_WINDOW_LABEL,
+} from "./constants";
 import type { AlertItem, TimeFilter } from "./types";
 
 export const getAlertAgeMinutes = (createdAt: string) =>
@@ -39,6 +44,15 @@ export const getIntensityColor = (createdAt: string) => {
   if (minutes <= 180) return theme.colors.mapOrange;
   return theme.colors.mapYellow;
 };
+
+/** Color de pin por categoría/riesgo (community categoryGuess o alert category). */
+export const getCategoryPinColor = (category?: string | null) => {
+  if (!category) return COMMUNITY_DEFAULT_PIN_COLOR;
+  return CATEGORY_PIN_COLORS[category] ?? COMMUNITY_DEFAULT_PIN_COLOR;
+};
+
+export const getTimeFilterWindowLabel = (filter: TimeFilter) =>
+  TIME_FILTER_WINDOW_LABEL[filter] ?? `ventana ${filter}`;
 
 export const getPulseDuration = (createdAt: string) => {
   const minutes = getAlertAgeMinutes(createdAt);

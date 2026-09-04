@@ -1,5 +1,5 @@
 import { useEffect, useRef, useMemo } from "react";
-import { StyleSheet, View, Animated, Easing } from "react-native";
+import { StyleSheet, View, Animated, Easing, Image } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useAlertyStore } from "../lib/alerty/store";
 import type { AlertCategory } from "../lib/alerty/types";
@@ -12,6 +12,8 @@ type GlowMarkerProps = {
   hasMedia: boolean;
   isVerified: boolean;
   lowConnection?: boolean;
+  /** Foto del reportero; si falta, icono de categoría. */
+  avatarUrl?: string | null;
 };
 
 export function GlowMarker({
@@ -21,6 +23,7 @@ export function GlowMarker({
   hasMedia,
   isVerified,
   lowConnection,
+  avatarUrl,
 }: GlowMarkerProps) {
   const themeMode = useAlertyStore((s) => s.themeMode);
   const isDark = themeMode === "darkHighVisibility";
@@ -113,6 +116,7 @@ export function GlowMarker({
   const mediaColor = isDark ? "#FF00FF" : "#5A4C3B";
   const verifiedColor = isDark ? "#00E0FF" : "#2C7BE5";
   const badgeBg = isDark ? "#000000" : "#FFFFFF";
+  const showAvatar = Boolean(avatarUrl);
 
   return (
     <View style={styles.container}>
@@ -154,12 +158,12 @@ export function GlowMarker({
         />
       )}
 
-      {/* Layer 3: Core dot */}
+      {/* Layer 3: Core dot — avatar o icono de categoría */}
       <View
         style={[
           styles.dot,
           {
-            backgroundColor: color,
+            backgroundColor: showAvatar ? "#111" : color,
             borderColor: isDark ? "rgba(255,255,255,0.92)" : "#FFFFFF",
             shadowColor: color,
             shadowOpacity: isDark ? 0.9 : 0.55,
@@ -169,20 +173,28 @@ export function GlowMarker({
           },
         ]}
       >
-        {/* Highlight */}
-        <View style={styles.dotHighlight} />
-        {/* Heartbeat flash */}
-        {!lowConnection && (
-          <Animated.View
-            style={[StyleSheet.absoluteFill, styles.dotHeartbeat, { opacity: heartbeatAnim }]}
-          />
+        {showAvatar ? (
+          <Image source={{ uri: avatarUrl! }} style={styles.avatar} />
+        ) : (
+          <>
+            <View style={styles.dotHighlight} />
+            {!lowConnection && (
+              <Animated.View
+                style={[StyleSheet.absoluteFill, styles.dotHeartbeat, { opacity: heartbeatAnim }]}
+              />
+            )}
+            <Ionicons
+              name={CATEGORY_ICONS[category] as any}
+              size={10}
+              color="#fff"
+              style={styles.dotIcon}
+            />
+          </>
         )}
-        <Ionicons
-          name={CATEGORY_ICONS[category] as any}
-          size={10}
-          color="#fff"
-          style={styles.dotIcon}
-        />
+        {/* Anillo de color de riesgo sobre avatar */}
+        {showAvatar ? (
+          <View style={[styles.avatarRing, { borderColor: color }]} pointerEvents="none" />
+        ) : null}
       </View>
 
       {/* Badges */}
@@ -231,6 +243,16 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     zIndex: 3,
     overflow: "hidden",
+  },
+  avatar: {
+    width: "100%",
+    height: "100%",
+    borderRadius: 999,
+  },
+  avatarRing: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 999,
+    borderWidth: 2,
   },
   dotHighlight: {
     position: "absolute",

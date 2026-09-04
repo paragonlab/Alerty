@@ -76,6 +76,8 @@ export type CommunityPost = {
   text: string;
   url: string;
   mediaUrl?: string | null;
+  /** Avatar X (profile_image_url) o logo de feed RSS */
+  authorAvatarUrl?: string | null;
   /** null = sin geo usable (solo Feed); mapa exige lat/lng reales, place bbox o geocode */
   lat: number | null;
   lng: number | null;
