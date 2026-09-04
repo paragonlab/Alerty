@@ -1,7 +1,7 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { CATEGORY_ICONS, CATEGORY_LABELS, REPUTATION_LEVELS } from "../lib/alerty/constants";
-import { formatRelativeTime, getIntensityColor } from "../lib/alerty/utils";
+import { formatRelativeTime, getAlertAgeMinutes, getIntensityColor } from "../lib/alerty/utils";
 import type { AlertItem } from "../lib/alerty/types";
 import { useAlertyTheme } from "../lib/useAlertyTheme";
 
@@ -11,10 +11,21 @@ type AlertCardProps = {
   onPressVideo?: () => void;
 };
 
+const CRITICAL_CATEGORIES = new Set([
+  "sos",
+  "balacera",
+  "enfrentamiento",
+  "narcobloqueo",
+]);
+
 export function AlertCard({ alert, onPress, onPressVideo }: AlertCardProps) {
   const theme = useAlertyTheme();
   const styles = createStyles(theme);
   const color = getIntensityColor(alert.createdAt);
+  const ageMin = getAlertAgeMinutes(alert.createdAt);
+  const isCritical =
+    CRITICAL_CATEGORIES.has(alert.category) || alert.upvotes >= 8;
+  const isFresh = ageMin <= 20;
 
   const levelKey = (alert.user.level as keyof typeof REPUTATION_LEVELS) || "CIUDADANO";
   const levelInfo = REPUTATION_LEVELS[levelKey];
@@ -22,24 +33,43 @@ export function AlertCard({ alert, onPress, onPressVideo }: AlertCardProps) {
   const primaryText = alert.title ?? alert.description ?? "Sin descripción";
   const secondaryText = alert.title && alert.description ? alert.description : null;
   const hasVideo = alert.media.some((m) => m.type === "video");
+  const hasAudio = alert.media.some((m) => m.type === "audio");
 
   return (
     <Pressable
-      style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
+      style={({ pressed }) => [
+        styles.card,
+        isCritical && styles.cardCritical,
+        pressed && styles.cardPressed,
+      ]}
       onPress={onPress}
     >
-      <View style={[styles.accentBar, { backgroundColor: color }]} />
+      <View style={[styles.accentBar, { backgroundColor: color }, isCritical && styles.accentBarCritical]} />
 
       <View style={styles.inner}>
         <View style={styles.headerRow}>
-          <View style={[styles.categoryPill, { borderColor: color + "60", backgroundColor: color + "12" }]}>
-            <Ionicons name={CATEGORY_ICONS[alert.category] as any} size={11} color={color} />
-            <Text style={[styles.categoryText, { color }]}>{CATEGORY_LABELS[alert.category]}</Text>
+          <View style={styles.headerLeft}>
+            <View style={[styles.categoryPill, { borderColor: color + "60", backgroundColor: color + "12" }]}>
+              <Ionicons name={CATEGORY_ICONS[alert.category] as any} size={11} color={color} />
+              <Text style={[styles.categoryText, { color }]}>{CATEGORY_LABELS[alert.category]}</Text>
+            </View>
+            {isCritical && (
+              <View style={styles.criticalBadge}>
+                <Text style={styles.criticalBadgeText}>CRÍTICO</Text>
+              </View>
+            )}
+            {isFresh && !isCritical && (
+              <View style={[styles.freshBadge, { borderColor: color + "50", backgroundColor: color + "18" }]}>
+                <Text style={[styles.freshBadgeText, { color }]}>AHORA</Text>
+              </View>
+            )}
           </View>
           <Text style={styles.timeText}>{formatRelativeTime(alert.createdAt)}</Text>
         </View>
 
-        <Text style={styles.titleText} numberOfLines={2}>{primaryText}</Text>
+        <Text style={[styles.titleText, isCritical && styles.titleCritical]} numberOfLines={2}>
+          {primaryText}
+        </Text>
 
         {secondaryText ? (
           <Text style={styles.descriptionText} numberOfLines={1}>{secondaryText}</Text>
@@ -47,10 +77,10 @@ export function AlertCard({ alert, onPress, onPressVideo }: AlertCardProps) {
 
         <View style={styles.metaRow}>
           <Ionicons name="location-outline" size={11} color={theme.colors.textMuted} />
-          <Text style={styles.metaText}>{alert.neighborhood ?? "Culiacán"}</Text>
+          <Text style={styles.metaText} numberOfLines={1}>{alert.neighborhood ?? "Culiacán"}</Text>
           <View style={styles.metaDivider} />
           <View style={styles.userSection}>
-            <Text style={styles.metaText}>{alert.user.username}</Text>
+            <Text style={styles.metaText} numberOfLines={1}>{alert.user.username}</Text>
             {alert.user.isVerified && (
               <Ionicons name="checkmark-circle" size={12} color={theme.colors.accent} />
             )}
@@ -64,29 +94,24 @@ export function AlertCard({ alert, onPress, onPressVideo }: AlertCardProps) {
         </View>
 
         <View style={styles.footerRow}>
-          {alert.upvotes > 0 && (
-            <View style={styles.votePill}>
-              <Ionicons name="thumbs-up" size={11} color={theme.colors.success} />
-              <Text style={[styles.voteText, { color: theme.colors.success }]}>{alert.upvotes}</Text>
-            </View>
-          )}
+          <View style={styles.votePill}>
+            <Ionicons name="thumbs-up" size={11} color={alert.upvotes > 0 ? theme.colors.success : theme.colors.textMuted} />
+            <Text style={[styles.voteText, alert.upvotes > 0 && { color: theme.colors.success }]}>
+              {alert.upvotes}
+            </Text>
+          </View>
           {alert.downvotes > 0 && (
             <View style={styles.votePill}>
               <Ionicons name="thumbs-down" size={11} color={theme.colors.textMuted} />
               <Text style={styles.voteText}>{alert.downvotes}</Text>
             </View>
           )}
-          {alert.media.length > 0 && !hasVideo && (() => {
-            const hasAudio = alert.media.some((m) => m.type === "audio");
-            const icon = hasVideo ? "film" : hasAudio ? "mic" : "camera";
-            const iconColor = hasVideo ? "#FF6B3A" : theme.colors.textMuted;
-            return (
-              <View style={[styles.mediaPill, hasVideo && styles.mediaPillVideo]}>
-                <Ionicons name={icon} size={11} color={iconColor} />
-                <Text style={[styles.voteText, hasVideo && { color: "#FF6B3A" }]}>{alert.media.length}</Text>
-              </View>
-            );
-          })()}
+          {alert.media.length > 0 && !hasVideo && (
+            <View style={styles.mediaPill}>
+              <Ionicons name={hasAudio ? "mic" : "camera"} size={11} color={theme.colors.textMuted} />
+              <Text style={styles.voteText}>{alert.media.length}</Text>
+            </View>
+          )}
           {(alert.updates?.length ?? 0) > 0 && (
             <View style={styles.mediaPill}>
               <Ionicons name="chatbubble-outline" size={11} color={theme.colors.textMuted} />
@@ -120,6 +145,10 @@ const createStyles = (theme: any) => StyleSheet.create({
     flexDirection: "row",
     overflow: "hidden",
   },
+  cardCritical: {
+    borderColor: theme.colors.danger + "55",
+    backgroundColor: theme.colors.surface,
+  },
   cardPressed: {
     opacity: 0.75,
   },
@@ -127,6 +156,9 @@ const createStyles = (theme: any) => StyleSheet.create({
     width: 4,
     borderTopLeftRadius: theme.radius.xl,
     borderBottomLeftRadius: theme.radius.xl,
+  },
+  accentBarCritical: {
+    width: 5,
   },
   inner: {
     flex: 1,
@@ -138,6 +170,13 @@ const createStyles = (theme: any) => StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     gap: 8,
+  },
+  headerLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    flex: 1,
+    flexWrap: "wrap",
   },
   categoryPill: {
     flexDirection: "row",
@@ -152,6 +191,31 @@ const createStyles = (theme: any) => StyleSheet.create({
     fontSize: 11,
     fontFamily: theme.fonts.heading,
   },
+  criticalBadge: {
+    backgroundColor: "rgba(182,64,47,0.14)",
+    borderWidth: 1,
+    borderColor: "rgba(182,64,47,0.45)",
+    borderRadius: theme.radius.pill,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+  },
+  criticalBadgeText: {
+    color: theme.colors.danger,
+    fontSize: 9,
+    fontFamily: theme.fonts.heading,
+    letterSpacing: 0.8,
+  },
+  freshBadge: {
+    borderWidth: 1,
+    borderRadius: theme.radius.pill,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+  },
+  freshBadgeText: {
+    fontSize: 9,
+    fontFamily: theme.fonts.heading,
+    letterSpacing: 0.8,
+  },
   timeText: {
     color: theme.colors.textMuted,
     fontSize: 12,
@@ -163,6 +227,10 @@ const createStyles = (theme: any) => StyleSheet.create({
     fontSize: 15,
     fontFamily: theme.fonts.heading,
     lineHeight: 21,
+  },
+  titleCritical: {
+    fontSize: 16,
+    lineHeight: 22,
   },
   descriptionText: {
     color: theme.colors.textMuted,
@@ -224,10 +292,6 @@ const createStyles = (theme: any) => StyleSheet.create({
     borderColor: theme.colors.border,
     paddingHorizontal: 9,
     paddingVertical: 5,
-  },
-  mediaPillVideo: {
-    backgroundColor: "rgba(255,107,58,0.1)",
-    borderColor: "rgba(255,107,58,0.35)",
   },
   voteText: {
     color: theme.colors.textMuted,
