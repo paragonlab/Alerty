@@ -3,34 +3,19 @@
 //
 // Setup:
 //   supabase secrets set X_BEARER_TOKEN=AAAA...
+//   # opcional: X_ALLOWLIST=LineaDirectaMX:medio,SSPSinaloa:oficial
 //   supabase functions deploy sync-x-community
 //
-// Cron (cada 5–10 min), ejemplo con pg_cron + pg_net o el scheduler de Supabase:
-//   select cron.schedule(
-//     'sync-x-community',
-//     '*/10 * * * *',
-//     $$
-//     select net.http_post(
-//       url := 'https://YOUR_PROJECT.supabase.co/functions/v1/sync-x-community',
-//       headers := jsonb_build_object(
-//         'Authorization', 'Bearer ' || current_setting('app.settings.service_role_key', true),
-//         'Content-Type', 'application/json'
-//       ),
-//       body := '{}'::jsonb
-//     );
-//     $$
-//   );
-// O desde un cron externo:
-//   curl -X POST "$SUPABASE_URL/functions/v1/sync-x-community" \
-//     -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY"
-//
-// Sin X_BEARER_TOKEN: responde mode=demo y no llama a la API (los seeds DEMO
-// de la migración siguen visibles en la app).
-//
-// Geo policy: solo escribe lat/lng con coordenadas reales del tweet o centro
-// de place.bbox. Sin geo usable → lat/lng null (Feed sí, mapa no). Sin jitter.
+// Geo policy: coords del tweet, place.bbox, o geocode de colonia en texto.
+// Sin geo usable → lat/lng null (Feed sí, mapa no). Sin jitter.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.97.0";
+import { geocodeCuliacanText } from "../_shared/culiacanPlaces.ts";
+import {
+  mergeAllowlist,
+  trustForHandle,
+  type TrustTier,
+} from "../_shared/xAllowlist.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -40,10 +25,6 @@ const corsHeaders = {
 
 const PLACE_FALLBACK = "Culiacán (X)";
 
-// Recent Search v2: Culiacán + lenguaje de alerta/evento reciente.
-// Excluye retweets, replies y ruido típico (deportes, turismo, ads, “estoy en…”).
-// Preferimos tweets con geo/place vía operador has:geo en la pasada primaria;
-// la pasada secundaria (sin has:geo) alimenta el Feed sin inventar coordenadas.
 const EVENT_TERMS =
   '(alerta OR alertan OR reportan OR "acaba de" OR "ahora mismo" OR "en estos momentos" OR balacera OR tiroteo OR disparos OR detonaciones OR enfrentamiento OR narcobloqueo OR bloqueo OR bloqueos OR accidente OR choque OR volcadura OR asalto OR "zona de riesgo" OR "toma de" OR persecucion OR persecución OR "elementos armados" OR "grupo armado")';
 
@@ -66,7 +47,6 @@ const CATEGORY_KEYWORDS: Array<{ guess: string; pattern: RegExp }> = [
   { guess: "alerta", pattern: /\balerta\b|\balertan\b|\breportan\b|\bzona de riesgo\b/i },
 ];
 
-/** Soft mentions / ruido residual que la query no siempre corta. */
 const SOFT_NOISE = [
   /\bestoy en\b/i,
   /\bpaseando\b/i,
@@ -126,6 +106,7 @@ type CommunityRow = {
   fetched_at: string;
   category_guess: string | null;
   is_demo: boolean;
+  trust_tier: TrustTier;
 };
 
 async function searchRecent(
@@ -167,39 +148,38 @@ async function searchRecent(
 function resolveGeo(
   tweet: XTweet,
   placeById: Map<string, XPlace>,
-): { lat: number | null; lng: number | null; placeLabel: string; hasUsableGeo: boolean } {
+): { lat: number | null; lng: number | null; placeLabel: string } {
   const placeId = tweet.geo?.place_id;
   const place = placeId ? placeById.get(placeId) : undefined;
   const placeLabel = place?.full_name ?? PLACE_FALLBACK;
 
-  // Geo exacto del tweet (Point: [lng, lat])
   const coords = tweet.geo?.coordinates?.coordinates;
   if (coords && coords.length >= 2) {
-    return {
-      lng: coords[0],
-      lat: coords[1],
-      placeLabel,
-      hasUsableGeo: true,
-    };
+    return { lng: coords[0], lat: coords[1], placeLabel };
   }
 
-  // Centro del bbox de place: [min_lng, min_lat, max_lng, max_lat]
   if (place?.geo?.bbox && place.geo.bbox.length >= 4) {
     const [minLng, minLat, maxLng, maxLat] = place.geo.bbox;
     return {
       lng: (minLng + maxLng) / 2,
       lat: (minLat + maxLat) / 2,
       placeLabel,
-      hasUsableGeo: true,
     };
   }
 
-  // Sin geo usable: Feed-only (lat/lng null). No jitter.
+  const fromText = geocodeCuliacanText(tweet.text);
+  if (fromText) {
+    return {
+      lat: fromText.lat,
+      lng: fromText.lng,
+      placeLabel: place?.full_name ?? fromText.placeLabel,
+    };
+  }
+
   return {
     lat: null,
     lng: null,
     placeLabel: place?.full_name ?? PLACE_FALLBACK,
-    hasUsableGeo: false,
   };
 }
 
@@ -208,20 +188,24 @@ function tweetToRow(
   userById: Map<string, XUser>,
   placeById: Map<string, XPlace>,
   mediaByKey: Map<string, XMedia>,
+  allowlist: ReturnType<typeof mergeAllowlist>,
 ): CommunityRow | null {
   if (isSoftNoise(tweet.text)) return null;
 
-  const category = guessCategory(tweet.text);
-  // Exige señal de evento/alerta; descarta menciones blandas sin categoría.
-  if (!category) return null;
-
   const author = tweet.author_id ? userById.get(tweet.author_id) : undefined;
-  const handle = author?.username ? `@${author.username}` : "@desconocido";
+  const username = author?.username;
+  const trust = trustForHandle(username, allowlist);
+  const onAllowlist = trust === "medio" || trust === "oficial";
+  const category = guessCategory(tweet.text);
+
+  // Allowlist OR señal de evento; menciones blandas sin categoría quedan fuera.
+  if (!onAllowlist && !category) return null;
+
+  const handle = username ? `@${username}` : "@desconocido";
   const { lat, lng, placeLabel } = resolveGeo(tweet, placeById);
 
   let mediaUrl: string | null = null;
-  const keys = tweet.attachments?.media_keys ?? [];
-  for (const key of keys) {
+  for (const key of tweet.attachments?.media_keys ?? []) {
     const m = mediaByKey.get(key);
     if (m?.url || m?.preview_image_url) {
       mediaUrl = m.url ?? m.preview_image_url ?? null;
@@ -229,14 +213,13 @@ function tweetToRow(
     }
   }
 
-  const username = author?.username ?? "i";
   return {
     source: "x",
     external_id: tweet.id,
     author_handle: handle,
     author_name: author?.name ?? null,
     text: tweet.text,
-    url: `https://x.com/${username}/status/${tweet.id}`,
+    url: `https://x.com/${username ?? "i"}/status/${tweet.id}`,
     media_url: mediaUrl,
     lat,
     lng,
@@ -245,6 +228,7 @@ function tweetToRow(
     fetched_at: new Date().toISOString(),
     category_guess: category,
     is_demo: false,
+    trust_tier: onAllowlist ? trust : "community",
   };
 }
 
@@ -257,6 +241,7 @@ Deno.serve(async (req) => {
   const bearer = Deno.env.get("X_BEARER_TOKEN");
   const supabaseUrl = Deno.env.get("SUPABASE_URL");
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  const allowlist = mergeAllowlist(Deno.env.get("X_ALLOWLIST"));
 
   if (!supabaseUrl || !serviceKey) {
     return json({ ok: false, error: "Missing Supabase env" }, 500);
@@ -272,33 +257,34 @@ Deno.serve(async (req) => {
     });
   }
 
-  // Autorización: service role o usuario autenticado (anon key + JWT).
-  const authHeader = req.headers.get("authorization");
-  if (!authHeader) {
+  if (!req.headers.get("authorization")) {
     return new Response("Unauthorized", { status: 401, headers: corsHeaders });
   }
 
   const admin = createClient(supabaseUrl, serviceKey);
 
-  let geoBatch: Awaited<ReturnType<typeof searchRecent>>;
-  let feedBatch: Awaited<ReturnType<typeof searchRecent>>;
+  let batches: Array<Awaited<ReturnType<typeof searchRecent>>> = [];
 
   try {
-    // Pasada 1: preferir tweets con geo/place (has:geo en Recent Search v2).
-    geoBatch = await searchRecent(bearer, X_QUERY_GEO, 20);
-    // Pasada 2: mismo lenguaje de alerta sin exigir geo (Feed; mapa solo si hay place).
-    feedBatch = await searchRecent(bearer, X_QUERY_FEED, 20);
+    // Pasadas de evento (geo + feed) primero; allowlist en segundo lote para no saturar rate limits.
+    const eventBatches = await Promise.all([
+      searchRecent(bearer, X_QUERY_GEO, 15),
+      searchRecent(bearer, X_QUERY_FEED, 15),
+    ]);
+    const allowlistQueries = allowlist.slice(0, 5).map((a) => {
+      return `(from:${a.handle}) ${PLACE_TERMS} ${NOISE_EXCLUSIONS}`;
+    });
+    const allowBatches =
+      allowlistQueries.length > 0
+        ? await Promise.all(allowlistQueries.map((q) => searchRecent(bearer, q, 10)))
+        : [];
+    batches = [...eventBatches, ...allowBatches];
   } catch (e) {
     const err = e as Error & { status?: number; detail?: string };
     if (err.message?.startsWith("X API ")) {
       console.error("X API error", err.status, err.detail);
       return json(
-        {
-          ok: false,
-          error: "X API error",
-          status: err.status,
-          detail: err.detail,
-        },
+        { ok: false, error: "X API error", status: err.status, detail: err.detail },
         502,
       );
     }
@@ -306,20 +292,25 @@ Deno.serve(async (req) => {
     return json({ ok: false, error: "X API network error" }, 502);
   }
 
-  // Merge: geo-first, luego feed; dedupe por id. Recientes primero.
   const tweetById = new Map<string, XTweet>();
-  for (const t of [...geoBatch.tweets, ...feedBatch.tweets]) {
-    if (!tweetById.has(t.id)) tweetById.set(t.id, t);
+  const users: XUser[] = [];
+  const places: XPlace[] = [];
+  const media: XMedia[] = [];
+
+  for (const batch of batches) {
+    for (const t of batch.tweets) {
+      if (!tweetById.has(t.id)) tweetById.set(t.id, t);
+    }
+    users.push(...batch.users);
+    places.push(...batch.places);
+    media.push(...batch.media);
   }
+
   const tweets = Array.from(tweetById.values()).sort((a, b) => {
     const ta = a.created_at ? Date.parse(a.created_at) : 0;
     const tb = b.created_at ? Date.parse(b.created_at) : 0;
     return tb - ta;
   });
-
-  const users = [...geoBatch.users, ...feedBatch.users];
-  const places = [...geoBatch.places, ...feedBatch.places];
-  const media = [...geoBatch.media, ...feedBatch.media];
 
   const userById = new Map(users.map((u) => [u.id, u]));
   const placeById = new Map(places.map((p) => [p.id, p]));
@@ -333,7 +324,7 @@ Deno.serve(async (req) => {
   let withGeo = 0;
   let feedOnly = 0;
   for (const tweet of tweets) {
-    const row = tweetToRow(tweet, userById, placeById, mediaByKey);
+    const row = tweetToRow(tweet, userById, placeById, mediaByKey, allowlist);
     if (!row) continue;
     if (row.lat != null && row.lng != null) withGeo += 1;
     else feedOnly += 1;
@@ -367,5 +358,6 @@ Deno.serve(async (req) => {
     upserted: data?.length ?? rows.length,
     with_geo: withGeo,
     feed_only: feedOnly,
+    allowlist_size: allowlist.length,
   });
 });

@@ -1,110 +1,93 @@
-# Comunidad desde X (Twitter)
+# Comunidad multi-fuente (X + noticias)
 
-Pulso muestra posts de X sobre seguridad en Culiacán en el **Feed** y el **Mapa**, claramente etiquetados como “Desde X / Comunidad” (y **DEMO** cuando son seeds de muestra). No se mezclan con alertas ciudadanas ni usan el pin pulsante `GlowMarker`.
+Pulso muestra señales externas de seguridad en Culiacán en el **Feed** y el **Mapa**, etiquetadas (Desde X / Medio / Oficial / Noticia / DEMO). **No** se mezclan con alertas ciudadanas ni usan el pin pulsante `GlowMarker`.
 
-## Qué incluye este PR
+## Capas
+
+| Capa | Origen | Pin mapa | Notas |
+|---|---|---|---|
+| Alertas ciudadanas | App Pulso (GPS) | `GlowMarker` | Primarias; no tocar |
+| X / Comunidad | Recent Search v2 + allowlist | Cuadrado | Solo con geo usable |
+| Noticias RSS | Feeds locales | Cuadrado | `source=rss`, badge Noticia |
+
+## Piezas
 
 | Pieza | Ruta |
 |---|---|
-| Migración + seeds DEMO + RLS + realtime | `supabase/migrations/202609040001_community_posts.sql` |
-| Edge function de sync | `supabase/functions/sync-x-community/index.ts` |
-| Tipos / mock / store | `lib/alerty/types.ts`, `mock.ts`, `store.ts` |
-| UI Feed | `components/CommunityPostCard.tsx`, `app/(tabs)/feed.tsx` |
-| UI Mapa | `components/CommunityMarker.tsx`, `CommunityPostPreview.tsx`, `app/(tabs)/index.tsx`, `ExpoMapView.web.tsx` |
+| Migraciones | `supabase/migrations/202609040001_community_posts.sql`, `202609040002_community_multi_source.sql` |
+| Sync X | `supabase/functions/sync-x-community/` |
+| Sync RSS | `supabase/functions/sync-news-rss/` |
+| Allowlist / places | `supabase/functions/_shared/xAllowlist.ts`, `culiacanPlaces.ts` |
+| UI | `CommunityMarker`, `CommunityPostCard`, `CommunityPostPreview` |
 
-## Variables de entorno / secrets
+## Allowlist X (medios / oficiales)
 
-**Cliente** (sin cambios obligatorios): ya usa `EXPO_PUBLIC_SUPABASE_URL` y `EXPO_PUBLIC_SUPABASE_ANON_KEY`.
+Editar de dos formas:
 
-**Edge function** (Supabase secrets — no commitear):
+1. Constante `DEFAULT_X_ALLOWLIST` en `supabase/functions/_shared/xAllowlist.ts` → redeploy.
+2. Secret: `supabase secrets set X_ALLOWLIST=LineaDirectaMX:medio,SSPSinaloa:oficial`
+
+Un handle en allowlist se sincroniza aunque el texto no tenga keyword fuerte; sigue el anti-ruido. `trust_tier` = `medio` | `oficial`.
+
+## Query e intención (Recent Search v2)
+
+- Operadores reales: `has:geo`, `from:`, `-is:retweet`, `-is:reply`, `lang:es`.
+- Eventos: alerta, balacera, bloqueo, accidente, detonaciones, “acaba de”, etc.
+- Exclusiones: promo, turismo, deportes, “estoy en…”.
+- Pasadas: (1) `has:geo` + eventos, (2) eventos sin geo, (3) `from:` allowlist + Culiacán.
+- Criterio: **allowlist OR** `category_guess` fuerte.
+
+## Política de geo (mapa)
+
+Marcadores **solo** si hay:
+
+1. coordenadas del tweet, o
+2. centro de `place.geo.bbox`, o
+3. match de colonia/calle en texto contra el diccionario `culiacanPlaces` / `CULIACAN_NEIGHBORHOODS`.
+
+**Sin jitter** para posts en vivo. Sin geo → `lat`/`lng` null → Feed sí, mapa no. DEMO puede tener coords de muestra.
+
+Límite honesto: la mayoría de tweets no traen geo; RSS tampoco — muchos ítems serán Feed-only o geocode aproximado por colonia.
+
+## Consumo in-app
+
+- Toque en pin o tarjeta del Feed → `CommunityPostPreview` (modal): texto, media (`media_url` imagen/video), lugar, tiempo, badges.
+- Primario: quedarse en Pulso. Secundario: “Abrir en X” / “Abrir noticia”.
+- “Confirmar en Pulso”: prefill best-effort del flujo Reportar (`pendingCommunityConfirm`).
+
+## RSS
 
 ```bash
-supabase secrets set X_BEARER_TOKEN=TU_BEARER_TOKEN_DE_X
+supabase functions deploy sync-news-rss
+# opcional:
+supabase secrets set NEWS_RSS_FEEDS='https://...,https://...'
 ```
 
-`SUPABASE_URL` y `SUPABASE_SERVICE_ROLE_KEY` las inyecta Supabase automáticamente en las functions.
+Defaults en `sync-news-rss/index.ts` (Línea Directa, Ríodoce, Noroeste). Filtra por Culiacán/Sinaloa + lenguaje de evento. `trust_tier=news`.
 
-Cómo obtener el bearer de X: [Developer Portal](https://developer.x.com/) → App → Keys and tokens → Bearer Token (API v2 Recent Search requiere acceso adecuado al producto).
+## Telegram / WhatsApp (stub)
+
+Fuentes futuras posibles vía bots o exports moderados. **No** implementado en este PR (privacidad, ToS y moderación). TODO: evaluar canal oficial de PC / medios con acuerdo explícito antes de wire.
 
 ## Deploy
 
 ```bash
-# 1. Migración
 npm run supabase:db:push
-
-# 2. Deploy de la function
 supabase functions deploy sync-x-community
-
-# 3. Secret (opcional; sin él la function responde mode=demo)
+supabase functions deploy sync-news-rss
 supabase secrets set X_BEARER_TOKEN=...
+# opcionales: X_ALLOWLIST, NEWS_RSS_FEEDS
 ```
 
-## Programar el sync (cron)
+Cron: invocar ambas functions cada 10–30 min con `Authorization: Bearer <service_role>`.
 
-La function es **cron-friendly**: `POST` (o `GET`) con `Authorization: Bearer <service_role_o_jwt>`.
+## RLS
 
-Ejemplo cada 10 minutos con `pg_cron` + `pg_net`:
+Sin cambios: lectura `authenticated`, escritura solo `service_role`.
 
-```sql
-select cron.schedule(
-  'sync-x-community',
-  '*/10 * * * *',
-  $$
-  select net.http_post(
-    url := 'https://YOUR_PROJECT.supabase.co/functions/v1/sync-x-community',
-    headers := jsonb_build_object(
-      'Authorization', 'Bearer YOUR_SERVICE_ROLE_KEY',
-      'Content-Type', 'application/json'
-    ),
-    body := '{}'::jsonb
-  );
-  $$
-);
-```
+## Prueba rápida
 
-O desde un cron externo / GitHub Action:
-
-```bash
-curl -X POST "$SUPABASE_URL/functions/v1/sync-x-community" \
-  -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY"
-```
-
-Sin `X_BEARER_TOKEN`, la function responde `{ ok: true, mode: "demo", upserted: 0 }` y la app sigue mostrando los 3 posts DEMO de la migración (badge **DEMO · no en vivo**).
-
-## Query e intención (Recent Search v2)
-
-La function busca **alertas / noticias / hechos recién ocurridos** ligados a Culiacán, no menciones casuales.
-
-- Operadores reales de Recent Search: `has:geo`, `-is:retweet`, `-is:reply`, `lang:es`.
-- Términos de evento: alerta, balacera, tiroteo, detonaciones, enfrentamiento, bloqueo, accidente, asalto, “acaba de”, “ahora mismo”, etc.
-- Exclusiones de ruido: promo/ads, turismo, deportes, “estoy en…”, replies.
-- Pasada 1 con `has:geo` (preferencia de place/coords); pasada 2 sin `has:geo` para el Feed.
-- Post-filtro: exige `category_guess` y descarta soft noise residual.
-- Orden: más recientes primero.
-
-## Política de geo en el mapa
-
-La mayoría de tweets **no traen coordenadas precisas**. Solo se escribe `lat`/`lng` cuando hay:
-
-1. punto geo del tweet, o
-2. `place.geo.bbox` usable (se usa el centro del bbox).
-
-**No hay jitter** alrededor del centro de Culiacán para posts en vivo. Sin geo usable → `lat`/`lng` null: el post puede aparecer en el **Feed**, pero **no** como pin en el mapa. Los seeds **DEMO** sí conservan coordenadas de muestra.
-
-En cliente, el mapa filtra `post.lat != null && post.lng != null`.
-
-## Comportamiento en cliente
-
-1. Tras login: `loadCommunityPosts()` lee `community_posts`.
-2. Realtime: suscripción `INSERT` en `community_posts` (mismo canal que alertas).
-3. Sin filas / error / sin Supabase: fallback a `demoCommunityPosts` en `lib/alerty/mock.ts`.
-4. Feed: tarjetas `CommunityPostCard` con badges “Desde X”, “Comunidad”, “DEMO” si aplica; toque abre el tweet.
-5. Mapa: `CommunityMarker` (cuadrado azul/negro, no pulso). Toque → `CommunityPostPreview` (autor, texto, categoría, lugar, tiempo, Abrir en X). Solo pines con geo/place real (o DEMO).
-
-## Plan de prueba
-
-1. **Sin token**: aplicar migración → login → Feed muestra ≥1 tarjeta “Desde X” con badge DEMO → Mapa muestra pines cuadrados (no GlowMarker) → toque abre preview con aviso DEMO y “Abrir en X”.
-2. **Con token**: `supabase secrets set X_BEARER_TOKEN=...` → invocar function → `mode: "live"` y `upserted` / `with_geo` / `feed_only` → Feed puede tener posts sin pin; Mapa solo los `with_geo`.
-3. **Regresión**: alertas ciudadanas siguen pulsando con `GlowMarker`; SOS, PKCE y bundle IDs intactos.
-4. **RLS**: con anon key sin sesión no se leen posts; con usuario autenticado sí; insert desde cliente debe fallar (solo service_role).
-5. **Web**: pin cuadrado de comunidad; click abre la misma preview (no `Alert.alert`).
+1. Sin tokens: Feed/Map con seeds DEMO → preview con media de muestra y badges.
+2. Con X token: sync → `with_geo` / `feed_only` / `allowlist_size`.
+3. RSS: deploy + invocar → posts `source=rss`.
+4. Regresión: GlowMarker, SOS, PKCE, bundle IDs intactos.
