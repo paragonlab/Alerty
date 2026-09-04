@@ -14,8 +14,8 @@ export const formatRelativeTime = (createdAt: string) => {
   return `${days} d`;
 };
 
-export const isAlertInWindow = (alert: AlertItem, filter: TimeFilter) => {
-  const minutes = getAlertAgeMinutes(alert.createdAt);
+export const isCreatedAtInWindow = (createdAt: string, filter: TimeFilter) => {
+  const minutes = getAlertAgeMinutes(createdAt);
   switch (filter) {
     case "1h":
       return minutes <= 60;
@@ -29,6 +29,9 @@ export const isAlertInWindow = (alert: AlertItem, filter: TimeFilter) => {
       return true;
   }
 };
+
+export const isAlertInWindow = (alert: AlertItem, filter: TimeFilter) =>
+  isCreatedAtInWindow(alert.createdAt, filter);
 
 export const getIntensityColor = (createdAt: string) => {
   const minutes = getAlertAgeMinutes(createdAt);

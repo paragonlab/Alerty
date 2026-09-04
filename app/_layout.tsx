@@ -19,7 +19,7 @@ import * as Location from "expo-location";
 import * as Haptics from "expo-haptics";
 
 export default function RootLayout() {
-  const { loadAlertsFromSupabase, startRealtime, themeMode, loadUserProfile, loadSponsoredZones, startDemo } = useAlertyStore();
+  const { loadAlertsFromSupabase, startRealtime, themeMode, loadUserProfile, loadSponsoredZones, loadCommunityPosts, startDemo } = useAlertyStore();
   const currentTheme = themeMode === "darkHighVisibility" ? darkHighVisibility : lightTheme;
   const router = useRouter();
   const segments = useSegments();
@@ -142,6 +142,7 @@ export default function RootLayout() {
     if (hasSession) {
       void loadAlertsFromSupabase();
       void loadSponsoredZones();
+      void loadCommunityPosts();
       void syncPushRegistration();
       void supabase?.auth.getUser().then(({ data }) => {
         if (data.user?.id) void identifyRevenueCatUser(data.user.id);

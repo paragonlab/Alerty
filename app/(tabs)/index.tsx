@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Linking,
   Platform,
   Pressable,
   StyleSheet,
@@ -21,6 +22,7 @@ import * as Haptics from "expo-haptics";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { GlowMarker } from "../../components/GlowMarker";
+import { CommunityMarker } from "../../components/CommunityMarker";
 import { SOSButton } from "../../components/SOSButton";
 import { CATEGORY_LABELS, CULIACAN_CENTER } from "../../lib/alerty/constants";
 import { useAlertyTheme } from "../../lib/useAlertyTheme";
@@ -32,6 +34,7 @@ import {
   getIntensityColor,
   getPulseDuration,
   isAlertInWindow,
+  isCreatedAtInWindow,
   shouldSuppressAlert,
 } from "../../lib/alerty/utils";
 
@@ -48,6 +51,7 @@ export default function MapScreen() {
 
   const {
     alerts,
+    communityPosts,
     timeFilter,
     activeCategories,
     lowConnection,
@@ -75,6 +79,12 @@ export default function MapScreen() {
           !shouldSuppressAlert(alert),
       ),
     [alerts, activeCategories, timeFilter],
+  );
+
+  const filteredCommunity = useMemo(
+    () =>
+      communityPosts.filter((post) => isCreatedAtInWindow(post.createdAt, timeFilter)),
+    [communityPosts, timeFilter],
   );
 
   const heatmapPoints = useMemo(() => {
@@ -256,6 +266,36 @@ export default function MapScreen() {
                   isVerified={alert.user.isVerified}
                   lowConnection={lowConnection}
                 />
+              </Marker>
+            ))}
+
+            {/* Posts de comunidad desde X — pin estático, no GlowMarker */}
+            {!showHeatmap && !showGrid && filteredCommunity.map((post) => (
+              <Marker
+                key={`x-${post.id}`}
+                coordinate={{ latitude: post.lat, longitude: post.lng }}
+                tracksViewChanges={false}
+                onPress={() => {
+                  void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  const demoNote = post.isDemo
+                    ? "\n\n⚠️ DEMO — no es un tweet en vivo ni una alerta de Pulso."
+                    : "\n\nFuente: X / Comunidad (no es alerta ciudadana de Pulso).";
+                  Alert.alert(
+                    `Desde X · ${post.authorHandle}`,
+                    `${post.text.slice(0, 280)}${post.text.length > 280 ? "…" : ""}${demoNote}`,
+                    [
+                      { text: "Cerrar", style: "cancel" },
+                      {
+                        text: "Abrir en X",
+                        onPress: () => {
+                          void Linking.openURL(post.url);
+                        },
+                      },
+                    ],
+                  );
+                }}
+              >
+                <CommunityMarker isDemo={post.isDemo} />
               </Marker>
             ))}
             
