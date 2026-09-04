@@ -8,7 +8,7 @@ import type {
   SponsoredZone,
   TimeFilter,
 } from "./types";
-import { ALERT_CATEGORIES, CULIACAN_CENTER, REPUTATION_LEVELS } from "./constants";
+import { ALERT_CATEGORIES, REPUTATION_LEVELS } from "./constants";
 import { baseAlerts, createRandomAlert, demoCommunityPosts } from "./mock";
 import { isSupabaseConfigured, supabase } from "../supabase";
 import { uploadMediaBatch } from "../upload";
@@ -16,23 +16,39 @@ import type { RealtimeChannel } from "@supabase/supabase-js";
 import type { AlertUser } from "./types";
 
 const mapCommunityRow = (row: any): CommunityPost => {
-  const hasGeo = typeof row.lat === "number" && typeof row.lng === "number";
+  const hasGeo =
+    typeof row.lat === "number" &&
+    typeof row.lng === "number" &&
+    Number.isFinite(row.lat) &&
+    Number.isFinite(row.lng);
+  const source = row.source === "rss" ? "rss" : "x";
+  const rawTier = row.trust_tier;
+  const trustTier: CommunityPost["trustTier"] =
+    rawTier === "medio" || rawTier === "oficial" || rawTier === "news" || rawTier === "community"
+      ? rawTier
+      : source === "rss"
+        ? "news"
+        : "community";
   return {
     id: row.id,
-    source: "x",
+    source,
     externalId: row.external_id,
-    authorHandle: row.author_handle,
+    authorHandle: row.author_handle?.startsWith("@")
+      ? row.author_handle
+      : `@${row.author_handle ?? "desconocido"}`,
     authorName: row.author_name ?? null,
     text: row.text,
     url: row.url,
     mediaUrl: row.media_url ?? null,
-    lat: hasGeo ? row.lat : CULIACAN_CENTER.latitude,
-    lng: hasGeo ? row.lng : CULIACAN_CENTER.longitude,
-    placeLabel: row.place_label ?? "Culiacán (X)",
+    // Sin geo usable → null (Feed sí; mapa no). No centrar en Culiacán artificialmente.
+    lat: hasGeo ? row.lat : null,
+    lng: hasGeo ? row.lng : null,
+    placeLabel: row.place_label ?? (source === "rss" ? "Sinaloa (noticia)" : "Culiacán (X)"),
     createdAt: row.created_at,
     fetchedAt: row.fetched_at ?? row.created_at,
     categoryGuess: row.category_guess ?? null,
     isDemo: Boolean(row.is_demo),
+    trustTier,
   };
 };
 
@@ -90,6 +106,18 @@ type AlertyState = {
   openReels: (alertId: string | null) => void;
   unreadAlerts: number;
   clearUnreadAlerts: () => void;
+  /** Prefill best-effort para "Confirmar en Pulso" desde un post comunidad */
+  pendingCommunityConfirm: {
+    text: string;
+    categoryGuess?: string | null;
+    placeLabel?: string;
+    lat?: number | null;
+    lng?: number | null;
+    sourceUrl?: string;
+  } | null;
+  setPendingCommunityConfirm: (
+    payload: AlertyState["pendingCommunityConfirm"],
+  ) => void;
 };
 
 const syncPreference = async (key: string, value: any) => {
@@ -139,6 +167,8 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
   openReels: (alertId) => set({ feedViewMode: "reels", reelsInitialAlertId: alertId }),
   unreadAlerts: 0,
   clearUnreadAlerts: () => set({ unreadAlerts: 0 }),
+  pendingCommunityConfirm: null,
+  setPendingCommunityConfirm: (payload) => set({ pendingCommunityConfirm: payload }),
   startDemo: () => {
     const { demoStarted, demoInterval, alerts, communityPosts } = get();
     if (demoStarted) return;
@@ -460,7 +490,7 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
       const { data, error } = await supabase
         .from("community_posts")
         .select(
-          "id,source,external_id,author_handle,author_name,text,url,media_url,lat,lng,place_label,created_at,fetched_at,category_guess,is_demo",
+          "id,source,external_id,author_handle,author_name,text,url,media_url,lat,lng,place_label,created_at,fetched_at,category_guess,is_demo,trust_tier",
         )
         .order("created_at", { ascending: false })
         .limit(50);

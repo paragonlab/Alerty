@@ -7,15 +7,17 @@ const X_DARK = "#0F1419";
 
 type CommunityMarkerProps = {
   isDemo?: boolean;
+  /** Sentinel para el colector del mapa web (ExpoMapView.web). */
+  markerKind?: "community";
 };
 
 /** Pin estático para posts de X — distinto de GlowMarker (alertas ciudadanas). */
-export function CommunityMarker({ isDemo }: CommunityMarkerProps) {
+export function CommunityMarker({ isDemo, markerKind = "community" }: CommunityMarkerProps) {
   const themeMode = useAlertyStore((s) => s.themeMode);
   const isDark = themeMode === "darkHighVisibility";
 
   return (
-    <View style={styles.wrap}>
+    <View style={styles.wrap} accessibilityLabel={markerKind}>
       <View
         style={[
           styles.pin,

@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
   FlatList,
   Pressable,
@@ -11,6 +11,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { AlertCard } from "../../components/AlertCard";
 import { CommunityPostCard } from "../../components/CommunityPostCard";
+import { CommunityPostPreview } from "../../components/CommunityPostPreview";
 import { VideoReelsList } from "../../components/VideoReelsList";
 import { TIME_FILTERS } from "../../lib/alerty/constants";
 import { useAlertyTheme } from "../../lib/useAlertyTheme";
@@ -41,6 +42,7 @@ export default function FeedScreen() {
   } = useAlertyStore();
   const theme = useAlertyTheme();
   const styles = createStyles(theme);
+  const [previewPost, setPreviewPost] = useState<CommunityPost | null>(null);
 
   const baseFilteredAlerts = useMemo(
     () =>
@@ -141,7 +143,12 @@ export default function FeedScreen() {
         );
       }
       if (item.kind === "community") {
-        return <CommunityPostCard post={item.item} />;
+        return (
+          <CommunityPostCard
+            post={item.item}
+            onPress={() => setPreviewPost(item.item)}
+          />
+        );
       }
       return (
         <AdCard
@@ -156,7 +163,7 @@ export default function FeedScreen() {
   );
 
   const keyExtractor = useCallback((item: FeedRow) => {
-    if (item.kind === "community") return `x-${item.item.id}`;
+    if (item.kind === "community") return `c-${item.item.source}-${item.item.id}`;
     if (item.kind === "ad") return `ad-${item.item.id}`;
     return item.item.id;
   }, []);
@@ -175,8 +182,8 @@ export default function FeedScreen() {
         </View>
         <Text style={styles.subtitle}>
           {realtimeStarted
-            ? "Alertas ciudadanas en tiempo real y noticias desde X (etiquetadas)."
-            : "Alertas de la comunidad y noticias desde X (etiquetadas)."}
+            ? "Alertas ciudadanas en tiempo real, X y noticias locales (etiquetadas)."
+            : "Alertas de la comunidad, X y noticias locales (etiquetadas)."}
         </Text>
       </View>
 
@@ -298,6 +305,9 @@ export default function FeedScreen() {
           </Pressable>
         </View>
       </View>
+      {previewPost ? (
+        <CommunityPostPreview post={previewPost} onClose={() => setPreviewPost(null)} />
+      ) : null}
     </View>
   );
 }

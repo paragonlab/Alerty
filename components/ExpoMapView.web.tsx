@@ -51,7 +51,12 @@ type SponsorPinMeta = {
   icon: "shield" | "star";
 };
 
-type PinMeta = AlertPinMeta | SponsorPinMeta;
+type CommunityPinMeta = {
+  kind: "community";
+  isDemo: boolean;
+};
+
+type PinMeta = AlertPinMeta | SponsorPinMeta | CommunityPinMeta;
 
 type CollectedMarker = MarkerProps & { meta: PinMeta };
 
@@ -264,6 +269,52 @@ function ensurePulseStyles() {
   height: 16px;
   fill: currentColor;
 }
+.pulso-community {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  margin-left: -20px;
+  margin-top: -20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  pointer-events: auto;
+  -webkit-tap-highlight-color: transparent;
+}
+.pulso-community__pin {
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  background: #0F1419;
+  border: 2px solid #1D9BF0;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+}
+.pulso-community__pin svg {
+  width: 12px;
+  height: 12px;
+  fill: currentColor;
+}
+.pulso-community__demo {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  background: #F59E0B;
+  border: 1px solid #fff;
+  color: #fff;
+  font-size: 8px;
+  font-weight: 700;
+  line-height: 12px;
+  text-align: center;
+  font-family: system-ui, sans-serif;
+}
 @media (prefers-reduced-motion: reduce) {
   .pulso-pin__halo,
   .pulso-pin__ring,
@@ -358,6 +409,19 @@ function findSponsorMeta(node: React.ReactNode): SponsorPinMeta | null {
   return { kind: "sponsor", color, icon: icon ?? "star" };
 }
 
+/** Detecta CommunityMarker vía markerKind / isDemo en props del elemento. */
+function findCommunityMeta(node: React.ReactNode): CommunityPinMeta | null {
+  let found: CommunityPinMeta | null = null;
+  Children.forEach(node, (child) => {
+    if (found || !isValidElement(child)) return;
+    const props = child.props as { markerKind?: string; isDemo?: boolean };
+    if (props.markerKind === "community" || "isDemo" in props) {
+      found = { kind: "community", isDemo: Boolean(props.isDemo) };
+    }
+  });
+  return found;
+}
+
 function collectMarkerProps(node: React.ReactNode, out: CollectedMarker[] = []): CollectedMarker[] {
   Children.forEach(node, (child) => {
     if (!isValidElement(child)) return;
@@ -371,8 +435,10 @@ function collectMarkerProps(node: React.ReactNode, out: CollectedMarker[] = []):
       Number.isFinite(coord.longitude)
     ) {
       const glow = findGlowProps(props.children);
+      const community = findCommunityMeta(props.children);
       const meta: PinMeta =
         glow ??
+        community ??
         findSponsorMeta(props.children) ?? {
           kind: "alert",
           color: "#E53935",
@@ -414,6 +480,8 @@ const ICON_SVGS: Record<string, string> = {
     '<svg viewBox="0 0 512 512" aria-hidden="true"><path d="M256 48c-64 32-128 32-176 40v128c0 96 64 176 176 248 112-72 176-152 176-248V88c-48-8-112-8-176-40z"/><path fill="#fff" d="M224 288l-40-40 22-22 18 18 72-72 22 22z"/></svg>',
   star:
     '<svg viewBox="0 0 512 512" aria-hidden="true"><path d="M256 48l55 150h158l-128 93 49 151-134-97-134 97 49-151-128-93h158z"/></svg>',
+  twitter:
+    '<svg viewBox="0 0 512 512" aria-hidden="true"><path d="M389.2 48h70.6L305.6 224.2 487 464H345L233.7 318.6 106.5 464H35.8l164.9-188.5L26.8 48h145.6l100.5 132.9L389.2 48zm-24.8 373.8h39.1L151.1 88h-42l255.3 333.8z"/></svg>',
   camera:
     '<svg viewBox="0 0 512 512" aria-hidden="true"><path d="M352 128l-24-48H184l-24 48H80v288h352V128zm-96 240a80 80 0 1180-80 80 80 0 01-80 80z"/></svg>',
   "checkmark-circle":
@@ -484,6 +552,19 @@ function buildSponsorPinElement(meta: SponsorPinMeta): HTMLDivElement {
   return el;
 }
 
+function buildCommunityPinElement(meta: CommunityPinMeta): HTMLDivElement {
+  const el = document.createElement("div");
+  el.className = "pulso-community";
+  el.setAttribute("role", "button");
+  el.setAttribute("tabindex", "0");
+  el.setAttribute("aria-label", meta.isDemo ? "Post de X (DEMO)" : "Post de X / Comunidad");
+  el.innerHTML = `
+    <div class="pulso-community__pin">${ICON_SVGS.twitter}</div>
+    ${meta.isDemo ? '<span class="pulso-community__demo">D</span>' : ""}
+  `;
+  return el;
+}
+
 type OverlayHandle = {
   setMap: (map: unknown) => void;
 };
@@ -504,11 +585,17 @@ function createHtmlOverlay(
       const panes = this.getPanes();
       panes?.overlayMouseTarget.appendChild(content);
 
+      let lastFire = 0;
       const fire = (e: Event) => {
+        e.preventDefault?.();
         e.stopPropagation();
+        const now = Date.now();
+        if (now - lastFire < 400) return;
+        lastFire = now;
         onPress?.();
       };
       content.addEventListener("click", fire);
+      content.addEventListener("pointerup", fire);
       content.addEventListener("keydown", (e: KeyboardEvent) => {
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
@@ -516,6 +603,7 @@ function createHtmlOverlay(
         }
       });
       this.listeners.push(() => content.removeEventListener("click", fire));
+      this.listeners.push(() => content.removeEventListener("pointerup", fire));
     }
 
     draw() {
@@ -689,10 +777,14 @@ const ExpoMapView = forwardRef<MapHandle, MapViewProps>(function ExpoMapView(pro
 
     markers.forEach((p) => {
       const position = { lat: p.coordinate.latitude, lng: p.coordinate.longitude };
-      const content =
-        p.meta.kind === "sponsor"
-          ? buildSponsorPinElement(p.meta)
-          : buildAlertPinElement(p.meta, simplify);
+      let content: HTMLDivElement;
+      if (p.meta.kind === "sponsor") {
+        content = buildSponsorPinElement(p.meta);
+      } else if (p.meta.kind === "community") {
+        content = buildCommunityPinElement(p.meta);
+      } else {
+        content = buildAlertPinElement(p.meta, simplify);
+      }
       const overlay = createHtmlOverlay(g, map, position, content, p.onPress);
       overlaysRef.current.push(overlay);
     });

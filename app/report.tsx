@@ -31,6 +31,13 @@ import { calculateDistance } from "../lib/alerty/utils";
 // Categories shown in the 3-column grid (exclude SOS – that's the long-press)
 const GRID_CATS = ALERT_CATEGORIES.filter((c) => c !== "sos");
 
+function mapCommunityGuess(guess?: string | null): AlertCategory | null {
+  if (!guess) return null;
+  return (ALERT_CATEGORIES as readonly string[]).includes(guess)
+    ? (guess as AlertCategory)
+    : null;
+}
+
 const SUBMIT_AUTH_TIMEOUT_MS = 8_000;
 const SUBMIT_INSERT_TIMEOUT_MS = 12_000;
 
@@ -183,7 +190,8 @@ function ContextChips({ locationLabel }: { locationLabel: string }) {
 export default function ReportScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { addAlert, currentUser, alerts } = useAlertyStore();
+  const { addAlert, currentUser, alerts, pendingCommunityConfirm, setPendingCommunityConfirm } =
+    useAlertyStore();
 
   // Web: categoría primero (cámara/galería limitadas). Nativo: captura → detalles → enviado.
   const [step, setStep] = useState<1 | 2 | 3 | 4>(Platform.OS === "web" ? 2 : 1);
@@ -205,6 +213,22 @@ export default function ReportScreen() {
   const submittingRef = useRef(false);
   const waveAnims = useRef(Array.from({ length: 18 }, () => new Animated.Value(0.06))).current;
   const waveLoopsRef = useRef<Animated.CompositeAnimation[]>([]);
+
+  // Prefill best-effort desde "Confirmar en Pulso" (post comunidad / noticia).
+  useEffect(() => {
+    if (!pendingCommunityConfirm) return;
+    const mapped = mapCommunityGuess(pendingCommunityConfirm.categoryGuess);
+    if (mapped) setCategory(mapped);
+    if (pendingCommunityConfirm.text) {
+      setTitle(pendingCommunityConfirm.text.slice(0, 120));
+    }
+    if (pendingCommunityConfirm.placeLabel) {
+      setLocationLabel(pendingCommunityConfirm.placeLabel);
+    }
+    setSourceTag("contaron");
+    setStep(2);
+    setPendingCommunityConfirm(null);
+  }, [pendingCommunityConfirm, setPendingCommunityConfirm]);
 
   // Animations
   const recDotAnim = useRef(new Animated.Value(1)).current;

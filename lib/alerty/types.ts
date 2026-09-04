@@ -62,21 +62,28 @@ export type SponsoredZone = {
 };
 
 /** Post de comunidad desde X (Twitter). No es una alerta ciudadana de Pulso. */
+export type CommunitySource = "x" | "rss";
+
+/** community=Desde X; medio/oficial=allowlist; news=RSS */
+export type CommunityTrustTier = "community" | "medio" | "oficial" | "news";
+
 export type CommunityPost = {
   id: string;
-  source: "x";
+  source: CommunitySource;
   externalId: string;
   authorHandle: string;
   authorName?: string | null;
   text: string;
   url: string;
   mediaUrl?: string | null;
-  lat: number;
-  lng: number;
+  /** null = sin geo usable (solo Feed); mapa exige lat/lng reales, place bbox o geocode */
+  lat: number | null;
+  lng: number | null;
   placeLabel: string;
   createdAt: string;
   fetchedAt: string;
   categoryGuess?: string | null;
   /** true = seed de muestra; nunca tratarlo como X en vivo */
   isDemo: boolean;
+  trustTier: CommunityTrustTier;
 };
