@@ -8,7 +8,7 @@ import type {
   SponsoredZone,
   TimeFilter,
 } from "./types";
-import { ALERT_CATEGORIES, CULIACAN_CENTER, REPUTATION_LEVELS } from "./constants";
+import { ALERT_CATEGORIES, REPUTATION_LEVELS } from "./constants";
 import { baseAlerts, createRandomAlert, demoCommunityPosts } from "./mock";
 import { isSupabaseConfigured, supabase } from "../supabase";
 import { uploadMediaBatch } from "../upload";
@@ -16,7 +16,11 @@ import type { RealtimeChannel } from "@supabase/supabase-js";
 import type { AlertUser } from "./types";
 
 const mapCommunityRow = (row: any): CommunityPost => {
-  const hasGeo = typeof row.lat === "number" && typeof row.lng === "number";
+  const hasGeo =
+    typeof row.lat === "number" &&
+    typeof row.lng === "number" &&
+    Number.isFinite(row.lat) &&
+    Number.isFinite(row.lng);
   return {
     id: row.id,
     source: "x",
@@ -26,8 +30,9 @@ const mapCommunityRow = (row: any): CommunityPost => {
     text: row.text,
     url: row.url,
     mediaUrl: row.media_url ?? null,
-    lat: hasGeo ? row.lat : CULIACAN_CENTER.latitude,
-    lng: hasGeo ? row.lng : CULIACAN_CENTER.longitude,
+    // Sin geo usable → null (Feed sí; mapa no). No centrar en Culiacán artificialmente.
+    lat: hasGeo ? row.lat : null,
+    lng: hasGeo ? row.lng : null,
     placeLabel: row.place_label ?? "Culiacán (X)",
     createdAt: row.created_at,
     fetchedAt: row.fetched_at ?? row.created_at,

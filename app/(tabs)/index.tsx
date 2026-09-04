@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
-  Linking,
   Platform,
   Pressable,
   StyleSheet,
@@ -23,11 +22,13 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { GlowMarker } from "../../components/GlowMarker";
 import { CommunityMarker } from "../../components/CommunityMarker";
+import { CommunityPostPreview } from "../../components/CommunityPostPreview";
 import { SOSButton } from "../../components/SOSButton";
 import { CATEGORY_LABELS, CULIACAN_CENTER } from "../../lib/alerty/constants";
 import { useAlertyTheme } from "../../lib/useAlertyTheme";
 import { useAlertyStore } from "../../lib/alerty/store";
 import { supabase } from "../../lib/supabase";
+import type { CommunityPost } from "../../lib/alerty/types";
 import {
   calculateDistance,
   formatRelativeTime,
@@ -47,6 +48,7 @@ export default function MapScreen() {
   const [searchText, setSearchText] = useState("");
   const [searching, setSearching] = useState(false);
   const [riskResult, setRiskResult] = useState<{ assessment: RiskAssessment; label: string } | null>(null);
+  const [selectedCommunity, setSelectedCommunity] = useState<CommunityPost | null>(null);
   const isWeb = Platform.OS === "web";
 
   const {
@@ -85,6 +87,23 @@ export default function MapScreen() {
     () =>
       communityPosts.filter((post) => isCreatedAtInWindow(post.createdAt, timeFilter)),
     [communityPosts, timeFilter],
+  );
+
+  // Mapa: solo pines con geo real o place bbox (lat/lng no nulos). Feed puede tener más.
+  const mapCommunity = useMemo(
+    () =>
+      filteredCommunity.flatMap((post) => {
+        if (
+          typeof post.lat !== "number" ||
+          typeof post.lng !== "number" ||
+          !Number.isFinite(post.lat) ||
+          !Number.isFinite(post.lng)
+        ) {
+          return [];
+        }
+        return [{ ...post, lat: post.lat, lng: post.lng }];
+      }),
+    [filteredCommunity],
   );
 
   const heatmapPoints = useMemo(() => {
@@ -171,6 +190,7 @@ export default function MapScreen() {
   };
 
   const runRiskCheck = (lat: number, lng: number, label: string) => {
+    setSelectedCommunity(null);
     setRiskResult({ assessment: scoreAt(riskAlerts, lat, lng), label });
   };
 
@@ -255,6 +275,7 @@ export default function MapScreen() {
                 tracksViewChanges={!lowConnection}
                 onPress={() => {
                   void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  setSelectedCommunity(null);
                   router.push(`/alert/${alert.id}`);
                 }}
               >
@@ -269,33 +290,19 @@ export default function MapScreen() {
               </Marker>
             ))}
 
-            {/* Posts de comunidad desde X — pin estático, no GlowMarker */}
-            {!showHeatmap && !showGrid && filteredCommunity.map((post) => (
+            {/* Posts de comunidad desde X — pin estático, no GlowMarker; solo con geo usable */}
+            {!showHeatmap && !showGrid && mapCommunity.map((post) => (
               <Marker
                 key={`x-${post.id}`}
                 coordinate={{ latitude: post.lat, longitude: post.lng }}
                 tracksViewChanges={false}
                 onPress={() => {
                   void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  const demoNote = post.isDemo
-                    ? "\n\n⚠️ DEMO — no es un tweet en vivo ni una alerta de Pulso."
-                    : "\n\nFuente: X / Comunidad (no es alerta ciudadana de Pulso).";
-                  Alert.alert(
-                    `Desde X · ${post.authorHandle}`,
-                    `${post.text.slice(0, 280)}${post.text.length > 280 ? "…" : ""}${demoNote}`,
-                    [
-                      { text: "Cerrar", style: "cancel" },
-                      {
-                        text: "Abrir en X",
-                        onPress: () => {
-                          void Linking.openURL(post.url);
-                        },
-                      },
-                    ],
-                  );
+                  setRiskResult(null);
+                  setSelectedCommunity(post);
                 }}
               >
-                <CommunityMarker isDemo={post.isDemo} />
+                <CommunityMarker isDemo={post.isDemo} markerKind="community" />
               </Marker>
             ))}
             
@@ -445,6 +452,11 @@ export default function MapScreen() {
             assessment={riskResult.assessment}
             label={riskResult.label}
             onClose={() => setRiskResult(null)}
+          />
+        ) : selectedCommunity ? (
+          <CommunityPostPreview
+            post={selectedCommunity}
+            onClose={() => setSelectedCommunity(null)}
           />
         ) : nearbyAlert ? (
           <Pressable

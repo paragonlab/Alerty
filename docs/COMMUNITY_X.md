@@ -10,7 +10,7 @@ Pulso muestra posts de X sobre seguridad en Culiacán en el **Feed** y el **Mapa
 | Edge function de sync | `supabase/functions/sync-x-community/index.ts` |
 | Tipos / mock / store | `lib/alerty/types.ts`, `mock.ts`, `store.ts` |
 | UI Feed | `components/CommunityPostCard.tsx`, `app/(tabs)/feed.tsx` |
-| UI Mapa | `components/CommunityMarker.tsx`, `app/(tabs)/index.tsx` |
+| UI Mapa | `components/CommunityMarker.tsx`, `CommunityPostPreview.tsx`, `app/(tabs)/index.tsx`, `ExpoMapView.web.tsx` |
 
 ## Variables de entorno / secrets
 
@@ -71,17 +71,40 @@ curl -X POST "$SUPABASE_URL/functions/v1/sync-x-community" \
 
 Sin `X_BEARER_TOKEN`, la function responde `{ ok: true, mode: "demo", upserted: 0 }` y la app sigue mostrando los 3 posts DEMO de la migración (badge **DEMO · no en vivo**).
 
+## Query e intención (Recent Search v2)
+
+La function busca **alertas / noticias / hechos recién ocurridos** ligados a Culiacán, no menciones casuales.
+
+- Operadores reales de Recent Search: `has:geo`, `-is:retweet`, `-is:reply`, `lang:es`.
+- Términos de evento: alerta, balacera, tiroteo, detonaciones, enfrentamiento, bloqueo, accidente, asalto, “acaba de”, “ahora mismo”, etc.
+- Exclusiones de ruido: promo/ads, turismo, deportes, “estoy en…”, replies.
+- Pasada 1 con `has:geo` (preferencia de place/coords); pasada 2 sin `has:geo` para el Feed.
+- Post-filtro: exige `category_guess` y descarta soft noise residual.
+- Orden: más recientes primero.
+
+## Política de geo en el mapa
+
+La mayoría de tweets **no traen coordenadas precisas**. Solo se escribe `lat`/`lng` cuando hay:
+
+1. punto geo del tweet, o
+2. `place.geo.bbox` usable (se usa el centro del bbox).
+
+**No hay jitter** alrededor del centro de Culiacán para posts en vivo. Sin geo usable → `lat`/`lng` null: el post puede aparecer en el **Feed**, pero **no** como pin en el mapa. Los seeds **DEMO** sí conservan coordenadas de muestra.
+
+En cliente, el mapa filtra `post.lat != null && post.lng != null`.
+
 ## Comportamiento en cliente
 
 1. Tras login: `loadCommunityPosts()` lee `community_posts`.
 2. Realtime: suscripción `INSERT` en `community_posts` (mismo canal que alertas).
 3. Sin filas / error / sin Supabase: fallback a `demoCommunityPosts` en `lib/alerty/mock.ts`.
 4. Feed: tarjetas `CommunityPostCard` con badges “Desde X”, “Comunidad”, “DEMO” si aplica; toque abre el tweet.
-5. Mapa: `CommunityMarker` (cuadrado azul/negro, no pulso). Toque → diálogo + “Abrir en X”. Geo real si existe; si no, jitter alrededor del centro de Culiacán con `place_label = "Culiacán (X)"`.
+5. Mapa: `CommunityMarker` (cuadrado azul/negro, no pulso). Toque → `CommunityPostPreview` (autor, texto, categoría, lugar, tiempo, Abrir en X). Solo pines con geo/place real (o DEMO).
 
 ## Plan de prueba
 
-1. **Sin token**: aplicar migración → login → Feed muestra ≥1 tarjeta “Desde X” con badge DEMO → Mapa muestra pines cuadrados (no GlowMarker) → toque abre diálogo con aviso DEMO.
-2. **Con token**: `supabase secrets set X_BEARER_TOKEN=...` → invocar function → `mode: "live"` y `upserted > 0` (o 0 si no hay matches) → Feed/Map refrescan (realtime o reload) con posts `is_demo=false`.
+1. **Sin token**: aplicar migración → login → Feed muestra ≥1 tarjeta “Desde X” con badge DEMO → Mapa muestra pines cuadrados (no GlowMarker) → toque abre preview con aviso DEMO y “Abrir en X”.
+2. **Con token**: `supabase secrets set X_BEARER_TOKEN=...` → invocar function → `mode: "live"` y `upserted` / `with_geo` / `feed_only` → Feed puede tener posts sin pin; Mapa solo los `with_geo`.
 3. **Regresión**: alertas ciudadanas siguen pulsando con `GlowMarker`; SOS, PKCE y bundle IDs intactos.
 4. **RLS**: con anon key sin sesión no se leen posts; con usuario autenticado sí; insert desde cliente debe fallar (solo service_role).
+5. **Web**: pin cuadrado de comunidad; click abre la misma preview (no `Alert.alert`).

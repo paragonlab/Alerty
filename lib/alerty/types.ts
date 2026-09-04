@@ -71,8 +71,9 @@ export type CommunityPost = {
   text: string;
   url: string;
   mediaUrl?: string | null;
-  lat: number;
-  lng: number;
+  /** null = sin geo usable (solo Feed); mapa exige lat/lng reales o place bbox */
+  lat: number | null;
+  lng: number | null;
   placeLabel: string;
   createdAt: string;
   fetchedAt: string;
