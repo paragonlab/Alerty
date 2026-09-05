@@ -9,7 +9,7 @@ import type {
   TimeFilter,
 } from "./types";
 import { ALERT_CATEGORIES, REPUTATION_LEVELS } from "./constants";
-import { baseAlerts, createRandomAlert, demoCommunityPosts } from "./mock";
+import { baseAlerts, createRandomAlert, demoCommunityPosts, isDemoEnabled } from "./mock";
 import { matchInboxAlert, type UserCoords } from "./utils";
 import { isSupabaseConfigured, supabase } from "../supabase";
 import { uploadMediaBatch } from "../upload";
@@ -185,6 +185,8 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
   pendingCommunityConfirm: null,
   setPendingCommunityConfirm: (payload) => set({ pendingCommunityConfirm: payload }),
   startDemo: () => {
+    if (!isDemoEnabled) return;
+
     const { demoStarted, demoInterval, alerts, communityPosts } = get();
     if (demoStarted) return;
 
@@ -341,6 +343,7 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
       { event: "INSERT", schema: "public", table: "community_posts" },
       (payload) => {
         const post = mapCommunityRow(payload.new);
+        if (post.isDemo) return;
         set((state) => {
           if (state.communityPosts.some((p) => p.id === post.id || p.externalId === post.externalId)) {
             return state;
@@ -497,7 +500,7 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
   },
   loadCommunityPosts: async () => {
     if (!isSupabaseConfigured || !supabase) {
-      set({ communityPosts: demoCommunityPosts });
+      set({ communityPosts: [] });
       return;
     }
 
@@ -508,23 +511,24 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
           "id,source,external_id,author_handle,author_name,text,url,media_url,author_avatar_url,lat,lng,place_label,geo_source,place_name_source,geocoded_from_text,created_at,fetched_at,category_guess,is_demo,trust_tier",
         )
         .order("created_at", { ascending: false })
+        .eq("is_demo", false)
         .limit(50);
 
       if (error) {
         console.warn("loadCommunityPosts failed", error.message);
-        set({ communityPosts: demoCommunityPosts });
+        set({ communityPosts: [] });
         return;
       }
 
       if (!data || data.length === 0) {
-        set({ communityPosts: demoCommunityPosts });
+        set({ communityPosts: [] });
         return;
       }
 
       set({ communityPosts: data.map(mapCommunityRow) });
     } catch (err) {
       console.warn("loadCommunityPosts failed", err);
-      set({ communityPosts: demoCommunityPosts });
+      set({ communityPosts: [] });
     }
   },
   updateUsername: async (newUsername) => {
