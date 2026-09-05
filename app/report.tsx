@@ -20,7 +20,7 @@ import * as Location from "expo-location";
 import { Audio } from "expo-av";
 import * as FileSystem from "expo-file-system/legacy";
 import { useRouter } from "expo-router";
-import { ALERT_CATEGORIES, CATEGORY_ICONS, CATEGORY_LABELS, CULIACAN_CENTER } from "../lib/alerty/constants";
+import { ALERT_CATEGORIES, CATEGORY_ICONS, CATEGORY_LABELS } from "../lib/alerty/constants";
 import { useAlertyStore } from "../lib/alerty/store";
 import { Sounds } from "../lib/sounds";
 import { supabase } from "../lib/supabase";
@@ -190,7 +190,7 @@ function ContextChips({ locationLabel }: { locationLabel: string }) {
 export default function ReportScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { addAlert, currentUser, alerts, pendingCommunityConfirm, setPendingCommunityConfirm } =
+  const { addAlert, currentUser, alerts, pendingCommunityConfirm, setPendingCommunityConfirm, setUserCoords } =
     useAlertyStore();
 
   // Web: categoría primero (cámara/galería limitadas). Nativo: captura → detalles → enviado.
@@ -202,7 +202,7 @@ export default function ReportScreen() {
   const [media, setMedia] = useState<AlertMedia[]>([]);
   const [locationLoading, setLocationLoading] = useState(true);
   const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
-  const [usingFallbackLocation, setUsingFallbackLocation] = useState(false);
+  const [locationError, setLocationError] = useState<string | null>(null);
   const [locationLabel, setLocationLabel] = useState("Mi ubicación");
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -221,9 +221,6 @@ export default function ReportScreen() {
     if (mapped) setCategory(mapped);
     if (pendingCommunityConfirm.text) {
       setTitle(pendingCommunityConfirm.text.slice(0, 120));
-    }
-    if (pendingCommunityConfirm.placeLabel) {
-      setLocationLabel(pendingCommunityConfirm.placeLabel);
     }
     setSourceTag("contaron");
     setStep(2);
@@ -297,15 +294,6 @@ export default function ReportScreen() {
   const haloScale = successHalo.interpolate({ inputRange: [0, 1], outputRange: [1, 1.55] });
   const haloOpacity = successHalo.interpolate({ inputRange: [0, 0.6, 1], outputRange: [0.6, 0.15, 0] });
 
-  function applyCuliacanFallback() {
-    setUserLocation({
-      latitude: CULIACAN_CENTER.latitude,
-      longitude: CULIACAN_CENTER.longitude,
-    });
-    setUsingFallbackLocation(true);
-    setLocationLabel("Culiacán (sin GPS)");
-  }
-
   /** En web Alert.alert suele ser fácil de pasar por alto; también mostramos el error en la UI. */
   function notifyUser(title: string, message: string) {
     setFormError(`${title}: ${message}`);
@@ -331,24 +319,33 @@ export default function ReportScreen() {
   }
 
   async function getLocation() {
+    setLocationError(null);
+    setLocationLoading(true);
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status === "granted") {
-        const current = await Location.getCurrentPositionAsync({});
-        const coords = { latitude: current.coords.latitude, longitude: current.coords.longitude };
-        setUserLocation(coords);
-        setUsingFallbackLocation(false);
-        try {
-          const [place] = await Location.reverseGeocodeAsync(coords);
-          if (place) {
-            setLocationLabel(place.district ?? place.subregion ?? place.city ?? "Mi ubicación");
-          }
-        } catch {}
+      if (status !== "granted") {
+        setLocationError("Activa el permiso de ubicación. Sin GPS no se publica.");
         setLocationLoading(false);
         return;
       }
-    } catch {}
-    applyCuliacanFallback();
+      const current = await Promise.race([
+        Location.getCurrentPositionAsync({}),
+        new Promise<never>((_, reject) => {
+          setTimeout(() => reject(new Error("timeout")), 15_000);
+        }),
+      ]);
+      const coords = { latitude: current.coords.latitude, longitude: current.coords.longitude };
+      setUserLocation(coords);
+      setUserCoords(coords);
+      try {
+        const [place] = await Location.reverseGeocodeAsync(coords);
+        if (place) {
+          setLocationLabel(place.district ?? place.subregion ?? place.city ?? "Mi ubicación");
+        }
+      } catch {}
+    } catch {
+      setLocationError("No pudimos leer tu GPS. Enciéndelo e intenta de nuevo.");
+    }
     setLocationLoading(false);
   }
 
@@ -476,14 +473,12 @@ export default function ReportScreen() {
       notifyUser("Falta categoría", "Elige el tipo de incidente para publicar.");
       return;
     }
-    const coords = userLocation ?? {
-      latitude: CULIACAN_CENTER.latitude,
-      longitude: CULIACAN_CENTER.longitude,
-    };
-    const placeLabel = userLocation ? locationLabel : "Culiacán (sin GPS)";
     if (!userLocation) {
-      applyCuliacanFallback();
+      notifyUser("Ubicación requerida", "Activa el GPS para publicar. No usamos una ciudad por defecto.");
+      return;
     }
+    const coords = userLocation;
+    const placeLabel = locationLabel;
 
     submittingRef.current = true;
     setSubmitting(true);
@@ -786,7 +781,7 @@ export default function ReportScreen() {
 
   function renderStep3() {
     const displayTitle = title.trim() || (category ? `${CATEGORY_LABELS[category]} · ${locationLabel}` : "Sin título");
-    const isNearby = Boolean(userLocation) && !usingFallbackLocation;
+    const isNearby = Boolean(userLocation);
 
     return (
       <>
@@ -809,17 +804,6 @@ export default function ReportScreen() {
             </View>
           </View>
         </View>
-
-        {usingFallbackLocation && (
-          <View style={S.fallbackBanner}>
-            <Ionicons name="navigate-outline" size={16} color="#6BE0FF" />
-            <View style={{ flex: 1 }}>
-              <Text style={S.fallbackBannerText}>
-                Sin GPS: la alerta se publicará en el centro de Culiacán.
-              </Text>
-            </View>
-          </View>
-        )}
 
         <Text style={S.sheetLabel}>Distribución</Text>
 
@@ -926,25 +910,27 @@ export default function ReportScreen() {
 
   const isStep4 = step === 4;
 
-  if (locationLoading) {
+  if (locationLoading || !userLocation) {
     return (
       <View style={[S.root, { alignItems: "center", justifyContent: "center", gap: 20, paddingHorizontal: 32 }]}>
         <LinearGradient colors={["rgba(40,15,8,0.92)", "rgba(0,0,0,0.97)"]} style={StyleSheet.absoluteFill} />
         <View style={S.locLoadingIcon}>
           <Ionicons name="location" size={30} color="#6BE0FF" />
         </View>
-        <Text style={S.locLoadingTitle}>OBTENIENDO UBICACIÓN</Text>
-        <Text style={S.locLoadingSub}>
-          Para que tu alerta llegue a quienes están cerca. Si tarda, puedes continuar sin GPS.
+        <Text style={S.locLoadingTitle}>
+          {locationLoading ? "OBTENIENDO UBICACIÓN" : "GPS REQUERIDO"}
         </Text>
-        <Pressable
-          style={S.locSkipBtn}
-          onPress={() => {
-            applyCuliacanFallback();
-            setLocationLoading(false);
-          }}
-        >
-          <Text style={S.locSkipText}>Continuar sin GPS</Text>
+        <Text style={S.locLoadingSub}>
+          {locationError ??
+            "Para publicar necesitamos tu GPS real. No usamos una ciudad por defecto."}
+        </Text>
+        {!locationLoading ? (
+          <Pressable style={S.locSkipBtn} onPress={() => { void getLocation(); }}>
+            <Text style={S.locSkipText}>Reintentar GPS</Text>
+          </Pressable>
+        ) : null}
+        <Pressable style={S.locSkipBtn} onPress={() => router.back()}>
+          <Text style={S.locSkipText}>Cancelar</Text>
         </Pressable>
       </View>
     );
@@ -1022,13 +1008,6 @@ export default function ReportScreen() {
           {/* Location chips (steps 1–2) */}
           {step <= 2 && <ContextChips locationLabel={locationLabel} />}
 
-          {usingFallbackLocation && step <= 3 && (
-            <View style={S.fallbackHint}>
-              <Ionicons name="information-circle-outline" size={13} color="#6BE0FF" />
-              <Text style={S.fallbackHintText}>Ubicación aproximada: centro de Culiacán</Text>
-            </View>
-          )}
-
           {/* Step content */}
           <ScrollView
             style={{ flex: 1 }}
@@ -1047,7 +1026,7 @@ export default function ReportScreen() {
             <View style={[S.ctaWrap, Platform.OS === "web" && S.ctaWrapWeb]}>
               {formError ? <Text style={S.formError}>{formError}</Text> : null}
               <ReportCta
-                disabled={!category || submitting}
+                disabled={!category || submitting || !userLocation}
                 onPress={() => {
                   void handleSubmit();
                 }}
@@ -1057,7 +1036,7 @@ export default function ReportScreen() {
               </ReportCta>
               <Pressable
                 style={S.reviewLink}
-                disabled={!category || submitting}
+                disabled={!category || submitting || !userLocation}
                 onPress={() => {
                   setFormError(null);
                   if (!category) {
@@ -1077,7 +1056,7 @@ export default function ReportScreen() {
             <View style={[S.ctaWrap, Platform.OS === "web" && S.ctaWrapWeb]}>
               {formError ? <Text style={S.formError}>{formError}</Text> : null}
               <ReportCta
-                disabled={submitting}
+                disabled={submitting || !userLocation}
                 onPress={() => {
                   void handleSubmit();
                 }}
@@ -1120,35 +1099,6 @@ const S = StyleSheet.create({
     borderRadius: 999, borderWidth: 1, borderColor: "rgba(255,255,255,0.15)",
   },
   locSkipText: { fontSize: 12, color: "rgba(255,255,255,0.45)", fontFamily: "SpaceGrotesk_500Medium" },
-  fallbackHint: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    marginBottom: 8,
-    paddingHorizontal: 4,
-  },
-  fallbackHintText: {
-    fontSize: 11,
-    color: "rgba(107,224,255,0.85)",
-    fontFamily: "SpaceGrotesk_500Medium",
-  },
-  fallbackBanner: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    padding: 10,
-    paddingHorizontal: 12,
-    backgroundColor: "rgba(0,224,255,0.08)",
-    borderWidth: 1,
-    borderColor: "rgba(0,224,255,0.28)",
-    borderRadius: 12,
-  },
-  fallbackBannerText: {
-    fontSize: 11,
-    color: "rgba(107,224,255,0.9)",
-    fontFamily: "SpaceGrotesk_500Medium",
-    lineHeight: 16,
-  },
   formError: {
     fontSize: 12,
     color: "#FF8A80",

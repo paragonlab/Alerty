@@ -1,5 +1,6 @@
 import { theme } from "../theme";
 import {
+  AVISOS_RADIUS_KM,
   CATEGORY_PIN_COLORS,
   COMMUNITY_DEFAULT_PIN_COLOR,
   TIME_FILTER_WINDOW_LABEL,
@@ -76,4 +77,29 @@ export const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2
       Math.sin(dLon / 2);
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   return R * c;
+};
+
+export type UserCoords = { latitude: number; longitude: number };
+
+export type InboxMatch = {
+  nearby: boolean;
+  following: boolean;
+  distanceKm: number | null;
+};
+
+/** Avisos: cerca del GPS o seguida. Sin coords, solo follows. */
+export const matchInboxAlert = (
+  alert: AlertItem,
+  coords: UserCoords | null,
+  followingIds: readonly string[],
+  radiusKm = AVISOS_RADIUS_KM,
+): InboxMatch | null => {
+  if (alert.status !== "active") return null;
+  const following = followingIds.includes(alert.id);
+  const distanceKm = coords
+    ? calculateDistance(coords.latitude, coords.longitude, alert.lat, alert.lng)
+    : null;
+  const nearby = distanceKm != null && distanceKm <= radiusKm;
+  if (!nearby && !following) return null;
+  return { nearby, following, distanceKm };
 };
