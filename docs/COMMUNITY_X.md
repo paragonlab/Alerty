@@ -117,7 +117,32 @@ supabase secrets set X_BEARER_TOKEN=...
 # opcionales: X_ALLOWLIST, NEWS_RSS_FEEDS
 ```
 
-Cron: invocar ambas functions cada 10–30 min con `Authorization: Bearer <service_role>`.
+## Cron (cada ~10 min)
+
+La migración `20260905044049_community_sync_cron.sql` programa `pg_cron` + `pg_net`:
+
+| Job | Minuto | Function |
+|---|---|---|
+| `pulso-sync-x-community` | `*/10` | `sync-x-community` |
+| `pulso-sync-news-rss` | `2-59/10` | `sync-news-rss` |
+
+No commitea keys. Una vez en el SQL Editor (Vault), sin pegar `service_role`:
+
+```sql
+select vault.create_secret('https://hllgwcphvobgpdvidbad.supabase.co', 'project_url');
+select vault.create_secret('<EXPO_PUBLIC_SUPABASE_ANON_KEY>', 'publishable_key');
+```
+
+El cron manda el JWT anon (`Authorization` + `apikey`). Las functions siguen escribiendo con `SUPABASE_SERVICE_ROLE_KEY` de su env.
+
+Comprobar jobs:
+
+```sql
+select jobid, jobname, schedule, active from cron.job
+where jobname like 'pulso-sync-%';
+```
+
+Últimas corridas: `cron.job_run_details` o Integraciones → Cron en el dashboard.
 
 ## RLS
 
