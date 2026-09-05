@@ -70,7 +70,7 @@ Columnas:
 
 Si hay **varias colonias** en el texto sin ganador claro (contexto de evento / headline) → `lat`/`lng` null (Feed sí, mapa no).
 
-**Sin jitter** para posts en vivo. DEMO puede tener coords de muestra.
+**Sin jitter** para posts en vivo.
 
 Límite honesto: gazetteer determinista (no Google Geocoding) para evitar matches en otra ciudad; colonias fuera de lista no se pines por texto.
 
@@ -148,10 +148,17 @@ where jobname like 'pulso-sync-%';
 
 Sin cambios: lectura `authenticated`, escritura solo `service_role`.
 
+## Demo local (explícita)
+
+Los mocks no se muestran cuando Supabase no está configurado, falla una consulta o no hay posts reales.
+Para activarlos únicamente en un build local, agrega `EXPO_PUBLIC_USE_DEMO=1` a tu `.env`;
+no uses ese flag en Vercel ni en builds de producción.
+
 ## Prueba rápida
 
-1. Sin tokens: Feed/Map con seeds DEMO → pines coloreados + avatar de muestra; pills de horario en mapa sincronizan con Feed.
-2. Con X token: sync → `author_avatar_url` + `with_geo` / `feed_only`.
-3. RSS: deploy + invocar → posts `source=rss` con logo.
-4. Ampliar ventana (7d) vs 1h: posts “vuelven” a la vista sin re-sync.
-5. Regresión: GlowMarker pulso, SOS, PKCE, bundle IDs intactos.
+1. Sin `EXPO_PUBLIC_USE_DEMO`: Feed/Map vacíos si no hay datos reales; no hay pins/posts DEMO.
+2. Con `EXPO_PUBLIC_USE_DEMO=1` local: Feed/Map con mocks y pins coloreados.
+3. Con X token: sync → `author_avatar_url` + `with_geo` / `feed_only`.
+4. RSS: deploy + invocar → posts `source=rss` con logo.
+5. Ampliar ventana (7d) vs 1h: posts “vuelven” a la vista sin re-sync.
+6. Regresión: GlowMarker pulso, SOS, PKCE, bundle IDs intactos.

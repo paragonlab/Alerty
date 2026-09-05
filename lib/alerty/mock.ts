@@ -1,6 +1,8 @@
 import { ALERT_CATEGORIES, CULIACAN_CENTER, CULIACAN_NEIGHBORHOODS, REPUTATION_LEVELS } from "./constants";
 import type { AlertItem, AlertUser, CommunityPost } from "./types";
 
+export const isDemoEnabled = process.env.EXPO_PUBLIC_USE_DEMO === "1";
+
 const randomPick = <T,>(values: readonly T[]): T =>
   values[Math.floor(Math.random() * values.length)];
 
