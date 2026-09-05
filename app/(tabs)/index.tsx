@@ -158,7 +158,9 @@ export default function MapScreen() {
         const { status } = await Location.requestForegroundPermissionsAsync();
         if (status !== "granted") return;
         const loc = await Location.getCurrentPositionAsync({});
-        setUserLocation({ latitude: loc.coords.latitude, longitude: loc.coords.longitude });
+        const coords = { latitude: loc.coords.latitude, longitude: loc.coords.longitude };
+        setUserLocation(coords);
+        useAlertyStore.getState().setUserCoords(coords);
       } catch {}
     })();
   }, []);
@@ -177,7 +179,9 @@ export default function MapScreen() {
       }
 
       const location = await Location.getCurrentPositionAsync({});
-      setUserLocation({ latitude: location.coords.latitude, longitude: location.coords.longitude });
+      const coords = { latitude: location.coords.latitude, longitude: location.coords.longitude };
+      setUserLocation(coords);
+      useAlertyStore.getState().setUserCoords(coords);
       mapRef.current?.animateToRegion({
         latitude: location.coords.latitude,
         longitude: location.coords.longitude,
