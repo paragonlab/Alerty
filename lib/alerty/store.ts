@@ -10,6 +10,7 @@ import type {
 } from "./types";
 import { ALERT_CATEGORIES, REPUTATION_LEVELS } from "./constants";
 import { baseAlerts, createRandomAlert, demoCommunityPosts, isDemoEnabled } from "./mock";
+import { matchInboxAlert, type UserCoords } from "./utils";
 import { isSupabaseConfigured, supabase } from "../supabase";
 import { uploadMediaBatch } from "../upload";
 import type { RealtimeChannel } from "@supabase/supabase-js";
@@ -116,6 +117,8 @@ type AlertyState = {
   openReels: (alertId: string | null) => void;
   unreadAlerts: number;
   clearUnreadAlerts: () => void;
+  userCoords: UserCoords | null;
+  setUserCoords: (coords: UserCoords | null) => void;
   /** Prefill best-effort para "Confirmar en Pulso" desde un post comunidad */
   pendingCommunityConfirm: {
     text: string;
@@ -177,6 +180,8 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
   openReels: (alertId) => set({ feedViewMode: "reels", reelsInitialAlertId: alertId }),
   unreadAlerts: 0,
   clearUnreadAlerts: () => set({ unreadAlerts: 0 }),
+  userCoords: null,
+  setUserCoords: (coords) => set({ userCoords: coords }),
   pendingCommunityConfirm: null,
   setPendingCommunityConfirm: (payload) => set({ pendingCommunityConfirm: payload }),
   startDemo: () => {
@@ -249,11 +254,11 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
 
         set((state) => {
           if (state.alerts.some((existing) => existing.id === alert.id)) return state;
+          const inbox = matchInboxAlert(alert, state.userCoords, state.followingAlertIds);
+          const countUnread = Boolean(inbox) && alert.user.id !== state.currentUser.id;
           return {
             alerts: [alert, ...state.alerts],
-            unreadAlerts: alert.user.id !== state.currentUser.id
-              ? state.unreadAlerts + 1
-              : state.unreadAlerts,
+            unreadAlerts: countUnread ? state.unreadAlerts + 1 : state.unreadAlerts,
           };
         });
       },

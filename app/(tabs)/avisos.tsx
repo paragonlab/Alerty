@@ -1,44 +1,105 @@
-import { useEffect, useMemo } from "react";
-import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
+import { useEffect, useMemo, useState } from "react";
+import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
+import * as Location from "expo-location";
 import { useAlertyStore } from "../../lib/alerty/store";
 import { useAlertyTheme } from "../../lib/useAlertyTheme";
-import { CATEGORY_ICONS, CATEGORY_LABELS } from "../../lib/alerty/constants";
-import { formatRelativeTime } from "../../lib/alerty/utils";
+import { AVISOS_RADIUS_KM, CATEGORY_ICONS, CATEGORY_LABELS } from "../../lib/alerty/constants";
+import { formatRelativeTime, matchInboxAlert } from "../../lib/alerty/utils";
 import type { AlertItem } from "../../lib/alerty/types";
+
+function formatDistance(km: number | null) {
+  if (km == null) return null;
+  if (km < 1) return `${Math.max(1, Math.round(km * 1000))} m`;
+  return `${km.toFixed(1)} km`;
+}
 
 export default function AvisosScreen() {
   const theme = useAlertyTheme();
   const router = useRouter();
-  const { alerts, clearUnreadAlerts } = useAlertyStore();
+  const {
+    alerts,
+    clearUnreadAlerts,
+    followingAlertIds,
+    userCoords,
+    setUserCoords,
+  } = useAlertyStore();
   const styles = createStyles(theme);
+  const [locating, setLocating] = useState(!userCoords);
+  const [locationDenied, setLocationDenied] = useState(false);
 
   useEffect(() => {
     clearUnreadAlerts();
+  }, [clearUnreadAlerts]);
+
+  const fetchLocation = async () => {
+    setLocating(true);
+    setLocationDenied(false);
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== "granted") {
+        setLocationDenied(true);
+        return;
+      }
+      const loc = await Promise.race([
+        Location.getCurrentPositionAsync({}),
+        new Promise<never>((_, reject) => {
+          setTimeout(() => reject(new Error("timeout")), 15_000);
+        }),
+      ]);
+      setUserCoords({ latitude: loc.coords.latitude, longitude: loc.coords.longitude });
+    } catch {
+      setLocationDenied(true);
+    } finally {
+      setLocating(false);
+    }
+  };
+
+  useEffect(() => {
+    if (userCoords) {
+      setLocating(false);
+      return;
+    }
+    void fetchLocation();
   }, []);
 
-  const notifications = useMemo(
-    () =>
-      [...alerts]
-        .filter((a) => a.status === "active")
-        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-        .slice(0, 30),
-    [alerts],
-  );
+  const notifications = useMemo(() => {
+    return alerts
+      .map((alert) => {
+        const match = matchInboxAlert(alert, userCoords, followingAlertIds);
+        if (!match) return null;
+        return { alert, match };
+      })
+      .filter((row): row is { alert: AlertItem; match: NonNullable<ReturnType<typeof matchInboxAlert>> } =>
+        Boolean(row),
+      )
+      .sort((a, b) => new Date(b.alert.createdAt).getTime() - new Date(a.alert.createdAt).getTime())
+      .slice(0, 30);
+  }, [alerts, followingAlertIds, userCoords]);
 
-  const renderItem = ({ item }: { item: AlertItem }) => {
-    const isCritical = item.category === "sos" || item.category === "balacera" || item.upvotes > 10;
-    const iconName = (CATEGORY_ICONS[item.category] ?? "notifications-outline") as any;
-    const label = CATEGORY_LABELS[item.category] ?? item.category;
-    const hasMedia = item.media.length > 0;
+  const requestLocation = () => {
+    void fetchLocation();
+  };
+
+  const renderItem = ({
+    item,
+  }: {
+    item: { alert: AlertItem; match: NonNullable<ReturnType<typeof matchInboxAlert>> };
+  }) => {
+    const { alert, match } = item;
+    const isCritical = alert.category === "sos" || alert.category === "balacera" || alert.upvotes > 10;
+    const iconName = (CATEGORY_ICONS[alert.category] ?? "notifications-outline") as any;
+    const label = CATEGORY_LABELS[alert.category] ?? alert.category;
+    const hasMedia = alert.media.length > 0;
+    const distLabel = formatDistance(match.distanceKm);
 
     return (
       <Pressable
         style={styles.item}
         android_ripple={{ color: theme.colors.border }}
-        onPress={() => router.push(`/alert/${item.id}` as any)}
+        onPress={() => router.push(`/alert/${alert.id}` as any)}
       >
         <View style={[styles.iconWrap, isCritical && styles.iconWrapCritical]}>
           <Ionicons
@@ -55,28 +116,37 @@ export default function AvisosScreen() {
                 <Text style={styles.criticalBadgeText}>CRÍTICO</Text>
               </View>
             )}
+            {match.nearby && (
+              <View style={styles.reasonBadge}>
+                <Text style={styles.reasonBadgeText}>CERCA</Text>
+              </View>
+            )}
+            {match.following && (
+              <View style={styles.followBadge}>
+                <Text style={styles.followBadgeText}>SIGUIENDO</Text>
+              </View>
+            )}
             {hasMedia && (
               <View style={styles.mediaBadge}>
-                <Ionicons name={item.media.some(m => m.type === "video") ? "film" : "camera"} size={9} color={theme.colors.textMuted} />
+                <Ionicons name={alert.media.some((m) => m.type === "video") ? "film" : "camera"} size={9} color={theme.colors.textMuted} />
               </View>
             )}
           </View>
           <Text style={styles.itemDesc} numberOfLines={1}>
-            {item.title ?? item.description ?? label}
+            {alert.title ?? alert.description ?? label}
           </Text>
           <View style={styles.itemMeta}>
             <Ionicons name="location-outline" size={11} color={theme.colors.textMuted} />
-            <Text style={styles.itemTime}>{item.neighborhood ?? "Culiacán"}</Text>
-            <Text style={styles.itemDot}>·</Text>
-            <Ionicons name="time-outline" size={11} color={theme.colors.textMuted} />
-            <Text style={styles.itemTime}>{formatRelativeTime(item.createdAt)}</Text>
-            {item.upvotes > 0 && (
+            <Text style={styles.itemTime}>{alert.neighborhood ?? "Sin colonia"}</Text>
+            {distLabel ? (
               <>
                 <Text style={styles.itemDot}>·</Text>
-                <Ionicons name="thumbs-up-outline" size={11} color={theme.colors.textMuted} />
-                <Text style={styles.itemTime}>{item.upvotes}</Text>
+                <Text style={styles.itemTime}>{distLabel}</Text>
               </>
-            )}
+            ) : null}
+            <Text style={styles.itemDot}>·</Text>
+            <Ionicons name="time-outline" size={11} color={theme.colors.textMuted} />
+            <Text style={styles.itemTime}>{formatRelativeTime(alert.createdAt)}</Text>
           </View>
         </View>
         <Ionicons name="chevron-forward" size={16} color={theme.colors.border} />
@@ -84,24 +154,51 @@ export default function AvisosScreen() {
     );
   };
 
+  const empty = locating ? (
+    <View style={styles.empty}>
+      <ActivityIndicator color={theme.colors.textMuted} />
+      <Text style={styles.emptyText}>Buscando avisos cerca de ti</Text>
+    </View>
+  ) : !userCoords ? (
+    <View style={styles.empty}>
+      <Ionicons name="navigate-outline" size={44} color={theme.colors.border} />
+      <Text style={styles.emptyText}>
+        {locationDenied
+          ? "Activa la ubicación para ver avisos de tu zona"
+          : "Sin GPS no podemos filtrar por distancia"}
+      </Text>
+      <Text style={styles.emptyHint}>
+        Las alertas que sigues aparecen igual. El resto solo si están a {AVISOS_RADIUS_KM} km.
+      </Text>
+      <Pressable style={styles.emptyCta} onPress={requestLocation}>
+        <Text style={styles.emptyCtaText}>Activar ubicación</Text>
+      </Pressable>
+    </View>
+  ) : (
+    <View style={styles.empty}>
+      <Ionicons name="notifications-off-outline" size={44} color={theme.colors.border} />
+      <Text style={styles.emptyText}>Nada cerca ni en seguimiento</Text>
+      <Text style={styles.emptyHint}>
+        Avisos muestra alertas a {AVISOS_RADIUS_KM} km o las que sigues. El Feed tiene el resto.
+      </Text>
+    </View>
+  );
+
   return (
     <SafeAreaView style={styles.safe}>
       <View style={styles.header}>
         <Text style={styles.title}>Avisos</Text>
-        <Text style={styles.subtitle}>Actividad reciente en tu zona</Text>
+        <Text style={styles.subtitle}>
+          Cerca de ti ({AVISOS_RADIUS_KM} km) y alertas que sigues
+        </Text>
       </View>
       <FlatList
         data={notifications}
         renderItem={renderItem}
-        keyExtractor={(item) => item.id}
+        keyExtractor={(item) => item.alert.id}
         contentContainerStyle={styles.list}
         showsVerticalScrollIndicator={false}
-        ListEmptyComponent={
-          <View style={styles.empty}>
-            <Ionicons name="notifications-off-outline" size={44} color={theme.colors.border} />
-            <Text style={styles.emptyText}>Sin avisos activos</Text>
-          </View>
-        }
+        ListEmptyComponent={empty}
         ItemSeparatorComponent={() => <View style={styles.separator} />}
       />
     </SafeAreaView>
@@ -133,6 +230,7 @@ const createStyles = (theme: any) =>
       paddingHorizontal: 16,
       paddingBottom: 160,
       paddingTop: 8,
+      flexGrow: 1,
     },
     item: {
       flexDirection: "row",
@@ -156,7 +254,7 @@ const createStyles = (theme: any) =>
       borderColor: "rgba(255,59,59,0.3)",
     },
     itemBody: { flex: 1, gap: 4 },
-    itemRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+    itemRow: { flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" },
     itemTitle: {
       color: theme.colors.text,
       fontSize: 12,
@@ -187,6 +285,34 @@ const createStyles = (theme: any) =>
       fontFamily: theme.fonts.heading,
       letterSpacing: 0.8,
     },
+    reasonBadge: {
+      paddingHorizontal: 6,
+      paddingVertical: 2,
+      borderRadius: 4,
+      backgroundColor: "rgba(31,157,110,0.12)",
+      borderWidth: 1,
+      borderColor: "rgba(31,157,110,0.28)",
+    },
+    reasonBadgeText: {
+      color: theme.colors.success ?? "#1F9D6E",
+      fontSize: 8,
+      fontFamily: theme.fonts.heading,
+      letterSpacing: 0.8,
+    },
+    followBadge: {
+      paddingHorizontal: 6,
+      paddingVertical: 2,
+      borderRadius: 4,
+      backgroundColor: theme.colors.surfaceAlt,
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+    },
+    followBadgeText: {
+      color: theme.colors.textMuted,
+      fontSize: 8,
+      fontFamily: theme.fonts.heading,
+      letterSpacing: 0.8,
+    },
     itemDesc: {
       color: theme.colors.textMuted,
       fontSize: 13,
@@ -197,6 +323,7 @@ const createStyles = (theme: any) =>
       flexDirection: "row",
       alignItems: "center",
       gap: 4,
+      flexWrap: "wrap",
     },
     itemTime: {
       color: theme.colors.textMuted,
@@ -216,10 +343,32 @@ const createStyles = (theme: any) =>
       alignItems: "center",
       paddingTop: 80,
       gap: 12,
+      paddingHorizontal: 24,
     },
     emptyText: {
       color: theme.colors.textMuted,
       fontSize: 15,
       fontFamily: theme.fonts.body,
+      textAlign: "center",
+    },
+    emptyHint: {
+      color: theme.colors.textMuted,
+      fontSize: 12,
+      fontFamily: theme.fonts.body,
+      textAlign: "center",
+      lineHeight: 18,
+      opacity: 0.8,
+    },
+    emptyCta: {
+      marginTop: 4,
+      paddingHorizontal: 16,
+      paddingVertical: 10,
+      borderRadius: 10,
+      backgroundColor: theme.colors.accent,
+    },
+    emptyCtaText: {
+      color: "#fff",
+      fontSize: 13,
+      fontFamily: theme.fonts.heading,
     },
   });
