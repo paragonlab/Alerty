@@ -8,6 +8,7 @@ import { trackEvent } from "../lib/analytics";
 import { darkHighVisibility, lightTheme } from "../lib/theme";
 import { isSupabaseConfigured, supabase } from "../lib/supabase";
 import { useAlertyStore } from "../lib/alerty/store";
+import { isDemoEnabled } from "../lib/alerty/mock";
 import { calculateDistance } from "../lib/alerty/utils";
 import {
   syncPushRegistration,
@@ -135,10 +136,11 @@ export default function RootLayout() {
 
   useEffect(() => {
     if (!isReady) return;
-    if (!isSupabaseConfigured) {
+    if (isDemoEnabled) {
       startDemo();
       return;
     }
+    if (!isSupabaseConfigured) return;
     if (hasSession) {
       void loadAlertsFromSupabase();
       void loadSponsoredZones();
