@@ -94,10 +94,17 @@ export const AVISOS_RADIUS_KM = 5;
 
 /** Etiqueta corta de ventana para UI (Feed / Mapa). */
 export const TIME_FILTER_WINDOW_LABEL: Record<(typeof TIME_FILTERS)[number], string> = {
-  "1h": "últimos 1h",
-  "6h": "últimos 6h",
-  "24h": "últimas 24h",
-  "7d": "últimos 7d",
+  "1h": "última hora",
+  "6h": "últimas 6 horas",
+  "24h": "últimas 24 horas",
+  "7d": "últimos 7 días",
+};
+
+export const TIME_FILTER_PILL_LABEL: Record<(typeof TIME_FILTERS)[number], string> = {
+  "1h": "1 hora",
+  "6h": "6 horas",
+  "24h": "24 horas",
+  "7d": "7 días",
 };
 
 /**

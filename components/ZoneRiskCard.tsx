@@ -1,10 +1,11 @@
 // Tarjeta de resultado: muestra qué tan peligrosa es una zona consultada
 // (por dirección buscada o por un punto tocado en el mapa).
-import { View, Text, Pressable, StyleSheet } from "react-native";
+import { View, Text, Pressable, Platform, StyleSheet } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useAlertyTheme } from "../lib/useAlertyTheme";
 import { CATEGORY_LABELS } from "../lib/alerty/constants";
 import { GO_DEST_LABEL, GO_OUT_LABEL, RISK_LABEL, RISK_RADIUS_KM, riskColor, type RiskAssessment, type RiskLevel } from "../lib/alerty/risk";
+import type { AlertCategory } from "../lib/alerty/types";
 
 const ICON: Record<RiskLevel, keyof typeof Ionicons.glyphMap> = {
   tranquila: "shield-checkmark",
@@ -21,6 +22,7 @@ export function ZoneRiskCard({
   pulseCount,
   destination,
   onShare,
+  onCategoryPress,
   onClose,
 }: {
   assessment: RiskAssessment;
@@ -28,6 +30,7 @@ export function ZoneRiskCard({
   pulseCount?: number;
   destination?: boolean;
   onShare?: () => void;
+  onCategoryPress?: (category: AlertCategory) => void;
   onClose: () => void;
 }) {
   const theme = useAlertyTheme();
@@ -70,11 +73,17 @@ export function ZoneRiskCard({
           </Text>
           <View style={styles.chips}>
             {assessment.byCategory.map((c) => (
-              <View key={c.category} style={styles.chip}>
+              <Pressable
+                key={c.category}
+                style={styles.chip}
+                onPress={() => onCategoryPress?.(c.category)}
+                onPressIn={() => onCategoryPress?.(c.category)}
+                accessibilityLabel={`Ver pulso de ${CATEGORY_LABELS[c.category]}`}
+              >
                 <Text style={styles.chipText}>
                   {CATEGORY_LABELS[c.category]} · {c.count}
                 </Text>
-              </View>
+              </Pressable>
             ))}
           </View>
         </>
@@ -89,7 +98,7 @@ const createStyles = (theme: any) =>
       position: "absolute",
       left: 16,
       right: 16,
-      bottom: 120,
+      bottom: Platform.OS === "web" ? 108 : 188,
       padding: 14,
       borderRadius: theme.radius.xl,
       backgroundColor: theme.colors.surface,
