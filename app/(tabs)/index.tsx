@@ -22,7 +22,7 @@ import {
   toCommunityHeatPoint,
   type RiskAssessment,
 } from "../../lib/alerty/risk";
-import { nearestCuliacanPlace, resolveCommunityMapPoint } from "../../lib/alerty/coloniaGeocode";
+import { nearestCuliacanPlace, resolveCommunityMapPoint, resolveDestinationQuery } from "../../lib/alerty/coloniaGeocode";
 import { shareZonePulse } from "../../lib/alerty/share";
 import { GlassView } from "expo-glass-effect";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -54,12 +54,17 @@ import {
 export default function MapScreen() {
   const router = useRouter();
   const mapRef = useRef<MapView | null>(null);
+  const searchInputRef = useRef<TextInput>(null);
   const [locating, setLocating] = useState(false);
   const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   const [showGrid, setShowGrid] = useState(false);
   const [searchText, setSearchText] = useState("");
   const [searching, setSearching] = useState(false);
-  const [riskResult, setRiskResult] = useState<{ assessment: RiskAssessment; label: string } | null>(null);
+  const [riskResult, setRiskResult] = useState<{
+    assessment: RiskAssessment;
+    label: string;
+    destination?: boolean;
+  } | null>(null);
   const [selectedCommunity, setSelectedCommunity] = useState<CommunityPost | null>(null);
   const isWeb = Platform.OS === "web";
 
@@ -185,6 +190,7 @@ export default function MapScreen() {
     assessment: RiskAssessment,
     placeLabel: string,
     pulseCount: number,
+    destination?: boolean,
   ) => {
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     try {
@@ -193,6 +199,7 @@ export default function MapScreen() {
         placeLabel,
         pulseCount,
         getTimeFilterWindowLabel(timeFilter),
+        destination,
       );
     } catch {
       /* usuario canceló */
@@ -256,9 +263,9 @@ export default function MapScreen() {
     }
   };
 
-  const runRiskCheck = (lat: number, lng: number, label: string) => {
+  const runRiskCheck = (lat: number, lng: number, label: string, destination = false) => {
     setSelectedCommunity(null);
-    setRiskResult({ assessment: scoreAtPoints(heatSources, lat, lng), label });
+    setRiskResult({ assessment: scoreAtPoints(heatSources, lat, lng), label, destination });
   };
 
   const handleMapLongPress = (e: { nativeEvent?: { coordinate?: { latitude: number; longitude: number } } }) => {
@@ -271,11 +278,33 @@ export default function MapScreen() {
   const handleSearch = async () => {
     const query = searchText.trim();
     if (!query || searching) return;
+    if (query.length < 3) {
+      Alert.alert("Destino", "Escribe al menos 3 letras de la colonia o zona.");
+      return;
+    }
     setSearching(true);
     try {
-      const results = await Location.geocodeAsync(query);
+      const local = resolveDestinationQuery(query);
+      if (local) {
+        mapRef.current?.animateToRegion({
+          latitude: local.lat,
+          longitude: local.lng,
+          latitudeDelta: 0.02,
+          longitudeDelta: 0.02,
+        });
+        runRiskCheck(local.lat, local.lng, local.placeLabel, true);
+        return;
+      }
+      if (isWeb) {
+        Alert.alert(
+          "Sin resultados",
+          "No encontramos esa colonia en Culiacán. Prueba con el nombre: Las Quintas, Centro, Tres Ríos…",
+        );
+        return;
+      }
+      const results = await Location.geocodeAsync(`${query}, Culiacán, Sinaloa`);
       if (!results.length) {
-        Alert.alert("Sin resultados", "No encontramos esa dirección. Intenta con otra.");
+        Alert.alert("Sin resultados", "No encontramos esa dirección. Intenta con otra colonia o zona.");
         return;
       }
       const { latitude, longitude } = results[0];
@@ -285,7 +314,7 @@ export default function MapScreen() {
         latitudeDelta: 0.02,
         longitudeDelta: 0.02,
       });
-      runRiskCheck(latitude, longitude, query);
+      runRiskCheck(latitude, longitude, query, true);
     } catch {
       Alert.alert("Búsqueda", "No se pudo buscar la dirección. Intenta de nuevo.");
     } finally {
@@ -428,10 +457,10 @@ export default function MapScreen() {
             end={{ x: 1, y: 1 }}
             style={StyleSheet.absoluteFill}
           />
-          <View style={{ flex: 1 }}>
+          <Pressable style={{ flex: 1 }} onPress={() => searchInputRef.current?.focus()}>
             <Text style={styles.cityLabel}>Culiacán, Sinaloa</Text>
-            <Text style={styles.subLabel}>¿Es seguro salir?</Text>
-          </View>
+            <Text style={styles.subLabel}>¿A dónde vas hoy?</Text>
+          </Pressable>
 
           <Pressable
             style={styles.headerLocationButton}
@@ -442,28 +471,35 @@ export default function MapScreen() {
           </Pressable>
         </GlassView>
 
-        {/* Buscador de zona: dime si una dirección es peligrosa */}
-        {!isWeb && (
-          <View style={styles.searchBar}>
-            <Ionicons name="search" size={16} color={theme.colors.textMuted} />
-            <TextInput
-              style={styles.searchInput}
-              placeholder="Busca una dirección o colonia…"
-              placeholderTextColor={theme.colors.textMuted}
-              value={searchText}
-              onChangeText={setSearchText}
-              onSubmitEditing={handleSearch}
-              returnKeyType="search"
-            />
-            {searching ? (
-              <ActivityIndicator size="small" color={theme.colors.accent} />
-            ) : searchText.length > 0 ? (
-              <Pressable onPress={handleSearch} hitSlop={8}>
-                <Ionicons name="arrow-forward-circle" size={22} color={theme.colors.accent} />
-              </Pressable>
-            ) : null}
-          </View>
-        )}
+        <View style={styles.searchBar}>
+          <Ionicons name="search" size={16} color={theme.colors.textMuted} />
+          <TextInput
+            ref={searchInputRef}
+            style={styles.searchInput}
+            placeholder="¿Necesitas salir? Escribe a dónde…"
+            placeholderTextColor={theme.colors.textMuted}
+            value={searchText}
+            onChangeText={setSearchText}
+            onSubmitEditing={handleSearch}
+            onKeyPress={(e) => {
+              if (e.nativeEvent.key === "Enter") void handleSearch();
+            }}
+            returnKeyType="search"
+            autoCorrect={false}
+            autoCapitalize="words"
+          />
+          {searching ? (
+            <ActivityIndicator size="small" color={theme.colors.accent} />
+          ) : searchText.length > 0 ? (
+            <Pressable
+              onPress={() => void handleSearch()}
+              hitSlop={8}
+              accessibilityLabel="Consultar destino"
+            >
+              <Ionicons name="arrow-forward-circle" size={22} color={theme.colors.accent} />
+            </Pressable>
+          ) : null}
+        </View>
 
         <View style={styles.layerSelector}>
           <Pressable
@@ -532,11 +568,13 @@ export default function MapScreen() {
             assessment={riskResult.assessment}
             label={riskResult.label}
             pulseCount={riskResult.assessment.count}
+            destination={riskResult.destination}
             onShare={() => {
               void handleShareZone(
                 riskResult.assessment,
                 riskResult.label,
                 riskResult.assessment.count,
+                riskResult.destination,
               );
             }}
             onClose={() => setRiskResult(null)}
@@ -609,7 +647,7 @@ const createStyles = (theme: any, themeMode: string) => StyleSheet.create({
     top: 0,
     left: 0,
     right: 0,
-    height: 120,
+    height: 168,
   },
   headerCard: {
     position: "absolute",

@@ -99,6 +99,14 @@ export const GO_OUT_LABEL: Record<RiskLevel, string> = {
   critica: "No salgas por aquí",
 };
 
+/** Destino: ¿es prudente ir? */
+export const GO_DEST_LABEL: Record<RiskLevel, string> = {
+  tranquila: "Es prudente ir",
+  moderada: "Puedes ir con precaución",
+  alta: "Mejor no vayas ahora",
+  critica: "No es prudente ir",
+};
+
 type RiskColors = { success: string; mapYellow: string; mapOrange: string; mapRed: string };
 
 export const riskColor = (level: RiskLevel, c: RiskColors): string => {

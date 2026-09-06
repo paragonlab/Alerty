@@ -440,6 +440,40 @@ export function resolveCommunityMapPoint(post: {
   };
 }
 
+/** Destino escrito por el usuario: colonia o zona de Culiacán. */
+export function resolveDestinationQuery(query: string): { lat: number; lng: number; placeLabel: string } | null {
+  const q = query.trim();
+  if (q.length < 3) return null;
+
+  const hit = resolveTextColonia(q);
+  if (hit && !hit.ambiguous) {
+    return { lat: hit.place.lat, lng: hit.place.lng, placeLabel: hit.place.name };
+  }
+
+  const n = normalize(q);
+  let exact: CuliacanPlace | null = null;
+  let best: { place: CuliacanPlace; len: number } | null = null;
+  for (const place of CULIACAN_PLACES) {
+    for (const name of placeNames(place)) {
+      const nn = normalize(name);
+      if (nn.length < 3) continue;
+      if (n === nn) {
+        if (!exact || nn.length > normalize(exact.name).length) exact = place;
+        continue;
+      }
+      const queryHasPlace = n.includes(nn) && nn.length >= 4;
+      const placeStartsWithQuery = nn.startsWith(n) && n.length >= 4;
+      const placeHasQueryWord = n.length >= 4 && ` ${nn} `.includes(` ${n} `);
+      if (queryHasPlace || placeStartsWithQuery || placeHasQueryWord) {
+        if (!best || nn.length > best.len) best = { place, len: nn.length };
+      }
+    }
+  }
+  const place = exact ?? best?.place ?? null;
+  if (!place) return null;
+  return { lat: place.lat, lng: place.lng, placeLabel: place.name };
+}
+
 export const nearestCuliacanPlace = (
   lat: number,
   lng: number,
