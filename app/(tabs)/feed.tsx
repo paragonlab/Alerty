@@ -16,6 +16,7 @@ import { VideoReelsList } from "../../components/VideoReelsList";
 import { TIME_FILTERS } from "../../lib/alerty/constants";
 import { useAlertyTheme } from "../../lib/useAlertyTheme";
 import { useAlertyStore } from "../../lib/alerty/store";
+import { requireSession } from "../../lib/alerty/session";
 import {
   getTimeFilterWindowLabel,
   isAlertInWindow,
@@ -205,7 +206,11 @@ export default function FeedScreen() {
       </Text>
       <Pressable
         style={styles.emptyCta}
-        onPress={() => router.push("/report" as any)}
+        onPress={() => {
+          void requireSession("/report").then((ok) => {
+            if (ok) router.push("/report" as any);
+          });
+        }}
       >
         <Ionicons name="warning" size={16} color="#fff" />
         <Text style={styles.emptyCtaText}>NUEVO PULSO</Text>

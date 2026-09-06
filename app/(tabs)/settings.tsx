@@ -99,6 +99,7 @@ export default function SettingsScreen() {
   };
 
   const isDark = themeMode === "darkHighVisibility";
+  const isGuest = currentUser.id === "local-user";
   const levelProgress = getLevelProgress(Number(currentUser.trustScore ?? 0));
 
   return (
@@ -118,6 +119,22 @@ export default function SettingsScreen() {
             <View style={styles.avatarCircle}>
               <Ionicons name="person" size={26} color={theme.colors.textMuted} />
             </View>
+            {isGuest ? (
+              <View style={{ flex: 1, gap: 6 }}>
+                <Text style={styles.accountUsername}>Sin cuenta</Text>
+                <Text style={styles.guestHint}>
+                  Puedes ver el mapa. Entra para reportar, seguir o enviar SOS.
+                </Text>
+                <Pressable
+                  style={styles.signInButton}
+                  onPress={() => router.push("/(auth)/login")}
+                >
+                  <Ionicons name="log-in-outline" size={15} color="#FFFFFF" />
+                  <Text style={styles.signInText}>Entrar</Text>
+                </Pressable>
+              </View>
+            ) : (
+            <>
             <View style={{ flex: 1, gap: 4 }}>
               {editingUsername ? (
                 <View style={styles.usernameInputRow}>
@@ -166,9 +183,11 @@ export default function SettingsScreen() {
                 <Text style={styles.signOutText}>Salir</Text>
               </Pressable>
             )}
+            </>
+            )}
           </View>
 
-          {editingUsername && (
+          {!isGuest && editingUsername && (
             <View style={styles.editActions}>
               {usernameError ? (
                 <Text style={styles.usernameError}>{usernameError}</Text>
@@ -200,6 +219,7 @@ export default function SettingsScreen() {
         </View>
 
         {/* Level Progress Card */}
+        {!isGuest && (
         <View style={styles.levelCard}>
           <View style={styles.levelHeader}>
             <View style={[styles.levelIconWrap, { backgroundColor: levelProgress.current.color + "22" }]}>
@@ -238,6 +258,7 @@ export default function SettingsScreen() {
             <Text style={styles.progressHint}>Has alcanzado el nivel máximo.</Text>
           )}
         </View>
+        )}
 
         {/* Premium Banner */}
         {!currentUser.isPremium && (
@@ -681,6 +702,27 @@ const createStyles = (theme: any) => StyleSheet.create({
   },
   signOutText: {
     color: theme.colors.danger,
+    fontSize: 13,
+    fontFamily: theme.fonts.heading,
+  },
+  guestHint: {
+    color: theme.colors.textMuted,
+    fontSize: 13,
+    lineHeight: 18,
+    fontFamily: theme.fonts.body,
+  },
+  signInButton: {
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    borderRadius: theme.radius.pill,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    backgroundColor: theme.colors.accent,
+  },
+  signInText: {
+    color: "#FFFFFF",
     fontSize: 13,
     fontFamily: theme.fonts.heading,
   },

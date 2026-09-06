@@ -107,6 +107,7 @@ type AlertyState = {
   updateUserScore: (score: number) => void;
   getReportingRange: () => number;
   loadUserProfile: () => Promise<void>;
+  resetGuest: () => void;
   updateUsername: (newUsername: string) => Promise<{ error: string | null }>;
   recomputeVerifiedStatus: () => void;
   sponsoredZones: SponsoredZone[];
@@ -134,6 +135,16 @@ const syncPreference = async (key: string, value: any) => {
 const isDbId = (id: string) =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
 
+const GUEST_USER: AlertUser = {
+  id: "local-user",
+  username: "@invitado",
+  avatarUrl: null,
+  isVerified: false,
+  trustScore: 10,
+  level: "CIUDADANO",
+  followersCount: 0,
+};
+
 export const useAlertyStore = create<AlertyState>((set, get) => ({
   alerts: [],
   communityPosts: [],
@@ -152,15 +163,7 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
   showHeatmap: true,
   sosWarningAccepted: false,
   themeMode: "light",
-  currentUser: {
-    id: "local-user",
-    username: "@DemoUser",
-    avatarUrl: null,
-    isVerified: false,
-    trustScore: 10,
-    level: "CIUDADANO",
-    followersCount: 0,
-  },
+  currentUser: GUEST_USER,
   sponsoredZones: [],
   feedViewMode: "list",
   setFeedViewMode: (mode) => set({ feedViewMode: mode }),
@@ -416,6 +419,12 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
     set({ pushEnabled: value });
     syncPreference("push_enabled", value);
   },
+  resetGuest: () =>
+    set({
+      currentUser: GUEST_USER,
+      followingAlertIds: [],
+      votedAlerts: {},
+    }),
   loadUserProfile: async () => {
     if (!isSupabaseConfigured || !supabase) return;
     let data: any = null;

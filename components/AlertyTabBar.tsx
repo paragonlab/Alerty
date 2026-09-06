@@ -17,6 +17,7 @@ import { useAlertyStore } from "../lib/alerty/store";
 import { useAlertyTheme } from "../lib/useAlertyTheme";
 import { Sounds } from "../lib/sounds";
 import { supabase, isSupabaseConfigured } from "../lib/supabase";
+import { requireSession } from "../lib/alerty/session";
 
 export const TAB_BAR_HEIGHT = 88;
 
@@ -284,6 +285,8 @@ export function AlertyTabBar({ state, navigation }: TabBarProps) {
 
   // ── SOS handler ──────────────────────────────────────────────────────────
   const handleSOS = async () => {
+    if (!(await requireSession())) return;
+
     const triggerSOS = async () => {
       void Sounds.sos();
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
@@ -367,6 +370,12 @@ export function AlertyTabBar({ state, navigation }: TabBarProps) {
     if (name === "avisos") clearUnreadAlerts();
   }
 
+  async function goReport() {
+    void Sounds.tap();
+    if (!(await requireSession("/report"))) return;
+    router.push("/report" as any);
+  }
+
   // ── COMPACT REELS PILL ────────────────────────────────────────────────────
   if (isReels) {
     const pillBottom = Math.max(22, insets.bottom + 14);
@@ -389,7 +398,7 @@ export function AlertyTabBar({ state, navigation }: TabBarProps) {
             <SOSCenterBtn
               size="mini"
               socketColor="rgba(8,8,8,0.72)"
-              onPress={() => router.push("/report" as any)}
+              onPress={() => { void goReport(); }}
               onLongPress={() => { void handleSOS(); }}
             />
           </View>
@@ -472,7 +481,7 @@ export function AlertyTabBar({ state, navigation }: TabBarProps) {
         <SOSCenterBtn
           size="large"
           socketColor={socketColor}
-          onPress={() => { void Sounds.tap(); router.push("/report" as any); }}
+          onPress={() => { void goReport(); }}
           onLongPress={() => { void handleSOS(); }}
         />
       </View>

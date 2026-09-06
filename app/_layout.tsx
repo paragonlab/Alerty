@@ -1,4 +1,4 @@
-import { Stack, useRootNavigationState, useRouter, useSegments } from "expo-router";
+import { Stack, usePathname, useRootNavigationState, useRouter, useSegments } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import { Alert } from "react-native";
 import { StatusBar } from "expo-status-bar";
@@ -8,6 +8,7 @@ import { trackEvent } from "../lib/analytics";
 import { darkHighVisibility, lightTheme } from "../lib/theme";
 import { isSupabaseConfigured, supabase } from "../lib/supabase";
 import { useAlertyStore } from "../lib/alerty/store";
+import { consumeAuthNext, setAuthNext } from "../lib/alerty/session";
 import { isDemoEnabled } from "../lib/alerty/mock";
 import { calculateDistance } from "../lib/alerty/utils";
 import {
@@ -19,11 +20,14 @@ import { identifyUser as identifyRevenueCatUser } from "../lib/revenuecat";
 import * as Location from "expo-location";
 import * as Haptics from "expo-haptics";
 
+const AUTH_ONLY_ROUTES = new Set(["report", "premium", "business"]);
+
 export default function RootLayout() {
-  const { loadAlertsFromSupabase, startRealtime, themeMode, loadUserProfile, loadSponsoredZones, loadCommunityPosts, startDemo } = useAlertyStore();
+  const { loadAlertsFromSupabase, startRealtime, themeMode, loadUserProfile, loadSponsoredZones, loadCommunityPosts, startDemo, resetGuest } = useAlertyStore();
   const currentTheme = themeMode === "darkHighVisibility" ? darkHighVisibility : lightTheme;
   const router = useRouter();
   const segments = useSegments();
+  const pathname = usePathname();
   const rootNavigationState = useRootNavigationState();
   const [isReady, setIsReady] = useState(false);
   const [hasSession, setHasSession] = useState(false);
@@ -35,7 +39,7 @@ export default function RootLayout() {
 
   useEffect(() => {
     if (!isSupabaseConfigured || !supabase) {
-      setHasSession(true);
+      setHasSession(false);
       setIsReady(true);
       return;
     }
@@ -61,6 +65,7 @@ export default function RootLayout() {
       }
       if (_event === "SIGNED_OUT") {
         void trackEvent({ event_type: "auth_signed_out" });
+        resetGuest();
       }
       setHasSession(Boolean(session));
     });
@@ -141,19 +146,19 @@ export default function RootLayout() {
       return;
     }
     if (!isSupabaseConfigured) return;
+    void loadAlertsFromSupabase();
+    void loadSponsoredZones();
+    void loadCommunityPosts();
+    const unsubscribeRealtime = startRealtime();
     if (hasSession) {
-      void loadAlertsFromSupabase();
-      void loadSponsoredZones();
-      void loadCommunityPosts();
       void syncPushRegistration();
       void supabase?.auth.getUser().then(({ data }) => {
         if (data.user?.id) void identifyRevenueCatUser(data.user.id);
       });
-      const unsubscribeRealtime = startRealtime();
-      return () => {
-        if (unsubscribeRealtime) unsubscribeRealtime();
-      };
     }
+    return () => {
+      if (unsubscribeRealtime) unsubscribeRealtime();
+    };
   }, [hasSession, isReady]);
 
   const handledColdStart = useRef(false);
@@ -175,15 +180,23 @@ export default function RootLayout() {
     if (!isReady || !rootNavigationState?.key) return;
     const currentGroup = segments[0];
     const isInAuth = currentGroup === "(auth)";
+    const authOnlyPath = pathname === "/report" || pathname.startsWith("/premium") || pathname.startsWith("/business");
 
-    if (!hasSession && !isInAuth) {
+    if (!hasSession && (AUTH_ONLY_ROUTES.has(String(currentGroup)) || authOnlyPath)) {
+      const next = pathname.startsWith("/premium")
+        ? "/premium"
+        : pathname.startsWith("/business")
+          ? "/business"
+          : "/report";
+      setAuthNext(next);
       router.replace("/(auth)/login");
+      return;
     }
 
     if (hasSession && isInAuth) {
-      router.replace("/(tabs)");
+      router.replace((consumeAuthNext() ?? "/(tabs)") as any);
     }
-  }, [hasSession, isReady, rootNavigationState?.key, router, segments]);
+  }, [hasSession, isReady, pathname, rootNavigationState?.key, router, segments]);
 
   if (!fontsLoaded) {
     return null;

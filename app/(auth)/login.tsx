@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -16,7 +16,9 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { trackEvent } from "../../lib/analytics";
 import { lightTheme as theme } from "../../lib/theme";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { isSupabaseConfigured, supabase } from "../../lib/supabase";
+import { setAuthNext } from "../../lib/alerty/session";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -24,6 +26,12 @@ type Provider = "apple" | "google";
 
 export default function LoginScreen() {
   const [loadingProvider, setLoadingProvider] = useState<Provider | null>(null);
+  const router = useRouter();
+  const { next } = useLocalSearchParams<{ next?: string }>();
+
+  useEffect(() => {
+    if (typeof next === "string") setAuthNext(next);
+  }, [next]);
 
   const handleAppleNativeLogin = async () => {
     if (!isSupabaseConfigured || !supabase) return;
@@ -139,16 +147,16 @@ export default function LoginScreen() {
               </View>
               <Text style={styles.brand}>Pulso</Text>
             </View>
-            <Text style={styles.headline}>¿Es seguro salir?</Text>
+            <Text style={styles.headline}>Entra para publicar</Text>
             <Text style={styles.subheadline}>
-              Mira tu zona en el mapa y los pulsos de la comunidad y los noticieros. Antes de salir, en Culiacán.
+              El mapa, los pulsos y si puedes salir se ven sin cuenta. Reportar, seguir y SOS piden sesión.
             </Text>
           </View>
 
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Entra con tu cuenta</Text>
             <Text style={styles.cardSubtitle}>
-              Los reportes verificados ganan más visibilidad en el mapa.
+              Así tus pulsos quedan ligados a ti y puedes seguir una alerta.
             </Text>
 
             <Pressable
@@ -189,6 +197,13 @@ export default function LoginScreen() {
                 </Text>
               </View>
             ) : null}
+
+            <Pressable
+              style={({ pressed }) => [styles.skipButton, pressed && styles.buttonPressed]}
+              onPress={() => router.replace("/(tabs)")}
+            >
+              <Text style={styles.skipButtonText}>Seguir viendo el mapa</Text>
+            </Pressable>
           </View>
         </View>
       </LinearGradient>
@@ -306,6 +321,16 @@ const styles = StyleSheet.create({
   },
   buttonPressed: {
     opacity: 0.7,
+  },
+  skipButton: {
+    height: 44,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  skipButtonText: {
+    color: theme.colors.textMuted,
+    fontSize: 14,
+    fontFamily: "SpaceGrotesk_500Medium",
   },
   demoNote: {
     flexDirection: "row",
