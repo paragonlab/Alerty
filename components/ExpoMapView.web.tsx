@@ -453,6 +453,8 @@ function ensurePulseStyles() {
   height: 48px;
 }
 .pulso-leaflet-pin .pulso-pin__dot {
+  width: 16px;
+  height: 16px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.28);
 }
 .leaflet-container {
@@ -630,6 +632,15 @@ function aggregateHeatPoints(points: HeatmapPoint[]): HeatmapPoint[] {
     else cells.set(key, { lat, lng, weight: w });
   }
   return [...cells.values()].map((c) => ({ latitude: c.lat, longitude: c.lng, weight: c.weight }));
+}
+
+function heatPixelRadius(weight: number): number {
+  return Math.min(5, 3 + Math.sqrt(weight));
+}
+
+function metersForPixels(lat: number, zoom: number, px: number): number {
+  const metersPerPx = (156543.03392 * Math.cos((lat * Math.PI) / 180)) / 2 ** zoom;
+  return Math.max(6, px * metersPerPx);
 }
 
 function collectHeatmap(node: React.ReactNode): HeatmapProps | null {
@@ -1090,7 +1101,7 @@ const ExpoMapView = forwardRef<MapHandle, MapViewProps>(function ExpoMapView(pro
       if (longPressTimer.current) window.clearTimeout(longPressTimer.current);
       overlaysRef.current.forEach((o) => o.setMap(null));
       overlaysRef.current = [];
-      heatCirclesRef.current.forEach((c) => c.setMap?.(null));
+      heatCirclesRef.current.forEach((c) => (c.setMap ?? c.circle?.setMap)?.(null));
       heatCirclesRef.current = [];
       polygonsRef.current.forEach((p) => p.setMap?.(null));
       polygonsRef.current = [];
@@ -1111,7 +1122,7 @@ const ExpoMapView = forwardRef<MapHandle, MapViewProps>(function ExpoMapView(pro
     ensurePulseStyles();
     overlaysRef.current.forEach((o) => o.setMap(null));
     overlaysRef.current = [];
-    heatCirclesRef.current.forEach((c) => c.setMap?.(null));
+    heatCirclesRef.current.forEach((c) => (c.setMap ?? c.circle?.setMap)?.(null));
     heatCirclesRef.current = [];
     polygonsRef.current.forEach((p) => p.setMap?.(null));
     polygonsRef.current = [];
@@ -1136,9 +1147,9 @@ const ExpoMapView = forwardRef<MapHandle, MapViewProps>(function ExpoMapView(pro
         const weight = typeof p.weight === "number" && p.weight > 0 ? p.weight : 1;
         group.addLayer(
           L.circleMarker([p.latitude, p.longitude], {
-            radius: Math.min(14, 7 + 2 * Math.sqrt(weight)),
+            radius: heatPixelRadius(weight),
             fillColor: "#E84F1F",
-            fillOpacity: Math.min(0.16, 0.07 + 0.02 * Math.sqrt(weight)),
+            fillOpacity: Math.min(0.18, 0.08 + 0.03 * Math.sqrt(weight)),
             stroke: false,
             interactive: false,
           }),
@@ -1212,19 +1223,30 @@ const ExpoMapView = forwardRef<MapHandle, MapViewProps>(function ExpoMapView(pro
       polygonsRef.current.push(shape);
     });
 
+    const zoom = typeof map.getZoom === "function" ? map.getZoom() : 12;
     heatPoints.forEach((p) => {
       const weight = typeof p.weight === "number" && p.weight > 0 ? p.weight : 1;
       const circle = new g.maps.Circle({
         center: { lat: p.latitude, lng: p.longitude },
-        radius: Math.max(160, 200 * Math.sqrt(weight)),
+        radius: metersForPixels(p.latitude, zoom, heatPixelRadius(weight)),
         fillColor: "#E84F1F",
-        fillOpacity: Math.min(0.2, 0.08 + 0.03 * weight),
+        fillOpacity: Math.min(0.18, 0.08 + 0.03 * Math.sqrt(weight)),
         strokeWeight: 0,
         clickable: false,
         map,
       });
-      heatCirclesRef.current.push(circle);
+      heatCirclesRef.current.push({ circle, lat: p.latitude, weight });
     });
+    if (!map.__pulsoHeatZoom) {
+      map.__pulsoHeatZoom = true;
+      map.addListener("zoom_changed", () => {
+        const z = map.getZoom?.() ?? 12;
+        heatCirclesRef.current.forEach((item: { circle?: { setRadius: (n: number) => void }; lat?: number; weight?: number }) => {
+          if (!item?.circle || item.lat == null) return;
+          item.circle.setRadius(metersForPixels(item.lat, z, heatPixelRadius(item.weight ?? 1)));
+        });
+      });
+    }
   }, [props.children, ready, mapEpoch]);
 
   if (error) {
