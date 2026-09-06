@@ -16,7 +16,7 @@ import { riskColor, type GridCell } from "../lib/alerty/risk";
 const API_KEY = process.env.EXPO_PUBLIC_GOOGLE_MAPS_KEY ?? "";
 
 /** Pause fancy pulse rings when many pins (mobile Safari). */
-const PULSE_SIMPLIFY_AT = 36;
+const PULSE_SIMPLIFY_AT = 10;
 
 type Region = {
   latitude: number;
@@ -105,7 +105,6 @@ export function Polygon(_props: PolygonProps) {
 export const PROVIDER_GOOGLE = "google";
 
 let mapsLoad: Promise<void> | null = null;
-let stylesInjected = false;
 
 function loadGoogleMaps(): Promise<void> {
   if (typeof window === "undefined") {
@@ -177,19 +176,22 @@ const GRID_THEME = {
 };
 
 function ensurePulseStyles() {
-  if (typeof document === "undefined" || stylesInjected) return;
-  stylesInjected = true;
-  const style = document.createElement("style");
-  style.setAttribute("data-pulso-glow-markers", "1");
+  if (typeof document === "undefined") return;
+  let style = document.querySelector("style[data-pulso-glow-markers]") as HTMLStyleElement | null;
+  if (!style) {
+    style = document.createElement("style");
+    style.setAttribute("data-pulso-glow-markers", "1");
+    document.head.appendChild(style);
+  }
   style.textContent = `
 @keyframes pulso-halo {
-  0%, 100% { transform: scale(0.85); opacity: var(--pulso-halo-min, 0.45); }
-  50% { transform: scale(1.1); opacity: var(--pulso-halo-max, 0.75); }
+  0%, 100% { transform: scale(0.9); opacity: var(--pulso-halo-min, 0.2); }
+  50% { transform: scale(1.05); opacity: var(--pulso-halo-max, 0.35); }
 }
 @keyframes pulso-ring {
-  0% { transform: scale(0.7); opacity: 0.9; }
-  60% { opacity: 0.25; }
-  100% { transform: scale(3.6); opacity: 0; }
+  0% { transform: scale(0.8); opacity: 0.45; }
+  70% { opacity: 0.12; }
+  100% { transform: scale(1.7); opacity: 0; }
 }
 @keyframes pulso-beat {
   0%, 100% { opacity: 0; }
@@ -441,6 +443,18 @@ function ensurePulseStyles() {
   background: none !important;
   border: none !important;
 }
+.pulso-leaflet-pin .pulso-pin,
+.pulso-leaflet-pin .pulso-community,
+.pulso-leaflet-pin .pulso-sponsor {
+  margin: 0 !important;
+}
+.pulso-leaflet-pin .pulso-pin {
+  width: 48px;
+  height: 48px;
+}
+.pulso-leaflet-pin .pulso-pin__dot {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.28);
+}
 .leaflet-container {
   width: 100%;
   height: 100%;
@@ -448,7 +462,6 @@ function ensurePulseStyles() {
   font-family: inherit;
 }
 `;
-  document.head.appendChild(style);
 }
 
 function regionToZoom(delta?: number) {
@@ -604,6 +617,21 @@ function splitCssColor(color?: string): { color: string; opacity?: number } {
   return { color };
 }
 
+function aggregateHeatPoints(points: HeatmapPoint[]): HeatmapPoint[] {
+  const bucket = 0.01;
+  const cells = new Map<string, { lat: number; lng: number; weight: number }>();
+  for (const p of points) {
+    const lat = Math.round(p.latitude / bucket) * bucket;
+    const lng = Math.round(p.longitude / bucket) * bucket;
+    const key = `${lat},${lng}`;
+    const cur = cells.get(key);
+    const w = typeof p.weight === "number" && p.weight > 0 ? p.weight : 1;
+    if (cur) cur.weight += w;
+    else cells.set(key, { lat, lng, weight: w });
+  }
+  return [...cells.values()].map((c) => ({ latitude: c.lat, longitude: c.lng, weight: c.weight }));
+}
+
 function collectHeatmap(node: React.ReactNode): HeatmapProps | null {
   let found: HeatmapProps | null = null;
   Children.forEach(node, (child) => {
@@ -712,16 +740,12 @@ function buildAlertPinElement(meta: AlertPinMeta, simplify: boolean): HTMLDivEle
         <span class="pulso-pin__icon">${categoryIconSvg(meta.category)}</span>
       `;
 
-  if (!staticPulse) {
-    el.innerHTML = `
-      <div class="pulso-pin__halo"></div>
-      <div class="pulso-pin__ring"></div>
-      ${simplify ? "" : '<div class="pulso-pin__ring pulso-pin__ring--delayed"></div>'}
-      <div class="pulso-pin__dot">${coreInner}</div>
-    `;
+  if (simplify || staticPulse) {
+    el.innerHTML = `<div class="pulso-pin__dot">${coreInner}</div>`;
   } else {
     el.innerHTML = `
       <div class="pulso-pin__halo"></div>
+      <div class="pulso-pin__ring"></div>
       <div class="pulso-pin__dot">${coreInner}</div>
     `;
   }
@@ -1098,8 +1122,8 @@ const ExpoMapView = forwardRef<MapHandle, MapViewProps>(function ExpoMapView(pro
     const heat = collectHeatmap(props.children);
     const alertCount = markers.filter((m) => m.meta.kind === "alert").length;
     const simplify = alertCount >= PULSE_SIMPLIFY_AT;
-    const heatPoints = (heat?.points ?? []).filter(
-      (p) => Number.isFinite(p.latitude) && Number.isFinite(p.longitude),
+    const heatPoints = aggregateHeatPoints(
+      (heat?.points ?? []).filter((p) => Number.isFinite(p.latitude) && Number.isFinite(p.longitude)),
     );
 
     if (engine === "leaflet") {
@@ -1111,11 +1135,12 @@ const ExpoMapView = forwardRef<MapHandle, MapViewProps>(function ExpoMapView(pro
       heatPoints.forEach((p) => {
         const weight = typeof p.weight === "number" && p.weight > 0 ? p.weight : 1;
         group.addLayer(
-          L.circle([p.latitude, p.longitude], {
-            radius: Math.max(700, 900 * weight),
+          L.circleMarker([p.latitude, p.longitude], {
+            radius: Math.min(14, 7 + 2 * Math.sqrt(weight)),
             fillColor: "#E84F1F",
-            fillOpacity: Math.min(0.45, 0.22 + 0.1 * weight),
+            fillOpacity: Math.min(0.16, 0.07 + 0.02 * Math.sqrt(weight)),
             stroke: false,
+            interactive: false,
           }),
         );
       });
@@ -1139,13 +1164,17 @@ const ExpoMapView = forwardRef<MapHandle, MapViewProps>(function ExpoMapView(pro
 
       markers.forEach((p) => {
         const content = pinElement(p.meta, simplify);
+        const size = p.meta.kind === "alert" ? 48 : p.meta.kind === "community" ? 40 : 32;
         const icon = L.divIcon({
           html: content.outerHTML,
           className: "pulso-leaflet-pin",
-          iconSize: [72, 72],
-          iconAnchor: [36, 36],
+          iconSize: [size, size],
+          iconAnchor: [size / 2, size / 2],
         });
-        const marker = L.marker([p.coordinate.latitude, p.coordinate.longitude], { icon });
+        const marker = L.marker([p.coordinate.latitude, p.coordinate.longitude], {
+          icon,
+          keyboard: false,
+        });
         if (p.onPress) marker.on("click", () => p.onPress?.());
         group.addLayer(marker);
       });
@@ -1187,9 +1216,9 @@ const ExpoMapView = forwardRef<MapHandle, MapViewProps>(function ExpoMapView(pro
       const weight = typeof p.weight === "number" && p.weight > 0 ? p.weight : 1;
       const circle = new g.maps.Circle({
         center: { lat: p.latitude, lng: p.longitude },
-        radius: Math.max(700, 900 * weight),
+        radius: Math.max(160, 200 * Math.sqrt(weight)),
         fillColor: "#E84F1F",
-        fillOpacity: Math.min(0.45, 0.22 + 0.1 * weight),
+        fillOpacity: Math.min(0.2, 0.08 + 0.03 * weight),
         strokeWeight: 0,
         clickable: false,
         map,
