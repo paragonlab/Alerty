@@ -208,7 +208,7 @@ export default function FeedScreen() {
         onPress={() => router.push("/report" as any)}
       >
         <Ionicons name="warning" size={16} color="#fff" />
-        <Text style={styles.emptyCtaText}>REPORTAR AHORA</Text>
+        <Text style={styles.emptyCtaText}>NUEVO PULSO</Text>
       </Pressable>
       <Text style={styles.emptyHint}>
         O amplía el filtro de tiempo / revisa categorías en Ajustes.

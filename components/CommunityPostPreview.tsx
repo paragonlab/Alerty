@@ -10,12 +10,10 @@ import {
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
 import { Video, ResizeMode } from "expo-av";
 import { formatRelativeTime } from "../lib/alerty/utils";
 import type { CommunityPost } from "../lib/alerty/types";
 import { useAlertyTheme } from "../lib/useAlertyTheme";
-import { useAlertyStore } from "../lib/alerty/store";
 
 const X_ACCENT = "#1D9BF0";
 const NEWS_ACCENT = "#0D9488";
@@ -46,8 +44,6 @@ type CommunityPostPreviewProps = {
 export function CommunityPostPreview({ post, onClose }: CommunityPostPreviewProps) {
   const theme = useAlertyTheme();
   const styles = createStyles(theme);
-  const router = useRouter();
-  const setPendingCommunityConfirm = useAlertyStore((s) => s.setPendingCommunityConfirm);
   const [mediaFailed, setMediaFailed] = useState(false);
   const openedAtRef = useRef(Date.now());
 
@@ -83,19 +79,6 @@ export function CommunityPostPreview({ post, onClose }: CommunityPostPreviewProp
 
   const openExternal = () => {
     void Linking.openURL(post.url);
-  };
-
-  const confirmInPulso = () => {
-    setPendingCommunityConfirm({
-      text: post.text.slice(0, 280),
-      categoryGuess: post.categoryGuess,
-      placeLabel: post.placeLabel,
-      lat: post.lat,
-      lng: post.lng,
-      sourceUrl: post.url,
-    });
-    onClose();
-    router.push("/report");
   };
 
   const body = (
@@ -211,14 +194,6 @@ export function CommunityPostPreview({ post, onClose }: CommunityPostPreviewProp
         )}
 
         <View style={styles.actions}>
-          <Pressable
-            style={({ pressed }) => [styles.primaryBtn, pressed && styles.btnPressed]}
-            onPress={confirmInPulso}
-            accessibilityLabel="Confirmar en Pulso"
-          >
-            <Ionicons name="shield-checkmark-outline" size={16} color="#fff" />
-            <Text style={styles.primaryBtnText}>Confirmar en Pulso</Text>
-          </Pressable>
           <Pressable
             style={({ pressed }) => [styles.secondaryBtn, pressed && styles.btnPressed]}
             onPress={openExternal}
