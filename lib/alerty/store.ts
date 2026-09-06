@@ -161,7 +161,7 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
   votedAlerts: {},
   maxReportingDistance: 2.0,
   sosActive: false,
-  showHeatmap: false,
+  showHeatmap: true,
   sosWarningAccepted: false,
   themeMode: "light",
   currentUser: {
@@ -468,7 +468,6 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
         pushEnabled: data.push_enabled ?? state.pushEnabled,
         lowConnection: data.low_connection ?? state.lowConnection,
         activeCategories: data.active_categories ?? state.activeCategories,
-        showHeatmap: data.show_heatmap ?? state.showHeatmap,
       }));
     }
   },

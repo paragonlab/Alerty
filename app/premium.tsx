@@ -173,21 +173,15 @@ export default function PremiumScreen() {
 
         <View style={styles.featuresList}>
           <FeatureItem
-            icon="flame"
-            title="Mapa de Calor de Riesgos"
-            description="Visualiza áreas peligrosas según el histórico de incidentes."
-            theme={theme}
-          />
-          <FeatureItem
-            icon="grid"
-            title="Mapa de Zonas por Cuadrantes"
-            description="Ve la ciudad dividida en cuadrantes de color según el nivel de peligro."
-            theme={theme}
-          />
-          <FeatureItem
             icon="people"
             title="Zonas Múltiples Seguras"
-            description="Agrega hasta 5 zonas para notificar a tu familia." 
+            description="Agrega hasta 5 zonas para notificar a tu familia."
+            theme={theme}
+          />
+          <FeatureItem
+            icon="notifications-off"
+            title="Sin anuncios"
+            description="Mapa y feed limpios, sin zonas patrocinadas."
             theme={theme}
           />
           <FeatureItem 
