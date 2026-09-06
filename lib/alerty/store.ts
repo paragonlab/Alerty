@@ -149,7 +149,7 @@ const isDbId = (id: string) =>
 export const useAlertyStore = create<AlertyState>((set, get) => ({
   alerts: [],
   communityPosts: [],
-  timeFilter: "6h",
+  timeFilter: "24h",
   activeCategories: [...ALERT_CATEGORIES],
   lowConnection: false,
   pushEnabled: true,

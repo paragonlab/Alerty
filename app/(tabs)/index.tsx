@@ -37,7 +37,7 @@ import {
   getPulseDuration,
   getTimeFilterWindowLabel,
   isAlertInWindow,
-  isCreatedAtInWindow,
+  isCommunityInWindow,
   shouldSuppressAlert,
 } from "../../lib/alerty/utils";
 
@@ -88,7 +88,7 @@ export default function MapScreen() {
 
   const filteredCommunity = useMemo(
     () =>
-      communityPosts.filter((post) => isCreatedAtInWindow(post.createdAt, timeFilter)),
+      communityPosts.filter((post) => isCommunityInWindow(post, timeFilter)),
     [communityPosts, timeFilter],
   );
 
@@ -477,7 +477,7 @@ export default function MapScreen() {
             })}
           </View>
           <Text style={styles.timeWindowCaption} pointerEvents="none">
-            Ventana: {getTimeFilterWindowLabel(timeFilter)} · no caducan en DB
+            Ventana: {getTimeFilterWindowLabel(timeFilter)} · evento o primera ingesta
           </Text>
         </View>
 
