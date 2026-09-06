@@ -89,6 +89,14 @@ export const RISK_LABEL: Record<RiskLevel, string> = {
   critica: "Riesgo crítico",
 };
 
+/** Respuesta de 2 segundos: ¿puedo salir? */
+export const GO_OUT_LABEL: Record<RiskLevel, string> = {
+  tranquila: "Puedes salir",
+  moderada: "Sal con precaución",
+  alta: "Mejor evítala",
+  critica: "No salgas por aquí",
+};
+
 type RiskColors = { success: string; mapYellow: string; mapOrange: string; mapRed: string };
 
 export const riskColor = (level: RiskLevel, c: RiskColors): string => {

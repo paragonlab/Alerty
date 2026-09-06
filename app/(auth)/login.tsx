@@ -139,9 +139,9 @@ export default function LoginScreen() {
               </View>
               <Text style={styles.brand}>Pulso</Text>
             </View>
-            <Text style={styles.headline}>Seguridad comunitaria{"\n"}en tiempo real.</Text>
+            <Text style={styles.headline}>¿Es seguro salir?</Text>
             <Text style={styles.subheadline}>
-              Reporta, verifica y comparte alertas críticas en Culiacán para movernos mejor y salvar vidas.
+              Mira tu zona en el mapa y los pulsos de la comunidad y los noticieros. Antes de salir, en Culiacán.
             </Text>
           </View>
 

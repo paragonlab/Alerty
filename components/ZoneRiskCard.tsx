@@ -4,7 +4,7 @@ import { View, Text, Pressable, StyleSheet } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useAlertyTheme } from "../lib/useAlertyTheme";
 import { CATEGORY_LABELS } from "../lib/alerty/constants";
-import { RISK_LABEL, RISK_RADIUS_KM, riskColor, type RiskAssessment, type RiskLevel } from "../lib/alerty/risk";
+import { GO_OUT_LABEL, RISK_LABEL, RISK_RADIUS_KM, riskColor, type RiskAssessment, type RiskLevel } from "../lib/alerty/risk";
 
 const ICON: Record<RiskLevel, keyof typeof Ionicons.glyphMap> = {
   tranquila: "shield-checkmark",
@@ -18,15 +18,20 @@ const RADIUS_M = Math.round(RISK_RADIUS_KM * 1000);
 export function ZoneRiskCard({
   assessment,
   label,
+  pulseCount,
+  onShare,
   onClose,
 }: {
   assessment: RiskAssessment;
   label: string;
+  pulseCount?: number;
+  onShare?: () => void;
   onClose: () => void;
 }) {
   const theme = useAlertyTheme();
   const styles = createStyles(theme);
   const color = riskColor(assessment.level, theme.colors);
+  const pulses = pulseCount ?? assessment.count;
 
   return (
     <View style={[styles.card, { borderColor: color }]}>
@@ -35,9 +40,16 @@ export function ZoneRiskCard({
           <Ionicons name={ICON[assessment.level]} size={18} color="#fff" />
         </View>
         <View style={{ flex: 1 }}>
-          <Text style={[styles.level, { color }]}>{RISK_LABEL[assessment.level]}</Text>
-          <Text style={styles.place} numberOfLines={1}>{label}</Text>
+          <Text style={[styles.level, { color }]}>{GO_OUT_LABEL[assessment.level]}</Text>
+          <Text style={styles.place} numberOfLines={1}>
+            {RISK_LABEL[assessment.level]} · {label}
+          </Text>
         </View>
+        {onShare ? (
+          <Pressable onPress={onShare} hitSlop={10} style={styles.close} accessibilityLabel="Compartir zona">
+            <Ionicons name="share-outline" size={18} color={theme.colors.text} />
+          </Pressable>
+        ) : null}
         <Pressable onPress={onClose} hitSlop={10} style={styles.close}>
           <Ionicons name="close" size={18} color={theme.colors.textMuted} />
         </Pressable>
@@ -50,7 +62,7 @@ export function ZoneRiskCard({
       ) : (
         <>
           <Text style={styles.summary}>
-            {assessment.count} {assessment.count === 1 ? "incidente" : "incidentes"} en un radio de {RADIUS_M} m
+            {pulses} {pulses === 1 ? "pulso" : "pulsos"} en un radio de {RADIUS_M} m · comunidad y noticieros
           </Text>
           <View style={styles.chips}>
             {assessment.byCategory.map((c) => (
