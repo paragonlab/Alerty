@@ -179,7 +179,7 @@ export default function AvisosScreen() {
       <Ionicons name="notifications-off-outline" size={44} color={theme.colors.border} />
       <Text style={styles.emptyText}>Nada cerca ni en seguimiento</Text>
       <Text style={styles.emptyHint}>
-        Avisos muestra alertas a {AVISOS_RADIUS_KM} km o las que sigues. El Feed tiene el resto.
+        Avisos muestra alertas a {AVISOS_RADIUS_KM} km o las que sigues. Pulsos tiene el resto.
       </Text>
     </View>
   );
