@@ -442,7 +442,7 @@ export function AlertyTabBar({ state, navigation }: TabBarProps) {
           badgeBorderColor={socketColor}
         />
         <NavItem
-          icon="albums" iconOut="albums-outline" label="Feed"
+          icon="pulse" iconOut="pulse-outline" label="Pulsos"
           active={activeRoute?.name === "feed"}
           onPress={() => goTo("feed")}
           activeColor={activeColor} inactiveColor={inactiveColor}

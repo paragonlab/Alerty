@@ -90,22 +90,6 @@ export default function FeedScreen() {
     return target ? [target, ...videoAlerts] : videoAlerts;
   }, [videoAlerts, reelsInitialAlertId, alerts]);
 
-  const total24h = useMemo(
-    () =>
-      alerts.filter(
-        (alert) =>
-          alert.status === "active" &&
-          activeCategories.includes(alert.category) &&
-          isAlertInWindow(alert, "24h"),
-      ).length,
-    [alerts, activeCategories],
-  );
-
-  const verifiedCount = useMemo(
-    () => filteredAlerts.filter((alert) => alert.user.isVerified).length,
-    [filteredAlerts],
-  );
-
   const feedItems = useMemo(() => {
     type Timed = { at: number; row: FeedRow };
     const timed: Timed[] = [
@@ -177,7 +161,7 @@ export default function FeedScreen() {
     <View style={styles.listHeader}>
       <View style={styles.header}>
         <View style={styles.titleRow}>
-          <Text style={styles.title}>Feed</Text>
+          <Text style={styles.title}>Pulsos</Text>
           <View style={[styles.livePill, realtimeStarted && styles.livePillOn]}>
             <View style={[styles.liveDot, realtimeStarted && styles.liveDotOn]} />
             <Text style={[styles.livePillText, realtimeStarted && styles.livePillTextOn]}>
@@ -186,35 +170,8 @@ export default function FeedScreen() {
           </View>
         </View>
         <Text style={styles.subtitle}>
-          {realtimeStarted
-            ? "Alertas ciudadanas en tiempo real, X y noticias locales (etiquetadas)."
-            : "Alertas de la comunidad, X y noticias locales (etiquetadas)."}
+          Lo que está pasando cerca: reportes, comunidad y noticieros.
         </Text>
-      </View>
-
-      {filteredCommunity.length > 0 ? (
-        <View style={styles.communityBanner}>
-          <Ionicons name="logo-twitter" size={14} color="#1D9BF0" />
-          <Text style={styles.communityBannerText}>
-            {filteredCommunity.length} desde X / Comunidad
-            {filteredCommunity.every((p) => p.isDemo) ? " · DEMO (no en vivo)" : ""}
-          </Text>
-        </View>
-      ) : null}
-
-      <View style={styles.statsRow}>
-        <View style={styles.statCard}>
-          <Text style={styles.statValue}>{filteredAlerts.length}</Text>
-          <Text style={styles.statLabel}>En ventana</Text>
-        </View>
-        <View style={styles.statCard}>
-          <Text style={styles.statValue}>{total24h}</Text>
-          <Text style={styles.statLabel}>Últimas 24h</Text>
-        </View>
-        <View style={styles.statCard}>
-          <Text style={styles.statValue}>{verifiedCount}</Text>
-          <Text style={styles.statLabel}>Verificados</Text>
-        </View>
       </View>
 
       <View style={styles.filterRow}>
@@ -234,8 +191,7 @@ export default function FeedScreen() {
         })}
       </View>
       <Text style={styles.windowCaption}>
-        Ventana: {getTimeFilterWindowLabel(timeFilter)}. Comunidad entra si el medio publicó
-        o Pulso lo ingirió en esta ventana (no caducan en DB).
+        {getTimeFilterWindowLabel(timeFilter)} · reportes, comunidad y noticieros
       </Text>
     </View>
   );
@@ -310,7 +266,7 @@ export default function FeedScreen() {
           </View>
           <Pressable style={styles.modePillBtn} onPress={() => openReels(null)}>
             <Ionicons name="film" size={13} color="rgba(255,255,255,0.45)" />
-            <Text style={styles.modePillText}>PULSOS</Text>
+            <Text style={styles.modePillText}>VIDEOS</Text>
           </Pressable>
         </View>
       </View>
@@ -343,23 +299,6 @@ const createStyles = (theme: any) => StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
-  },
-  communityBanner: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: theme.radius.xl,
-    borderWidth: 1,
-    borderColor: "#1D9BF055",
-    backgroundColor: "#1D9BF012",
-  },
-  communityBannerText: {
-    flex: 1,
-    color: theme.colors.text,
-    fontSize: 12,
-    fontFamily: theme.fonts.body,
   },
   modePillWrap: {
     position: "absolute",
@@ -446,29 +385,6 @@ const createStyles = (theme: any) => StyleSheet.create({
   subtitle: {
     color: theme.colors.textMuted,
     fontSize: 13,
-    fontFamily: theme.fonts.body,
-  },
-  statsRow: {
-    flexDirection: "row",
-    gap: 10,
-  },
-  statCard: {
-    flex: 1,
-    backgroundColor: theme.colors.surface,
-    borderRadius: theme.radius.xl,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    padding: 14,
-    gap: 3,
-  },
-  statValue: {
-    color: theme.colors.text,
-    fontSize: 20,
-    fontFamily: theme.fonts.heading,
-  },
-  statLabel: {
-    color: theme.colors.textMuted,
-    fontSize: 11,
     fontFamily: theme.fonts.body,
   },
   filterRow: {

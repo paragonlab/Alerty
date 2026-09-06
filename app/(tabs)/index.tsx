@@ -24,7 +24,7 @@ import {
 } from "../../lib/alerty/risk";
 import { nearestCuliacanPlace } from "../../lib/alerty/coloniaGeocode";
 import { shareZonePulse } from "../../lib/alerty/share";
-import { GlassView, GlassContainer } from "expo-glass-effect";
+import { GlassView } from "expo-glass-effect";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import * as Location from "expo-location";
@@ -133,11 +133,6 @@ export default function MapScreen() {
   );
 
   const heatmapPoints = useMemo(() => buildHeatPoints(heatSources), [heatSources]);
-
-  const criticalCount = useMemo(
-    () => filteredAlerts.filter((alert) => getPulseDuration(alert.createdAt) <= 1200).length,
-    [filteredAlerts],
-  );
 
   // Alerta activa más cercana dentro de 500m del usuario
   const nearbyAlert = useMemo(() => {
@@ -446,17 +441,6 @@ export default function MapScreen() {
           >
             <Ionicons name="locate" size={20} color={theme.colors.text} />
           </Pressable>
-
-          <View style={styles.statSeparator} />
-
-          <View style={styles.statWrap}>
-            <Text style={styles.statValue}>{filteredAlerts.length}</Text>
-            <Text style={styles.statLabel}>Activas</Text>
-          </View>
-          <View style={styles.statWrap}>
-            <Text style={styles.statValue}>{criticalCount}</Text>
-            <Text style={styles.statLabel}>Críticas</Text>
-          </View>
         </GlassView>
 
         {/* Buscador de zona: dime si una dirección es peligrosa */}
@@ -482,7 +466,7 @@ export default function MapScreen() {
           </View>
         )}
 
-        <View style={[styles.layerSelector, isWeb && styles.layerSelectorWeb]}>
+        <View style={styles.layerSelector}>
           <Pressable
             style={[styles.layerButton, showHeatmap && styles.layerButtonActive]}
             onPress={toggleHeat}
@@ -539,7 +523,7 @@ export default function MapScreen() {
         {filteredAlerts.length === 0 && mapCommunity.length === 0 && (
           <View style={styles.emptyOverlay} pointerEvents="none">
             <Ionicons name="shield-outline" size={28} color={theme.colors.textMuted} />
-            <Text style={styles.emptyText}>Sin alertas en esta área</Text>
+            <Text style={styles.emptyText}>Sin pulsos en esta área</Text>
           </View>
         )}
 
@@ -626,13 +610,13 @@ const createStyles = (theme: any, themeMode: string) => StyleSheet.create({
     top: 0,
     left: 0,
     right: 0,
-    height: 160,
+    height: 120,
   },
   headerCard: {
     position: "absolute",
-    top: 54, // Adjusted for notch/safe area visibility
+    top: 54,
     left: 16,
-    right: 16,
+    right: 76,
     padding: 12,
     flexDirection: "row",
     alignItems: "center",
@@ -674,15 +658,9 @@ const createStyles = (theme: any, themeMode: string) => StyleSheet.create({
   sponsorAnuncio: {
     backgroundColor: theme.colors.accent,
   },
-  statSeparator: {
-    width: 1,
-    height: 30,
-    backgroundColor: theme.colors.border,
-    opacity: 0.5,
-  },
   searchBar: {
     position: "absolute",
-    top: 156,
+    top: 118,
     left: 16,
     right: 16,
     height: 44,
@@ -705,16 +683,13 @@ const createStyles = (theme: any, themeMode: string) => StyleSheet.create({
   },
   layerSelector: {
     position: "absolute",
-    top: 214,
+    top: 54,
     right: 16,
     borderRadius: theme.radius.pill,
     overflow: "hidden",
     borderWidth: 1,
     borderColor: theme.colors.border,
     zIndex: 20,
-  },
-  layerSelectorWeb: {
-    top: 156,
   },
   layerButton: {
     width: 44,
@@ -794,26 +769,6 @@ const createStyles = (theme: any, themeMode: string) => StyleSheet.create({
     fontSize: 12,
     fontFamily: theme.fonts.body,
     marginTop: 4,
-  },
-  statWrap: {
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: theme.radius.md,
-    backgroundColor: "rgba(0,0,0,0.05)",
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-  },
-  statValue: {
-    color: theme.colors.text,
-    fontFamily: theme.fonts.heading,
-    fontSize: 16,
-  },
-  statLabel: {
-    color: theme.colors.textMuted,
-    fontSize: 11,
-    fontFamily: theme.fonts.body,
   },
   proximityBanner: {
     position: "absolute",

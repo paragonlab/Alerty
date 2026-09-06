@@ -25,9 +25,9 @@ export default function TabLayout() {
         <Tabs.Screen
           name="feed"
           options={{
-            title: "Feed",
+            title: "Pulsos",
             tabBarIcon: ({ color, focused }) => (
-              <Ionicons name={focused ? "list" : "list-outline"} color={color} size={22} />
+              <Ionicons name={focused ? "pulse" : "pulse-outline"} color={color} size={22} />
             ),
           }}
         />
