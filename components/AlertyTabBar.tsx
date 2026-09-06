@@ -276,8 +276,8 @@ export function AlertyTabBar({ state, navigation }: TabBarProps) {
   } = useAlertyStore();
 
   const isDark = themeMode === "darkHighVisibility";
-  const isReels = feedViewMode === "reels";
   const activeRoute = state.routes[state.index];
+  const isReels = feedViewMode === "reels" && activeRoute?.name === "feed";
 
   const activeColor   = isDark ? "#FF4500" : theme.colors.accent;
   const inactiveColor = isDark ? "rgba(255,255,255,0.45)" : theme.colors.textMuted;
@@ -363,6 +363,7 @@ export function AlertyTabBar({ state, navigation }: TabBarProps) {
 
   // ── navigation helper ─────────────────────────────────────────────────────
   function goTo(name: string) {
+    if (name !== "feed" && feedViewMode === "reels") setFeedViewMode("list");
     const route = state.routes.find((r) => r.name === name);
     if (!route) return;
     const event = navigation.emit({ type: "tabPress", target: route.key, canPreventDefault: true });
@@ -382,18 +383,18 @@ export function AlertyTabBar({ state, navigation }: TabBarProps) {
     return (
       <View style={{ height: 60 + pillBottom + 8 }} pointerEvents="box-none">
         <View style={[styles.reelsPill, { bottom: pillBottom }]}>
-          {/* left: exit + LISTA */}
           <View style={styles.pillSide}>
-            <Pressable style={styles.pillBtn} onPress={() => setFeedViewMode("list")} hitSlop={8}>
-              <Ionicons name="chevron-back" size={18} color="rgba(255,255,255,0.85)" />
-            </Pressable>
-            <Pressable style={[styles.pillBtn, styles.pillBtnMode]} onPress={() => setFeedViewMode("list")} hitSlop={8}>
+            <Pressable
+              style={[styles.pillBtn, styles.pillBtnMode]}
+              onPress={() => setFeedViewMode("list")}
+              hitSlop={8}
+              accessibilityLabel="Volver a lista"
+            >
               <Ionicons name="list" size={13} color="rgba(255,255,255,0.85)" />
               <Text style={styles.pillModeText}>LISTA</Text>
             </Pressable>
           </View>
 
-          {/* center: mini SOS */}
           <View style={styles.pillCenter}>
             <SOSCenterBtn
               size="mini"
@@ -403,15 +404,7 @@ export function AlertyTabBar({ state, navigation }: TabBarProps) {
             />
           </View>
 
-          {/* right: volume + more */}
-          <View style={[styles.pillSide, styles.pillSideRight]}>
-            <Pressable style={styles.pillBtn} hitSlop={8} onPress={() => {}}>
-              <Ionicons name="volume-high" size={18} color="rgba(255,255,255,0.85)" />
-            </Pressable>
-            <Pressable style={styles.pillBtn} hitSlop={8} onPress={() => {}}>
-              <Ionicons name="ellipsis-horizontal" size={18} color="rgba(255,255,255,0.85)" />
-            </Pressable>
-          </View>
+          <View style={[styles.pillSide, styles.pillSideRight]} />
         </View>
       </View>
     );
