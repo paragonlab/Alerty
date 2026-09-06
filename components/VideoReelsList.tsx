@@ -419,8 +419,13 @@ export function VideoReelCard({
           />
         </Pressable>
         {onClose && (
-          <Pressable style={styles.topIconBtn} onPress={onClose}>
-            <Ionicons name="close" size={19} color="rgba(255,255,255,0.85)" />
+          <Pressable
+            style={styles.listaBtn}
+            onPress={onClose}
+            accessibilityLabel="Volver a lista"
+          >
+            <Ionicons name="list" size={14} color="rgba(255,255,255,0.9)" />
+            <Text style={styles.listaBtnText}>Lista</Text>
           </Pressable>
         )}
       </View>
@@ -860,6 +865,22 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     backgroundColor: "rgba(0,0,0,0.45)",
     borderRadius: 17,
+  },
+  listaBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    height: 34,
+    paddingHorizontal: 11,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    borderRadius: 17,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.18)",
+  },
+  listaBtnText: {
+    color: "rgba(255,255,255,0.92)",
+    fontSize: 12,
+    fontFamily: "SpaceGrotesk_700Bold",
   },
 
   // mini-map

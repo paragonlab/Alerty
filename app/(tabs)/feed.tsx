@@ -228,7 +228,7 @@ export default function FeedScreen() {
           <SafeAreaView style={styles.emptyReelsContainer}>
             <Pressable onPress={() => setViewMode("list")} style={styles.reelsBackBtn} hitSlop={10}>
               <Ionicons name="chevron-back" size={20} color="rgba(255,255,255,0.75)" />
-              <Text style={styles.reelsBackLabel}>Volver</Text>
+              <Text style={styles.reelsBackLabel}>Lista</Text>
             </Pressable>
             <View style={styles.emptyReels}>
               <Ionicons name="videocam-off-outline" size={52} color="rgba(255,255,255,0.2)" />

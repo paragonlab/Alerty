@@ -377,37 +377,8 @@ export function AlertyTabBar({ state, navigation }: TabBarProps) {
     router.push("/report" as any);
   }
 
-  // ── COMPACT REELS PILL ────────────────────────────────────────────────────
   if (isReels) {
-    const pillBottom = Math.max(22, insets.bottom + 14);
-    return (
-      <View style={{ height: 60 + pillBottom + 8 }} pointerEvents="box-none">
-        <View style={[styles.reelsPill, { bottom: pillBottom }]}>
-          <View style={styles.pillSide}>
-            <Pressable
-              style={[styles.pillBtn, styles.pillBtnMode]}
-              onPress={() => setFeedViewMode("list")}
-              hitSlop={8}
-              accessibilityLabel="Volver a lista"
-            >
-              <Ionicons name="list" size={13} color="rgba(255,255,255,0.85)" />
-              <Text style={styles.pillModeText}>LISTA</Text>
-            </Pressable>
-          </View>
-
-          <View style={styles.pillCenter}>
-            <SOSCenterBtn
-              size="mini"
-              socketColor="rgba(8,8,8,0.72)"
-              onPress={() => { void goReport(); }}
-              onLongPress={() => { void handleSOS(); }}
-            />
-          </View>
-
-          <View style={[styles.pillSide, styles.pillSideRight]} />
-        </View>
-      </View>
-    );
+    return <View style={{ height: 0 }} />;
   }
 
   // ── STANDARD BAR ──────────────────────────────────────────────────────────
@@ -517,34 +488,5 @@ const styles = StyleSheet.create({
   sosCenter: {
     position: "absolute", left: 0, right: 0,
     alignItems: "center",
-  },
-
-  // reels compact pill
-  reelsPill: {
-    position: "absolute", left: 14, right: 14,
-    height: 60, borderRadius: 22,
-    backgroundColor: "rgba(8,8,8,0.72)",
-    borderWidth: 1, borderColor: "rgba(255,255,255,0.10)",
-    flexDirection: "row", alignItems: "center",
-    justifyContent: "space-between", paddingHorizontal: 8,
-  },
-  pillSide: {
-    flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 4,
-  },
-  pillSideRight: { justifyContent: "flex-end" },
-  pillCenter: { alignItems: "center", justifyContent: "center" },
-  pillBtn: {
-    width: 40, height: 40, borderRadius: 12,
-    backgroundColor: "rgba(255,255,255,0.05)",
-    borderWidth: 1, borderColor: "rgba(255,255,255,0.08)",
-    alignItems: "center", justifyContent: "center",
-  },
-  pillBtnMode: {
-    flexDirection: "row", gap: 5, width: "auto", paddingHorizontal: 12,
-    backgroundColor: "rgba(255,255,255,0.08)",
-  },
-  pillModeText: {
-    color: "rgba(255,255,255,0.85)", fontSize: 10,
-    fontFamily: "SpaceGrotesk_700Bold", letterSpacing: 1.2,
   },
 });
