@@ -913,6 +913,7 @@ type MapViewProps = {
   style?: unknown;
   initialRegion?: Region;
   userInterfaceStyle?: "dark" | "light";
+  onPress?: (e: { nativeEvent: { coordinate: { latitude: number; longitude: number } } }) => void;
   onLongPress?: (e: { nativeEvent: { coordinate: { latitude: number; longitude: number } } }) => void;
   showsUserLocation?: boolean;
   showsMyLocationButton?: boolean;
@@ -937,6 +938,10 @@ const ExpoMapView = forwardRef<MapHandle, MapViewProps>(function ExpoMapView(pro
   const polygonsRef = useRef<any[]>([]);
   const leafletGroupRef = useRef<any>(null);
   const longPressTimer = useRef<number | null>(null);
+  const mapDraggedRef = useRef(false);
+  const longPressFiredRef = useRef(false);
+  const onPressRef = useRef(props.onPress);
+  onPressRef.current = props.onPress;
   const onLongPressRef = useRef(props.onLongPress);
   onLongPressRef.current = props.onLongPress;
   const cancelLongPress = () => {
@@ -991,21 +996,36 @@ const ExpoMapView = forwardRef<MapHandle, MapViewProps>(function ExpoMapView(pro
 
         map.on("contextmenu", (e: any) => {
           if (!e?.latlng) return;
+          longPressFiredRef.current = true;
           onLongPressRef.current?.({
             nativeEvent: { coordinate: { latitude: e.latlng.lat, longitude: e.latlng.lng } },
           });
         });
         map.on("mousedown", (e: any) => {
           if (!e?.latlng) return;
+          mapDraggedRef.current = false;
+          longPressFiredRef.current = false;
           if (longPressTimer.current) window.clearTimeout(longPressTimer.current);
           const latlng = e.latlng;
           longPressTimer.current = window.setTimeout(() => {
+            longPressFiredRef.current = true;
             onLongPressRef.current?.({
               nativeEvent: { coordinate: { latitude: latlng.lat, longitude: latlng.lng } },
             });
           }, 550);
         });
-        map.on("mouseup dragstart", () => cancelLongPressRef.current());
+        map.on("dragstart", () => {
+          mapDraggedRef.current = true;
+          cancelLongPressRef.current();
+        });
+        map.on("mouseup", () => cancelLongPressRef.current());
+        map.on("click", (e: any) => {
+          if (!e?.latlng) return;
+          if (mapDraggedRef.current || longPressFiredRef.current) return;
+          onPressRef.current?.({
+            nativeEvent: { coordinate: { latitude: e.latlng.lat, longitude: e.latlng.lng } },
+          });
+        });
 
         const triggerResize = () => map.invalidateSize();
         requestAnimationFrame(triggerResize);
@@ -1035,6 +1055,7 @@ const ExpoMapView = forwardRef<MapHandle, MapViewProps>(function ExpoMapView(pro
         engineRef.current = "google";
 
         const emitLongPress = (latLng: any) => {
+          longPressFiredRef.current = true;
           onLongPressRef.current?.({
             nativeEvent: {
               coordinate: { latitude: latLng.lat(), longitude: latLng.lng() },
@@ -1047,6 +1068,8 @@ const ExpoMapView = forwardRef<MapHandle, MapViewProps>(function ExpoMapView(pro
         });
         map.addListener("mousedown", (e: any) => {
           if (!e?.latLng) return;
+          mapDraggedRef.current = false;
+          longPressFiredRef.current = false;
           if (longPressTimer.current) window.clearTimeout(longPressTimer.current);
           const latLng = e.latLng;
           longPressTimer.current = window.setTimeout(() => emitLongPress(latLng), 550);
@@ -1055,7 +1078,17 @@ const ExpoMapView = forwardRef<MapHandle, MapViewProps>(function ExpoMapView(pro
           cancelLongPressRef.current();
         });
         map.addListener("dragstart", () => {
+          mapDraggedRef.current = true;
           cancelLongPressRef.current();
+        });
+        map.addListener("click", (e: any) => {
+          if (!e?.latLng) return;
+          if (mapDraggedRef.current || longPressFiredRef.current) return;
+          onPressRef.current?.({
+            nativeEvent: {
+              coordinate: { latitude: e.latLng.lat(), longitude: e.latLng.lng() },
+            },
+          });
         });
 
         const triggerResize = () => {
@@ -1175,7 +1208,12 @@ const ExpoMapView = forwardRef<MapHandle, MapViewProps>(function ExpoMapView(pro
           icon,
           keyboard: false,
         });
-        if (p.onPress) marker.on("click", () => p.onPress?.());
+        if (p.onPress) {
+          marker.on("click", (e: any) => {
+            L.DomEvent.stopPropagation(e);
+            p.onPress?.();
+          });
+        }
         group.addLayer(marker);
       });
       return;

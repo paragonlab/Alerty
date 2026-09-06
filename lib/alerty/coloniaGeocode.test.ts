@@ -6,6 +6,8 @@ import {
   extractColoniasFromText,
   resolveTextColonia,
   resolveCommunityGeo,
+  resolveDestinationQuery,
+  suggestDestinationPlaces,
   CULIACAN_PLACES,
 } from "./coloniaGeocode";
 
@@ -91,6 +93,21 @@ function run() {
 
   const guadalupePhrase = resolveTextColonia("Reportan bloqueo en colonia Guadalupe, Culiacán.");
   assert(guadalupePhrase?.place.name === "Guadalupe", "Guadalupe not swallowed by Guadalupe Victoria");
+
+  const destQuintas = resolveDestinationQuery("Las Quintas");
+  assert(destQuintas?.placeLabel === "Las Quintas", "destination Las Quintas");
+  const destQuintasShort = resolveDestinationQuery("quintas");
+  assert(destQuintasShort?.placeLabel === "Las Quintas", "destination quintas");
+  assert(resolveDestinationQuery("las") === null, "short las is not a destination");
+  const destGuad = resolveDestinationQuery("Guadalupe");
+  assert(destGuad?.placeLabel === "Guadalupe", "destination Guadalupe");
+  assert(resolveDestinationQuery("xx") === null, "unknown destination");
+
+  const quin = suggestDestinationPlaces("quin");
+  assert(quin[0]?.name === "Las Quintas", "suggest quintas");
+  const gua = suggestDestinationPlaces("gua").map((p) => p.name);
+  assert(gua.includes("Guadalupe"), "suggest Guadalupe");
+  assert(suggestDestinationPlaces("").length === 0, "empty suggest");
 
   console.log("coloniaGeocode tests: OK");
 }

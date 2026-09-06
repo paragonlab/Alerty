@@ -4,7 +4,7 @@ import { View, Text, Pressable, StyleSheet } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useAlertyTheme } from "../lib/useAlertyTheme";
 import { CATEGORY_LABELS } from "../lib/alerty/constants";
-import { GO_OUT_LABEL, RISK_LABEL, RISK_RADIUS_KM, riskColor, type RiskAssessment, type RiskLevel } from "../lib/alerty/risk";
+import { GO_DEST_LABEL, GO_OUT_LABEL, RISK_LABEL, RISK_RADIUS_KM, riskColor, type RiskAssessment, type RiskLevel } from "../lib/alerty/risk";
 
 const ICON: Record<RiskLevel, keyof typeof Ionicons.glyphMap> = {
   tranquila: "shield-checkmark",
@@ -19,12 +19,14 @@ export function ZoneRiskCard({
   assessment,
   label,
   pulseCount,
+  destination,
   onShare,
   onClose,
 }: {
   assessment: RiskAssessment;
   label: string;
   pulseCount?: number;
+  destination?: boolean;
   onShare?: () => void;
   onClose: () => void;
 }) {
@@ -40,9 +42,11 @@ export function ZoneRiskCard({
           <Ionicons name={ICON[assessment.level]} size={18} color="#fff" />
         </View>
         <View style={{ flex: 1 }}>
-          <Text style={[styles.level, { color }]}>{GO_OUT_LABEL[assessment.level]}</Text>
+          <Text style={[styles.level, { color }]}>
+            {destination ? GO_DEST_LABEL[assessment.level] : GO_OUT_LABEL[assessment.level]}
+          </Text>
           <Text style={styles.place} numberOfLines={1}>
-            {RISK_LABEL[assessment.level]} · {label}
+            {destination ? `Ir a ${label}` : `${RISK_LABEL[assessment.level]} · ${label}`}
           </Text>
         </View>
         {onShare ? (
