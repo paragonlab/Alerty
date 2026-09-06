@@ -28,6 +28,8 @@ const CATEGORY_GUESS_LABELS: Record<string, string> = {
   bloqueo: "Bloqueo",
   robo: "Robo",
   accidente: "Accidente",
+  incendio: "Incendio",
+  inundacion: "Inundación",
   alerta: "Alerta",
 };
 

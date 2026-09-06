@@ -89,7 +89,7 @@ export default function AvisosScreen() {
     item: { alert: AlertItem; match: NonNullable<ReturnType<typeof matchInboxAlert>> };
   }) => {
     const { alert, match } = item;
-    const isCritical = alert.category === "sos" || alert.category === "balacera" || alert.upvotes > 10;
+    const isCritical = alert.category === "sos" || alert.category === "balacera" || alert.category === "incendio" || alert.upvotes > 10;
     const iconName = (CATEGORY_ICONS[alert.category] ?? "notifications-outline") as any;
     const label = CATEGORY_LABELS[alert.category] ?? alert.category;
     const hasMedia = alert.media.length > 0;

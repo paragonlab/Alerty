@@ -17,6 +17,7 @@ const CRITICAL_CATEGORIES = [
   "narcobloqueo",
   "enfrentamiento",
   "detonaciones",
+  "incendio",
 ];
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -29,6 +30,8 @@ const CATEGORY_LABELS: Record<string, string> = {
   captura: "Captura",
   robo: "Robo",
   accidente: "Accidente",
+  incendio: "Incendio",
+  inundacion: "Inundación",
   "zona segura": "Zona segura",
 };
 

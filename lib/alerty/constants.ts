@@ -14,6 +14,8 @@ export const ALERT_CATEGORIES = [
   "captura",
   "robo",
   "accidente",
+  "incendio",
+  "inundacion",
   "zona segura",
   "sos",
 ] as const;
@@ -27,6 +29,8 @@ export const CATEGORY_LABELS: Record<(typeof ALERT_CATEGORIES)[number], string> 
   captura: "Captura",
   robo: "Robo",
   accidente: "Accidente",
+  incendio: "Incendio",
+  inundacion: "Inundación",
   "zona segura": "Zona segura",
   sos: "EMERGENCIA SOS",
 };
@@ -40,6 +44,8 @@ export const CATEGORY_ICONS: Record<(typeof ALERT_CATEGORIES)[number], string> =
   captura: "checkmark-circle-outline",
   robo: "hand-right-outline",
   accidente: "car-sport-outline",
+  incendio: "flame",
+  inundacion: "water",
   "zona segura": "shield-checkmark-outline",
   sos: "alert-circle",
 };
@@ -109,6 +115,8 @@ export const CATEGORY_PIN_COLORS: Record<string, string> = {
   alerta: "#E9792F",
   robo: "#E5C548",
   accidente: "#E5C548",
+  incendio: "#D9342B",
+  inundacion: "#2E7DD1",
   "zona segura": "#1F9D6E",
 };
 

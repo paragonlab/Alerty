@@ -19,6 +19,7 @@ import * as ImagePicker from "expo-image-picker";
 import { Audio, Video, ResizeMode } from "expo-av";
 import * as FileSystem from "expo-file-system/legacy";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { safeBack } from "../../lib/alerty/nav";
 import { useAlertyTheme } from "../../lib/useAlertyTheme";
 import { GlassView, GlassContainer } from "expo-glass-effect";
 import { LinearGradient } from "expo-linear-gradient";
@@ -109,8 +110,8 @@ export default function AlertDetailScreen() {
     return (
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.header}>
-          <Pressable style={styles.backButton} onPress={() => router.back()}>
-            <Ionicons name="chevron-back" size={20} color={theme.colors.text} />
+          <Pressable style={styles.backButton} onPress={() => safeBack(router)} hitSlop={12}>
+            <Ionicons name="chevron-back" size={22} color={theme.colors.text} />
           </Pressable>
           <Text style={styles.title}>Detalle</Text>
           <View style={styles.headerSpacer} />
@@ -229,26 +230,15 @@ export default function AlertDetailScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <GlassView 
-        colorScheme={isDark ? "dark" : "light"} 
-        glassEffectStyle="regular" 
-        tintColor={isDark ? "rgba(0, 224, 255, 0.05)" : "rgba(44, 123, 229, 0.05)"}
-        style={styles.header}
-      >
-        <LinearGradient
-          colors={["rgba(255,255,255,0.15)", "transparent"]}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={StyleSheet.absoluteFill}
-        />
-        <Pressable style={styles.backButton} onPress={() => router.back()}>
-          <Ionicons name="chevron-back" size={20} color={theme.colors.text} />
+      <View style={styles.header}>
+        <Pressable style={styles.backButton} onPress={() => safeBack(router)} hitSlop={12}>
+          <Ionicons name="chevron-back" size={22} color={theme.colors.text} />
         </Pressable>
-        <Text style={styles.title}>Detalle de Alerta</Text>
-        <Pressable style={styles.shareButton} onPress={handleShare}>
+        <Text style={styles.title}>Detalle</Text>
+        <Pressable style={styles.shareButton} onPress={handleShare} hitSlop={12}>
           <Ionicons name="share-outline" size={20} color={theme.colors.text} />
         </Pressable>
-      </GlassView>
+      </View>
 
       <ScrollView contentContainerStyle={styles.container}>
         <View style={styles.categoryRow}>
@@ -571,6 +561,8 @@ const createStyles = (theme: any, themeMode: string) => StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: 16,
+    paddingVertical: 8,
+    zIndex: 20,
     backgroundColor: themeMode === "light" ? "rgba(255,255,255,0.8)" : "rgba(0,0,0,0.8)",
     borderBottomWidth: 1.5,
     borderColor: themeMode === "light" ? "rgba(255,255,255,0.5)" : "rgba(255,255,255,0.1)",
@@ -579,8 +571,8 @@ const createStyles = (theme: any, themeMode: string) => StyleSheet.create({
     width: 32,
   },
   backButton: {
-    width: 36,
-    height: 36,
+    width: 44,
+    height: 44,
     borderRadius: theme.radius.pill,
     borderWidth: 1,
     borderColor: theme.colors.border,
@@ -589,8 +581,8 @@ const createStyles = (theme: any, themeMode: string) => StyleSheet.create({
     justifyContent: "center",
   },
   shareButton: {
-    width: 36,
-    height: 36,
+    width: 44,
+    height: 44,
     borderRadius: theme.radius.pill,
     borderWidth: 1,
     borderColor: theme.colors.border,

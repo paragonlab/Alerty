@@ -18,6 +18,7 @@ import * as WebBrowser from "expo-web-browser";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { lightTheme as theme } from "../lib/theme";
 import { supabase } from "../lib/supabase";
+import { safeBack } from "../lib/alerty/nav";
 
 type ZoneType = "refugio" | "anuncio";
 
@@ -36,7 +37,7 @@ export default function BusinessOnboarding() {
       Alert.alert(
         "¡Inscripción completada!",
         "Hemos recibido tu pago. Tu pin aparecerá en el mapa una vez que nuestro equipo lo revise.",
-        [{ text: "OK", onPress: () => router.back() }],
+        [{ text: "OK", onPress: () => safeBack(router) }],
       );
     } else if (params.status === "cancel") {
       Alert.alert("Pago cancelado", "Puedes intentarlo de nuevo cuando quieras.");
@@ -120,7 +121,7 @@ export default function BusinessOnboarding() {
     <SafeAreaView style={styles.safeArea}>
       <LinearGradient colors={["#F6F2EA", "#EFE4D2", "#F6F2EA"]} style={styles.gradient}>
         <View style={styles.header}>
-          <Pressable onPress={() => router.back()} style={styles.closeButton} hitSlop={10}>
+          <Pressable onPress={() => safeBack(router)} style={styles.closeButton} hitSlop={12}>
             <Ionicons name="chevron-back" size={22} color={theme.colors.text} />
           </Pressable>
           <Text style={styles.headerTitle}>Tu negocio en Pulso</Text>

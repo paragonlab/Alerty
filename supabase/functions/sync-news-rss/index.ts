@@ -41,7 +41,7 @@ const DEFAULT_FEEDS: Array<{ name: string; handle: string; url: string; logoUrl?
 ];
 
 const EVENT_HINT =
-  /\b(alerta|balacera|tiroteo|accidente|bloqueo|detonaci|enfrentamiento|asalto|robo|narcobloqueo|choque|persecuci|culiac[aá]n|sinaloa)\b/i;
+  /\b(alerta|balacera|tiroteo|accidente|bloqueo|detonaci|enfrentamiento|asalto|robo|narcobloqueo|choque|incendio|inundaci|persecuci|culiac[aá]n|sinaloa)\b/i;
 
 function json(payload: unknown, status = 200) {
   return new Response(JSON.stringify(payload), {
@@ -138,6 +138,8 @@ function guessCategory(text: string): string | null {
   if (/\bbloqueo\b/i.test(text)) return "bloqueo";
   if (/\brobo\b|\basalto\b/i.test(text)) return "robo";
   if (/\baccidente\b|\bchoque\b/i.test(text)) return "accidente";
+  if (/\bincendio\b|\bconflagraci/i.test(text)) return "incendio";
+  if (/\binundaci|\bencharcamiento|\bdesborde\b/i.test(text)) return "inundacion";
   if (/\balerta\b/i.test(text)) return "alerta";
   return null;
 }
