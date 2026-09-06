@@ -119,18 +119,6 @@ type AlertyState = {
   clearUnreadAlerts: () => void;
   userCoords: UserCoords | null;
   setUserCoords: (coords: UserCoords | null) => void;
-  /** Prefill best-effort para "Confirmar en Pulso" desde un post comunidad */
-  pendingCommunityConfirm: {
-    text: string;
-    categoryGuess?: string | null;
-    placeLabel?: string;
-    lat?: number | null;
-    lng?: number | null;
-    sourceUrl?: string;
-  } | null;
-  setPendingCommunityConfirm: (
-    payload: AlertyState["pendingCommunityConfirm"],
-  ) => void;
 };
 
 const syncPreference = async (key: string, value: any) => {
@@ -182,8 +170,6 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
   clearUnreadAlerts: () => set({ unreadAlerts: 0 }),
   userCoords: null,
   setUserCoords: (coords) => set({ userCoords: coords }),
-  pendingCommunityConfirm: null,
-  setPendingCommunityConfirm: (payload) => set({ pendingCommunityConfirm: payload }),
   startDemo: () => {
     if (!isDemoEnabled) return;
 

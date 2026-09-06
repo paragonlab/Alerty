@@ -27,16 +27,10 @@ import { supabase } from "../lib/supabase";
 import { uploadMediaBatch } from "../lib/upload";
 import type { AlertCategory, AlertMedia } from "../lib/alerty/types";
 import { calculateDistance } from "../lib/alerty/utils";
+import { APP_SHARE_URL } from "../lib/alerty/share";
 
 // Categories shown in the 3-column grid (exclude SOS – that's the long-press)
 const GRID_CATS = ALERT_CATEGORIES.filter((c) => c !== "sos");
-
-function mapCommunityGuess(guess?: string | null): AlertCategory | null {
-  if (!guess) return null;
-  return (ALERT_CATEGORIES as readonly string[]).includes(guess)
-    ? (guess as AlertCategory)
-    : null;
-}
 
 const SUBMIT_AUTH_TIMEOUT_MS = 8_000;
 const SUBMIT_INSERT_TIMEOUT_MS = 12_000;
@@ -190,11 +184,10 @@ function ContextChips({ locationLabel }: { locationLabel: string }) {
 export default function ReportScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { addAlert, currentUser, alerts, pendingCommunityConfirm, setPendingCommunityConfirm, setUserCoords } =
-    useAlertyStore();
+  const { addAlert, currentUser, alerts, setUserCoords } = useAlertyStore();
 
-  // Web: categoría primero (cámara/galería limitadas). Nativo: captura → detalles → enviado.
-  const [step, setStep] = useState<1 | 2 | 3 | 4>(Platform.OS === "web" ? 2 : 1);
+  // Categoría + GPS + enviar. Cámara/galería son opcionales desde el paso 2.
+  const [step, setStep] = useState<1 | 2 | 3 | 4>(2);
   const [captureMode, setCaptureMode] = useState<"video" | "photo" | "voice">("video");
   const [category, setCategory] = useState<AlertCategory | null>(null);
   const [title, setTitle] = useState("");
@@ -214,19 +207,6 @@ export default function ReportScreen() {
   const waveAnims = useRef(Array.from({ length: 18 }, () => new Animated.Value(0.06))).current;
   const waveLoopsRef = useRef<Animated.CompositeAnimation[]>([]);
 
-  // Prefill best-effort desde "Confirmar en Pulso" (post comunidad / noticia).
-  useEffect(() => {
-    if (!pendingCommunityConfirm) return;
-    const mapped = mapCommunityGuess(pendingCommunityConfirm.categoryGuess);
-    if (mapped) setCategory(mapped);
-    if (pendingCommunityConfirm.text) {
-      setTitle(pendingCommunityConfirm.text.slice(0, 120));
-    }
-    setSourceTag("contaron");
-    setStep(2);
-    setPendingCommunityConfirm(null);
-  }, [pendingCommunityConfirm, setPendingCommunityConfirm]);
-
   // Animations
   const recDotAnim = useRef(new Animated.Value(1)).current;
   const shutterPulse = useRef(new Animated.Value(0)).current;
@@ -234,7 +214,6 @@ export default function ReportScreen() {
   const successHalo = useRef(new Animated.Value(0)).current;
 
   // Computed
-  const vigias = useMemo(() => Math.max(380, alerts.length * 12 + 200), [alerts.length]);
   const nearbyAlert = useMemo(() => {
     if (!userLocation) return null;
     return (
@@ -305,12 +284,11 @@ export default function ReportScreen() {
   async function handleShareSent() {
     const displayTitle =
       title.trim() || (category ? `${CATEGORY_LABELS[category]} · ${locationLabel}` : "Alerta");
-    const shareUrl = "https://alerty-two.vercel.app";
-    const message = `🚨 Alerta en Pulso: ${displayTitle}\n📍 ${locationLabel}\n\nYa la ven ~${vigias.toLocaleString()} vigías. Ábrela en el mapa: ${shareUrl}`;
+    const message = `Pulso · ${displayTitle}\n${locationLabel}\nMira el mapa: ${APP_SHARE_URL}`;
     try {
       await Share.share(
         Platform.OS === "web"
-          ? { message, title: "Alerta en Pulso", url: shareUrl }
+          ? { message, title: "Pulso", url: APP_SHARE_URL }
           : { message },
       );
     } catch {
@@ -512,7 +490,7 @@ export default function ReportScreen() {
         err && typeof err === "object" && "message" in err && typeof (err as { message: unknown }).message === "string"
           ? (err as { message: string }).message
           : "Intenta de nuevo en unos segundos.";
-      notifyUser("No se pudo enviar la alerta", detail);
+      notifyUser("No se pudo enviar el pulso", detail);
       return;
     }
 
@@ -580,7 +558,7 @@ export default function ReportScreen() {
     if (savedLocally) {
       setStep(4);
     } else {
-      notifyUser("No se pudo enviar la alerta", "Intenta de nuevo en unos segundos.");
+      notifyUser("No se pudo enviar el pulso", "Intenta de nuevo en unos segundos.");
     }
   }
 
@@ -768,11 +746,10 @@ export default function ReportScreen() {
           ))}
         </View>
 
-        {/* Compact social payoff preview (reemplaza el paso de revisión) */}
         <View style={S.reachHint}>
-          <Ionicons name="people-outline" size={16} color="#6BE0FF" />
+          <Ionicons name="map-outline" size={16} color="#6BE0FF" />
           <Text style={S.reachHintText}>
-            Tu alerta llegará a ~{vigias.toLocaleString()} vigías cerca de {locationLabel}.
+            Se publica en el mapa de {locationLabel}. Foto o video son opcionales.
           </Text>
         </View>
       </>
@@ -805,29 +782,12 @@ export default function ReportScreen() {
           </View>
         </View>
 
-        <Text style={S.sheetLabel}>Distribución</Text>
-
-        {/* Distribution cells */}
-        <View style={S.distRow}>
-          <View style={S.distCell}>
-            <Text style={S.distNum}>{vigias.toLocaleString()}</Text>
-            <Text style={S.distLabel}>VIGÍAS A 5 KM</Text>
-          </View>
-          <View style={S.distCell}>
-            <Text style={S.distNum}>8</Text>
-            <Text style={S.distLabel}>CONF. PARA VERIFICAR</Text>
-          </View>
-        </View>
-
-        {/* Geo trust bonus */}
         {isNearby && (
           <View style={S.trustBlock}>
             <Ionicons name="shield-checkmark" size={18} color="#66FF8C" />
             <View style={{ flex: 1 }}>
-              <Text style={S.trustText}>
-                Estás en el lugar del evento.
-              </Text>
-              <Text style={S.trustSub}>Tu reporte pesa 5× en confirmaciones cercanas.</Text>
+              <Text style={S.trustText}>Estás en el lugar del evento.</Text>
+              <Text style={S.trustSub}>El pulso se publica con tu GPS real.</Text>
             </View>
           </View>
         )}
@@ -851,12 +811,10 @@ export default function ReportScreen() {
           <Animated.View style={[S.successMark, { transform: [{ scale: successScale }] }]}>
             <Ionicons name="checkmark" size={38} color="#001a07" />
           </Animated.View>
-          <Text style={S.successEyebrow}>PUBLICADA</Text>
-          <Text style={S.successTitle}>
-            Tu alerta llegó a {vigias.toLocaleString()} vigías
-          </Text>
+          <Text style={S.successEyebrow}>PUBLICADO</Text>
+          <Text style={S.successTitle}>Tu pulso ya está en el mapa</Text>
           <Text style={S.successSub}>
-            Ya está visible cerca de {locationLabel}. Cuando alguien confirme, te avisamos.
+            Visible cerca de {locationLabel}. Compártelo si quieres avisar a más gente.
           </Text>
         </View>
 
@@ -871,18 +829,15 @@ export default function ReportScreen() {
               </View>
               <Text style={S.previewTitle} numberOfLines={2}>{displayTitle}</Text>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
-                <Ionicons name="people" size={11} color="#6BE0FF" />
-                <Text style={[S.previewMeta, { color: "#6BE0FF", fontWeight: "700" }]}>
-                  ~{vigias.toLocaleString()} vigías
-                </Text>
-                <Text style={S.previewMeta}>· ahora</Text>
+                <Ionicons name="location-outline" size={11} color="rgba(255,255,255,0.55)" />
+                <Text style={S.previewMeta}>{locationLabel} · ahora</Text>
               </View>
             </View>
           </View>
         </View>
 
         <Text style={S.confirmNudge}>
-          Pide a vecinos cercanos que confirmen en el feed — 8 votos la marcan como verificada.
+          Si alguien cerca lo confirma con un voto, el pulso pesa más en el mapa.
         </Text>
 
         {/* Actions */}
@@ -897,8 +852,8 @@ export default function ReportScreen() {
               <Text style={S.successActionSecText}>Compartir</Text>
             </Pressable>
             <Pressable style={S.successActionPri} onPress={() => router.replace("/(tabs)/feed")}>
-              <Ionicons name="list" size={14} color="#fff" />
-              <Text style={S.successActionPriText}>Ver en feed</Text>
+              <Ionicons name="pulse" size={14} color="#fff" />
+              <Text style={S.successActionPriText}>Ver en Pulsos</Text>
             </Pressable>
           </View>
         </View>
@@ -922,7 +877,7 @@ export default function ReportScreen() {
         </Text>
         <Text style={S.locLoadingSub}>
           {locationError ??
-            "Para publicar necesitamos tu GPS real. No usamos una ciudad por defecto."}
+            "Para publicar un pulso necesitamos tu GPS real. No usamos una ciudad por defecto."}
         </Text>
         {!locationLoading ? (
           <Pressable style={S.locSkipBtn} onPress={() => { void getLocation(); }}>
@@ -959,7 +914,7 @@ export default function ReportScreen() {
               />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={S.nearbyTag}>ALERTA ABIERTA · CERCA</Text>
+              <Text style={S.nearbyTag}>PULSO ABIERTO · CERCA</Text>
               <Text style={S.nearbyTitle} numberOfLines={1}>
                 {CATEGORY_LABELS[nearbyAlert.category]} · {nearbyAlert.neighborhood ?? locationLabel}
               </Text>
@@ -987,7 +942,7 @@ export default function ReportScreen() {
           {/* Head */}
           {isStep4 ? (
             <View style={S.sheetHead}>
-              <Text style={S.sheetTitle}>Alerta en la red</Text>
+              <Text style={S.sheetTitle}>Pulso en el mapa</Text>
               <View style={S.chipAnon}>
                 <Ionicons name="eye-off" size={11} color="#66FF8C" />
                 <Text style={S.chipAnonText}>ANÓNIMO</Text>
@@ -996,7 +951,7 @@ export default function ReportScreen() {
           ) : (
             <View style={S.sheetHead}>
               <Text style={S.sheetTitle}>
-                {step === 3 ? "Revisa" : step === 1 ? "Evidencia" : "Reportar"}
+                {step === 3 ? "Revisa" : step === 1 ? "Evidencia" : "Nuevo pulso"}
               </Text>
               <StepDots current={step === 1 ? 1 : 2} total={2} />
               <Pressable style={S.closeBtn} onPress={() => router.back()}>
@@ -1032,22 +987,8 @@ export default function ReportScreen() {
                 }}
               >
                 <Ionicons name="paper-plane" size={18} color="#fff" />
-                <Text style={S.ctaText}>{submitting ? "ENVIANDO…" : "ENVIAR ALERTA"}</Text>
+                <Text style={S.ctaText}>{submitting ? "ENVIANDO…" : "ENVIAR PULSO"}</Text>
               </ReportCta>
-              <Pressable
-                style={S.reviewLink}
-                disabled={!category || submitting || !userLocation}
-                onPress={() => {
-                  setFormError(null);
-                  if (!category) {
-                    notifyUser("Falta categoría", "Elige el tipo de incidente para continuar.");
-                    return;
-                  }
-                  setStep(3);
-                }}
-              >
-                <Text style={S.reviewLinkText}>Revisar antes de enviar</Text>
-              </Pressable>
               <Text style={S.ctaHelper}>Anónimo · sin datos personales</Text>
             </View>
           )}
@@ -1062,7 +1003,7 @@ export default function ReportScreen() {
                 }}
               >
                 <Ionicons name="paper-plane" size={18} color="#fff" />
-                <Text style={S.ctaText}>{submitting ? "ENVIANDO…" : "ENVIAR ALERTA"}</Text>
+                <Text style={S.ctaText}>{submitting ? "ENVIANDO…" : "ENVIAR PULSO"}</Text>
               </ReportCta>
               <Text style={S.ctaHelper}>Tu identidad permanece anónima · 0 metadatos personales</Text>
             </View>
