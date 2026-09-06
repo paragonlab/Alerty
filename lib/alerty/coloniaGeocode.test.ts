@@ -7,6 +7,7 @@ import {
   resolveTextColonia,
   resolveCommunityGeo,
   resolveDestinationQuery,
+  suggestDestinationPlaces,
   CULIACAN_PLACES,
 } from "./coloniaGeocode";
 
@@ -101,6 +102,12 @@ function run() {
   const destGuad = resolveDestinationQuery("Guadalupe");
   assert(destGuad?.placeLabel === "Guadalupe", "destination Guadalupe");
   assert(resolveDestinationQuery("xx") === null, "unknown destination");
+
+  const quin = suggestDestinationPlaces("quin");
+  assert(quin[0]?.name === "Las Quintas", "suggest quintas");
+  const gua = suggestDestinationPlaces("gua").map((p) => p.name);
+  assert(gua.includes("Guadalupe"), "suggest Guadalupe");
+  assert(suggestDestinationPlaces("").length === 0, "empty suggest");
 
   console.log("coloniaGeocode tests: OK");
 }

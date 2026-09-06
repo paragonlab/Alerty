@@ -440,6 +440,38 @@ export function resolveCommunityMapPoint(post: {
   };
 }
 
+/** Autocomplete de colonias mientras el usuario escribe. */
+export function suggestDestinationPlaces(query: string, limit = 6): CuliacanPlace[] {
+  const n = normalize(query.trim());
+  if (n.length < 1) return [];
+
+  const scored: { place: CuliacanPlace; score: number }[] = [];
+  for (const place of CULIACAN_PLACES) {
+    let best = 0;
+    for (const name of placeNames(place)) {
+      const nn = normalize(name);
+      if (!nn) continue;
+      if (nn === n) best = Math.max(best, 100);
+      else if (nn.startsWith(n)) best = Math.max(best, 80 + Math.min(n.length, 15));
+      else if (n.startsWith(nn) && nn.length >= 3) best = Math.max(best, 70);
+      else if (n.length >= 2 && ` ${nn} `.includes(` ${n} `)) best = Math.max(best, 60);
+      else if (n.length >= 2 && nn.includes(n)) best = Math.max(best, 40);
+    }
+    if (best > 0) scored.push({ place, score: best });
+  }
+
+  scored.sort((a, b) => b.score - a.score || a.place.name.localeCompare(b.place.name, "es"));
+  const out: CuliacanPlace[] = [];
+  const seen = new Set<string>();
+  for (const row of scored) {
+    if (seen.has(row.place.name)) continue;
+    seen.add(row.place.name);
+    out.push(row.place);
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
 /** Destino escrito por el usuario: colonia o zona de Culiacán. */
 export function resolveDestinationQuery(query: string): { lat: number; lng: number; placeLabel: string } | null {
   const q = query.trim();
