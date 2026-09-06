@@ -12,7 +12,9 @@ import {
 import MapView, { Heatmap, Marker, PROVIDER_GOOGLE } from "../../components/ExpoMapView";
 import { RiskGrid } from "../../components/RiskGrid";
 import { ZoneRiskCard } from "../../components/ZoneRiskCard";
+import { ZonePulseBar } from "../../components/ZonePulseBar";
 import {
+  RISK_RADIUS_KM,
   buildHeatPoints,
   buildRiskGridFromPoints,
   scoreAtPoints,
@@ -20,6 +22,8 @@ import {
   toCommunityHeatPoint,
   type RiskAssessment,
 } from "../../lib/alerty/risk";
+import { nearestCuliacanPlace } from "../../lib/alerty/coloniaGeocode";
+import { shareZonePulse } from "../../lib/alerty/share";
 import { GlassView, GlassContainer } from "expo-glass-effect";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
@@ -38,7 +42,6 @@ import { supabase } from "../../lib/supabase";
 import type { CommunityPost } from "../../lib/alerty/types";
 import {
   calculateDistance,
-  formatRelativeTime,
   getCategoryPinColor,
   getIntensityColor,
   getPulseDuration,
@@ -154,8 +157,68 @@ export default function MapScreen() {
     [showGrid, heatSources],
   );
 
+  const verdictPoint = userLocation ?? {
+    latitude: CULIACAN_CENTER.latitude,
+    longitude: CULIACAN_CENTER.longitude,
+  };
+
+  const zoneAssessment = useMemo(
+    () => scoreAtPoints(heatSources, verdictPoint.latitude, verdictPoint.longitude),
+    [heatSources, verdictPoint.latitude, verdictPoint.longitude],
+  );
+
+  const zonePlaceLabel = useMemo(() => {
+    const place = nearestCuliacanPlace(verdictPoint.latitude, verdictPoint.longitude);
+    if (place) return place.name;
+    return userLocation ? "Tu zona" : "Culiacán";
+  }, [verdictPoint.latitude, verdictPoint.longitude, userLocation]);
+
+  const nearbyPulseCount = useMemo(
+    () =>
+      heatSources.filter(
+        (point) =>
+          calculateDistance(
+            verdictPoint.latitude,
+            verdictPoint.longitude,
+            point.lat,
+            point.lng,
+          ) <= RISK_RADIUS_KM,
+      ).length,
+    [heatSources, verdictPoint.latitude, verdictPoint.longitude],
+  );
+
+  const handleShareZone = async (
+    assessment: RiskAssessment,
+    placeLabel: string,
+    pulseCount: number,
+  ) => {
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    try {
+      await shareZonePulse(
+        assessment,
+        placeLabel,
+        pulseCount,
+        getTimeFilterWindowLabel(timeFilter),
+      );
+    } catch {
+      /* usuario canceló */
+    }
+  };
+
   useEffect(() => {
-    if (isWeb) return;
+    if (isWeb) {
+      if (typeof navigator === "undefined" || !navigator.geolocation) return;
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const coords = { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
+          setUserLocation(coords);
+          useAlertyStore.getState().setUserCoords(coords);
+        },
+        () => {},
+        { enableHighAccuracy: false, maximumAge: 60_000, timeout: 8000 },
+      );
+      return;
+    }
     void (async () => {
       try {
         const { status } = await Location.requestForegroundPermissionsAsync();
@@ -373,7 +436,7 @@ export default function MapScreen() {
           />
           <View style={{ flex: 1 }}>
             <Text style={styles.cityLabel}>Culiacán, Sinaloa</Text>
-            <Text style={styles.subLabel}>Zonas peligrosas en tiempo real</Text>
+            <Text style={styles.subLabel}>¿Es seguro salir?</Text>
           </View>
 
           <Pressable
@@ -485,6 +548,14 @@ export default function MapScreen() {
           <ZoneRiskCard
             assessment={riskResult.assessment}
             label={riskResult.label}
+            pulseCount={riskResult.assessment.count}
+            onShare={() => {
+              void handleShareZone(
+                riskResult.assessment,
+                riskResult.label,
+                riskResult.assessment.count,
+              );
+            }}
             onClose={() => setRiskResult(null)}
           />
         ) : selectedCommunity ? (
@@ -514,25 +585,17 @@ export default function MapScreen() {
             </View>
             <Ionicons name="chevron-forward" size={18} color="#fff" />
           </Pressable>
-        ) : filteredAlerts[0] ? (
-          <GlassView
-            colorScheme={isDark ? "dark" : "light"}
-            glassEffectStyle="regular"
-            tintColor="rgba(255, 255, 255, 0.02)"
-            style={styles.liveTicker}
-          >
-            <LinearGradient
-              colors={["rgba(255,255,255,0.1)", "transparent"]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 0.5, y: 0.5 }}
-              style={StyleSheet.absoluteFill}
-            />
-            <Ionicons name="pulse" size={16} color={theme.colors.reportAction} />
-            <Text style={styles.liveText} numberOfLines={1}>
-              Última alerta: {formatRelativeTime(filteredAlerts[0].createdAt)} · {filteredAlerts[0].description ?? "Sin descripción"}
-            </Text>
-          </GlassView>
-        ) : null}
+        ) : (
+          <ZonePulseBar
+            assessment={zoneAssessment}
+            placeLabel={zonePlaceLabel}
+            pulseCount={nearbyPulseCount}
+            windowLabel={getTimeFilterWindowLabel(timeFilter)}
+            onShare={() => {
+              void handleShareZone(zoneAssessment, zonePlaceLabel, nearbyPulseCount);
+            }}
+          />
+        )}
       </View>
     </SafeAreaView>
   );
@@ -752,22 +815,6 @@ const createStyles = (theme: any, themeMode: string) => StyleSheet.create({
     fontSize: 11,
     fontFamily: theme.fonts.body,
   },
-  liveTicker: {
-    position: "absolute",
-    left: 16,
-    right: 16,
-    bottom: 120,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    borderRadius: theme.radius.pill,
-    backgroundColor: themeMode === "light" ? "rgba(255,255,255,0.85)" : "rgba(18,18,18,0.85)",
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    overflow: "hidden",
-  },
   proximityBanner: {
     position: "absolute",
     left: 16,
@@ -804,12 +851,6 @@ const createStyles = (theme: any, themeMode: string) => StyleSheet.create({
     fontSize: 12,
     fontFamily: theme.fonts.body,
     marginTop: 1,
-  },
-  liveText: {
-    flex: 1,
-    color: theme.colors.text,
-    fontSize: 12,
-    fontFamily: theme.fonts.body,
   },
   webMap: {
     flex: 1,

@@ -2,6 +2,7 @@
  * Gazetteer + extracción de colonias (cliente).
  * Mantener alineado con supabase/functions/_shared/culiacanPlaces.ts
  */
+import { calculateDistance } from "./utils";
 
 export type CuliacanPlace = {
   name: string;
@@ -333,3 +334,20 @@ export function resolveCommunityGeo(opts: {
     confidence: "none",
   };
 }
+
+export const nearestCuliacanPlace = (
+  lat: number,
+  lng: number,
+  maxKm = 1.6,
+): CuliacanPlace | null => {
+  let best: CuliacanPlace | null = null;
+  let bestKm = maxKm;
+  for (const place of CULIACAN_PLACES) {
+    const km = calculateDistance(lat, lng, place.lat, place.lng);
+    if (km <= bestKm) {
+      bestKm = km;
+      best = place;
+    }
+  }
+  return best;
+};
