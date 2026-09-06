@@ -1,4 +1,4 @@
-import { Stack, useRootNavigationState, useRouter, useSegments } from "expo-router";
+import { Stack, usePathname, useRootNavigationState, useRouter, useSegments } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import { Alert } from "react-native";
 import { StatusBar } from "expo-status-bar";
@@ -27,6 +27,7 @@ export default function RootLayout() {
   const currentTheme = themeMode === "darkHighVisibility" ? darkHighVisibility : lightTheme;
   const router = useRouter();
   const segments = useSegments();
+  const pathname = usePathname();
   const rootNavigationState = useRootNavigationState();
   const [isReady, setIsReady] = useState(false);
   const [hasSession, setHasSession] = useState(false);
@@ -179,9 +180,15 @@ export default function RootLayout() {
     if (!isReady || !rootNavigationState?.key) return;
     const currentGroup = segments[0];
     const isInAuth = currentGroup === "(auth)";
+    const authOnlyPath = pathname === "/report" || pathname.startsWith("/premium") || pathname.startsWith("/business");
 
-    if (!hasSession && AUTH_ONLY_ROUTES.has(String(currentGroup))) {
-      setAuthNext(`/${String(currentGroup)}`);
+    if (!hasSession && (AUTH_ONLY_ROUTES.has(String(currentGroup)) || authOnlyPath)) {
+      const next = pathname.startsWith("/premium")
+        ? "/premium"
+        : pathname.startsWith("/business")
+          ? "/business"
+          : "/report";
+      setAuthNext(next);
       router.replace("/(auth)/login");
       return;
     }
@@ -189,7 +196,7 @@ export default function RootLayout() {
     if (hasSession && isInAuth) {
       router.replace((consumeAuthNext() ?? "/(tabs)") as any);
     }
-  }, [hasSession, isReady, rootNavigationState?.key, router, segments]);
+  }, [hasSession, isReady, pathname, rootNavigationState?.key, router, segments]);
 
   if (!fontsLoaded) {
     return null;

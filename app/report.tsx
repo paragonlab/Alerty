@@ -28,6 +28,7 @@ import { uploadMediaBatch } from "../lib/upload";
 import type { AlertCategory, AlertMedia } from "../lib/alerty/types";
 import { calculateDistance } from "../lib/alerty/utils";
 import { APP_SHARE_URL } from "../lib/alerty/share";
+import { requireSession } from "../lib/alerty/session";
 
 // Categories shown in the 3-column grid (exclude SOS – that's the long-press)
 const GRID_CATS = ALERT_CATEGORIES.filter((c) => c !== "sos");
@@ -224,6 +225,10 @@ export default function ReportScreen() {
       ) ?? null
     );
   }, [alerts, userLocation]);
+
+  useEffect(() => {
+    void requireSession("/report");
+  }, []);
 
   useEffect(() => {
     void getLocation();
