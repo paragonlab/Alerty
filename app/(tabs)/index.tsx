@@ -75,6 +75,7 @@ export default function MapScreen() {
     lng: number;
   } | null>(null);
   const [selectedCommunity, setSelectedCommunity] = useState<CommunityPost | null>(null);
+  const [timeMenuOpen, setTimeMenuOpen] = useState(false);
   const isWeb = Platform.OS === "web";
 
   const {
@@ -727,33 +728,62 @@ export default function MapScreen() {
 
         {/* Horario: mismo timeFilter que Feed — overlay compacto, no bloquea gestos del mapa */}
         <View style={[styles.timeFilterWrap, isWeb && styles.timeFilterWrapWeb]} pointerEvents="box-none">
-          <View style={styles.timeFilterCard} pointerEvents="auto">
-            <Text style={styles.timeWindowCaption}>
-              Viendo {getTimeFilterWindowLabel(timeFilter)}
-              {showHeatmap ? " · calor en vivo" : ""}
-            </Text>
-            <View style={styles.timeFilterRow}>
-              {TIME_FILTERS.map((filter) => {
-                const active = timeFilter === filter;
-                return (
-                  <Pressable
-                    key={filter}
-                    style={[styles.timePill, active && styles.timePillActive]}
-                    onPress={() => {
-                      void Haptics.selectionAsync();
-                      setTimeFilter(filter);
-                    }}
-                    hitSlop={4}
-                    accessibilityLabel={`Ver ${TIME_FILTER_PILL_LABEL[filter]}`}
-                  >
-                    <Text style={[styles.timePillText, active && styles.timePillTextActive]}>
-                      {TIME_FILTER_PILL_LABEL[filter]}
-                    </Text>
-                  </Pressable>
-                );
-              })}
+          {timeMenuOpen ? (
+            <View style={styles.timeFilterCard} pointerEvents="auto">
+              <Pressable
+                style={styles.timeMenuHeader}
+                onPress={() => {
+                  void Haptics.selectionAsync();
+                  setTimeMenuOpen(false);
+                }}
+                accessibilityLabel="Cerrar horario"
+              >
+                <Ionicons name="time-outline" size={16} color={theme.colors.text} />
+                <Text style={styles.timeWindowCaption}>
+                  Horario · {getTimeFilterWindowLabel(timeFilter)}
+                </Text>
+                <Ionicons name="chevron-down" size={16} color={theme.colors.textMuted} />
+              </Pressable>
+              <View style={styles.timeFilterRow}>
+                {TIME_FILTERS.map((filter) => {
+                  const active = timeFilter === filter;
+                  return (
+                    <Pressable
+                      key={filter}
+                      style={[styles.timePill, active && styles.timePillActive]}
+                      onPress={() => {
+                        void Haptics.selectionAsync();
+                        setTimeFilter(filter);
+                        setTimeMenuOpen(false);
+                      }}
+                      hitSlop={4}
+                      accessibilityLabel={`Ver ${TIME_FILTER_PILL_LABEL[filter]}`}
+                    >
+                      <Text style={[styles.timePillText, active && styles.timePillTextActive]}>
+                        {TIME_FILTER_PILL_LABEL[filter]}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
             </View>
-          </View>
+          ) : (
+            <Pressable
+              style={styles.timeFilterCollapsed}
+              onPress={() => {
+                void Haptics.selectionAsync();
+                setTimeMenuOpen(true);
+              }}
+              accessibilityLabel={`Horario: ${getTimeFilterWindowLabel(timeFilter)}. Abrir ventana de tiempo`}
+              pointerEvents="auto"
+            >
+              <Ionicons name="time-outline" size={16} color={theme.colors.text} />
+              <Text style={styles.timeCollapsedText}>
+                Horario · {TIME_FILTER_PILL_LABEL[timeFilter]}
+              </Text>
+              <Ionicons name="chevron-up" size={14} color={theme.colors.textMuted} />
+            </Pressable>
+          )}
         </View>
 
         {/* Empty state overlay (también en web: un mapa vacío se ve “roto”) */}
@@ -971,6 +1001,28 @@ const createStyles = (theme: any, themeMode: string) => StyleSheet.create({
     borderColor: theme.colors.border,
     gap: 6,
     maxWidth: 420,
+  },
+  timeFilterCollapsed: {
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: theme.radius.pill,
+    backgroundColor: themeMode === "light" ? "rgba(255,255,255,0.96)" : "rgba(18,18,18,0.92)",
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+  },
+  timeMenuHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  timeCollapsedText: {
+    color: theme.colors.text,
+    fontSize: 12,
+    fontFamily: theme.fonts.heading,
   },
   timeFilterRow: {
     flexDirection: "row",
