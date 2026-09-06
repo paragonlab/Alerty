@@ -34,9 +34,10 @@ export function consumeAuthNext(): string | undefined {
 }
 
 export async function requireSession(nextPath?: string): Promise<boolean> {
-  if (!isSupabaseConfigured || !supabase) return true;
-  const { data } = await supabase.auth.getSession();
-  if (data.session) return true;
+  if (isSupabaseConfigured && supabase) {
+    const { data } = await supabase.auth.getSession();
+    if (data.session) return true;
+  }
   setAuthNext(nextPath);
   router.push("/(auth)/login");
   return false;

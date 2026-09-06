@@ -465,29 +465,99 @@ export default function ReportScreen() {
 
     submittingRef.current = true;
     setSubmitting(true);
-    // Pintar ENVIANDO... antes de cualquier red (iOS Safari a veces no muestra el estado si el await empieza al instante).
     await yieldToPaint();
 
-    const newAlert = {
-      id: `local-${Date.now()}`,
-      category,
-      lat: coords.latitude,
-      lng: coords.longitude,
-      title: title.trim() || `${CATEGORY_LABELS[category]} · ${placeLabel}`,
-      description: `Cómo lo sé: ${sourceTag}`,
-      createdAt: new Date().toISOString(),
-      status: "active" as const,
-      media,
-      upvotes: 0,
-      downvotes: 0,
-      neighborhood: placeLabel,
-      user: currentUser,
-    };
+    if (!(await requireSession("/report"))) {
+      submittingRef.current = false;
+      setSubmitting(false);
+      return;
+    }
 
-    let savedLocally = false;
+    if (!supabase) {
+      submittingRef.current = false;
+      setSubmitting(false);
+      notifyUser("Entra para publicar", "Necesitas una cuenta para enviar un pulso.");
+      return;
+    }
+
+    const titleText = title.trim() || `${CATEGORY_LABELS[category]} · ${placeLabel}`;
+    const description = `Cómo lo sé: ${sourceTag}`;
+
     try {
-      addAlert(newAlert as any);
-      savedLocally = true;
+      const { data: ud } = await withTimeout(
+        supabase.auth.getUser(),
+        SUBMIT_AUTH_TIMEOUT_MS,
+        "verificar sesión",
+      );
+      if (!ud.user?.id) {
+        submittingRef.current = false;
+        setSubmitting(false);
+        void requireSession("/report");
+        return;
+      }
+
+      const { data: inserted, error: insertError } = await withTimeout(
+        supabase
+          .from("alerts")
+          .insert({
+            user_id: ud.user.id,
+            category,
+            lat: coords.latitude,
+            lng: coords.longitude,
+            title: titleText,
+            description,
+            status: "active",
+          })
+          .select("id,created_at")
+          .single(),
+        SUBMIT_INSERT_TIMEOUT_MS,
+        "guardar en la red",
+      );
+
+      if (insertError || !inserted?.id) {
+        submittingRef.current = false;
+        setSubmitting(false);
+        notifyUser(
+          "No se pudo enviar el pulso",
+          insertError?.message ?? "Intenta de nuevo en unos segundos.",
+        );
+        return;
+      }
+
+      addAlert({
+        id: inserted.id,
+        category,
+        lat: coords.latitude,
+        lng: coords.longitude,
+        title: titleText,
+        description,
+        createdAt: inserted.created_at,
+        status: "active",
+        media,
+        upvotes: 0,
+        downvotes: 0,
+        neighborhood: placeLabel,
+        user: currentUser,
+      } as any);
+
+      const alertId = inserted.id;
+      void supabase.functions
+        .invoke("notify-on-alert", { body: { type: "alert", alertId } })
+        .catch(() => {});
+      if (media.length > 0) {
+        void (async () => {
+          const uploaded = await uploadMediaBatch(media);
+          if (uploaded.length > 0 && supabase) {
+            await supabase.from("media").insert(
+              uploaded.map((m) => ({
+                alert_id: alertId,
+                media_url: m.url,
+                media_type: m.type,
+              })),
+            );
+          }
+        })().catch(() => {});
+      }
     } catch (err) {
       submittingRef.current = false;
       setSubmitting(false);
@@ -499,58 +569,6 @@ export default function ReportScreen() {
       return;
     }
 
-    // Red: no bloquear el éxito local. Timeouts evitan botones “muertos” si Safari cuelga auth/insert.
-    if (supabase) {
-      try {
-        const { data: ud } = await withTimeout(
-          supabase.auth.getUser(),
-          SUBMIT_AUTH_TIMEOUT_MS,
-          "verificar sesión",
-        );
-        const { data: inserted, error: insertError } = await withTimeout(
-          supabase
-            .from("alerts")
-            .insert({
-              user_id: ud.user?.id,
-              category,
-              lat: coords.latitude,
-              lng: coords.longitude,
-              title: newAlert.title,
-              description: newAlert.description,
-              status: "active",
-            })
-            .select("id")
-            .single(),
-          SUBMIT_INSERT_TIMEOUT_MS,
-          "guardar en la red",
-        );
-        if (insertError) {
-          console.warn("supabase alert insert failed", insertError);
-        } else if (inserted?.id) {
-          const alertId = inserted.id;
-          void supabase.functions
-            .invoke("notify-on-alert", { body: { type: "alert", alertId } })
-            .catch(() => {});
-          if (media.length > 0) {
-            void (async () => {
-              const uploaded = await uploadMediaBatch(media);
-              if (uploaded.length > 0 && supabase) {
-                await supabase.from("media").insert(
-                  uploaded.map((m) => ({
-                    alert_id: alertId,
-                    media_url: m.url,
-                    media_type: m.type,
-                  })),
-                );
-              }
-            })().catch(() => {});
-          }
-        }
-      } catch (netErr) {
-        console.warn("supabase submit skipped after local save", netErr);
-      }
-    }
-
     try {
       void Sounds.success();
     } catch {}
@@ -560,11 +578,7 @@ export default function ReportScreen() {
 
     submittingRef.current = false;
     setSubmitting(false);
-    if (savedLocally) {
-      setStep(4);
-    } else {
-      notifyUser("No se pudo enviar el pulso", "Intenta de nuevo en unos segundos.");
-    }
+    setStep(4);
   }
 
   // ── Render helpers ───────────────────────────────────────────────────────

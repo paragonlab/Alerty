@@ -39,7 +39,7 @@ export default function RootLayout() {
 
   useEffect(() => {
     if (!isSupabaseConfigured || !supabase) {
-      setHasSession(true);
+      setHasSession(false);
       setIsReady(true);
       return;
     }
