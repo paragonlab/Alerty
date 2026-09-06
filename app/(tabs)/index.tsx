@@ -11,8 +11,8 @@ import {
 } from "react-native";
 import MapView, { Heatmap, Marker, PROVIDER_GOOGLE } from "../../components/ExpoMapView";
 import { RiskGrid } from "../../components/RiskGrid";
-import { ZoneRiskCard } from "../../components/ZoneRiskCard";
 import {
+  GO_DEST_LABEL,
   GO_OUT_LABEL,
   RISK_RADIUS_KM,
   buildHeatPoints,
@@ -385,6 +385,16 @@ export default function MapScreen() {
     setShowGrid(!showGrid);
   };
 
+  const headerStatusText = riskResult
+    ? `${(riskResult.destination ? GO_DEST_LABEL : GO_OUT_LABEL)[riskResult.assessment.level]} · ${riskResult.label}`
+    : nearbyAlert
+      ? `Alerta cerca · ${CATEGORY_LABELS[nearbyAlert.alert.category]} · ${
+          nearbyAlert.dist < 1
+            ? `${Math.round(nearbyAlert.dist * 1000)} m`
+            : `${nearbyAlert.dist.toFixed(1)} km`
+        }`
+      : `${GO_OUT_LABEL[zoneAssessment.level]} · ${zonePlaceLabel}`;
+
   const styles = createStyles(theme, themeMode);
 
   return (
@@ -516,40 +526,69 @@ export default function MapScreen() {
               <View style={{ flex: 1 }}>
                 <Text style={styles.cityLabel}>Culiacán, Sinaloa</Text>
               </View>
-              <Pressable
-                style={styles.headerLocationButton}
-                onPress={handleCenterLocation}
-                disabled={locating}
-              >
-                <Ionicons name="locate" size={20} color={theme.colors.text} />
-              </Pressable>
+              <View style={styles.headerTools}>
+                <Pressable
+                  style={styles.headerTool}
+                  onPress={handleCenterLocation}
+                  disabled={locating}
+                  accessibilityLabel="Mi ubicación"
+                >
+                  <Ionicons name="locate" size={18} color={theme.colors.text} />
+                </Pressable>
+                <Pressable
+                  style={[styles.headerTool, showHeatmap && styles.headerToolActive]}
+                  onPress={toggleHeat}
+                  accessibilityLabel="Mapa de calor"
+                >
+                  <Ionicons name="flame" size={16} color={showHeatmap ? "#FFFFFF" : theme.colors.text} />
+                </Pressable>
+                <Pressable
+                  style={[styles.headerTool, showGrid && styles.headerToolActive]}
+                  onPress={toggleGrid}
+                  accessibilityLabel="Zonas por cuadrantes"
+                >
+                  <Ionicons name="grid" size={16} color={showGrid ? "#FFFFFF" : theme.colors.text} />
+                </Pressable>
+              </View>
             </View>
 
             <Pressable
               style={styles.zoneStrip}
               onPress={() => {
-                if (!nearbyAlert) return;
+                if (riskResult || !nearbyAlert) return;
                 void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
                 router.push(`/alert/${nearbyAlert.alert.id}`);
               }}
               accessibilityLabel={
-                nearbyAlert
-                  ? `Alerta cerca: ${CATEGORY_LABELS[nearbyAlert.alert.category]}`
-                  : `${GO_OUT_LABEL[zoneAssessment.level]} en ${zonePlaceLabel}`
+                riskResult
+                  ? `${(riskResult.destination ? GO_DEST_LABEL : GO_OUT_LABEL)[riskResult.assessment.level]} ${riskResult.label}`
+                  : nearbyAlert
+                    ? `Alerta cerca: ${CATEGORY_LABELS[nearbyAlert.alert.category]}`
+                    : `${GO_OUT_LABEL[zoneAssessment.level]} en ${zonePlaceLabel}`
               }
             >
               <View
                 style={[
                   styles.zoneDot,
                   {
-                    backgroundColor: nearbyAlert
-                      ? theme.colors.mapOrange
-                      : riskColor(zoneAssessment.level, theme.colors),
+                    backgroundColor: riskResult
+                      ? riskColor(riskResult.assessment.level, theme.colors)
+                      : nearbyAlert
+                        ? theme.colors.mapOrange
+                        : riskColor(zoneAssessment.level, theme.colors),
                   },
                 ]}
               >
                 <Ionicons
-                  name={nearbyAlert ? "warning" : "shield-checkmark"}
+                  name={
+                    riskResult
+                      ? riskResult.assessment.level === "tranquila"
+                        ? "shield-checkmark"
+                        : "warning"
+                      : nearbyAlert
+                        ? "warning"
+                        : "shield-checkmark"
+                  }
                   size={11}
                   color="#fff"
                 />
@@ -558,22 +597,42 @@ export default function MapScreen() {
                 style={[
                   styles.zoneStripText,
                   {
-                    color: nearbyAlert
-                      ? theme.colors.mapOrange
-                      : riskColor(zoneAssessment.level, theme.colors),
+                    color: riskResult
+                      ? riskColor(riskResult.assessment.level, theme.colors)
+                      : nearbyAlert
+                        ? theme.colors.mapOrange
+                        : riskColor(zoneAssessment.level, theme.colors),
                   },
                 ]}
                 numberOfLines={1}
               >
-                {nearbyAlert
-                  ? `Alerta cerca · ${CATEGORY_LABELS[nearbyAlert.alert.category]} · ${
-                      nearbyAlert.dist < 1
-                        ? `${Math.round(nearbyAlert.dist * 1000)} m`
-                        : `${nearbyAlert.dist.toFixed(1)} km`
-                    }`
-                  : `${GO_OUT_LABEL[zoneAssessment.level]} · ${zonePlaceLabel}`}
+                {headerStatusText}
               </Text>
-              {nearbyAlert ? (
+              {riskResult ? (
+                <>
+                  <Pressable
+                    onPress={() => {
+                      void handleShareZone(
+                        riskResult.assessment,
+                        riskResult.label,
+                        riskResult.assessment.count,
+                        riskResult.destination,
+                      );
+                    }}
+                    hitSlop={8}
+                    accessibilityLabel="Compartir zona"
+                  >
+                    <Ionicons name="share-outline" size={14} color={theme.colors.textMuted} />
+                  </Pressable>
+                  <Pressable
+                    onPress={() => setRiskResult(null)}
+                    hitSlop={8}
+                    accessibilityLabel="Cerrar destino"
+                  >
+                    <Ionicons name="close" size={16} color={theme.colors.textMuted} />
+                  </Pressable>
+                </>
+              ) : nearbyAlert ? (
                 <Ionicons name="chevron-forward" size={14} color={theme.colors.textMuted} />
               ) : (
                 <Pressable
@@ -624,6 +683,29 @@ export default function MapScreen() {
                 </Pressable>
               ) : null}
             </View>
+
+            {riskResult ? (
+              <View style={styles.destMeta}>
+                {riskResult.assessment.count === 0 ? (
+                  <Text style={styles.destEmpty}>Sin pulsos cerca · mantente atento</Text>
+                ) : (
+                  <View style={styles.destChips}>
+                    {riskResult.assessment.byCategory.map((c) => (
+                      <Pressable
+                        key={c.category}
+                        style={styles.destChip}
+                        onPress={() => openRelatedPulse(c.category)}
+                        accessibilityLabel={`Ver pulso de ${CATEGORY_LABELS[c.category]}`}
+                      >
+                        <Text style={styles.destChipText}>
+                          {CATEGORY_LABELS[c.category]} · {c.count}
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                )}
+              </View>
+            ) : null}
           </GlassView>
 
           {showDestinationSuggestions ? (
@@ -641,31 +723,6 @@ export default function MapScreen() {
               ))}
             </View>
           ) : null}
-        </View>
-
-        <View style={styles.layerSelector}>
-          <Pressable
-            style={[styles.layerButton, showHeatmap && styles.layerButtonActive]}
-            onPress={toggleHeat}
-            accessibilityLabel="Mapa de calor"
-          >
-            <Ionicons
-              name="flame"
-              size={18}
-              color={showHeatmap ? "#FFFFFF" : theme.colors.textMuted}
-            />
-          </Pressable>
-          <Pressable
-            style={[styles.layerButton, showGrid && styles.layerButtonActive]}
-            onPress={toggleGrid}
-            accessibilityLabel="Zonas por cuadrantes"
-          >
-            <Ionicons
-              name="grid"
-              size={18}
-              color={showGrid ? "#FFFFFF" : theme.colors.textMuted}
-            />
-          </Pressable>
         </View>
 
         {/* Horario: mismo timeFilter que Feed — overlay compacto, no bloquea gestos del mapa */}
@@ -707,25 +764,7 @@ export default function MapScreen() {
           </View>
         )}
 
-        {/* Tarjeta de riesgo de zona — prioridad sobre banner y ticker */}
-        {riskResult ? (
-          <ZoneRiskCard
-            assessment={riskResult.assessment}
-            label={riskResult.label}
-            pulseCount={riskResult.assessment.count}
-            destination={riskResult.destination}
-            onShare={() => {
-              void handleShareZone(
-                riskResult.assessment,
-                riskResult.label,
-                riskResult.assessment.count,
-                riskResult.destination,
-              );
-            }}
-            onCategoryPress={openRelatedPulse}
-            onClose={() => setRiskResult(null)}
-          />
-        ) : selectedCommunity ? (
+        {selectedCommunity ? (
           <CommunityPostPreview
             post={selectedCommunity}
             onClose={() => setSelectedCommunity(null)}
@@ -761,13 +800,13 @@ const createStyles = (theme: any, themeMode: string) => StyleSheet.create({
     top: 0,
     left: 0,
     right: 0,
-    height: 236,
+    height: 260,
   },
   headerStack: {
     position: "absolute",
     top: 54,
     left: 16,
-    right: 76,
+    right: 16,
     zIndex: 20,
   },
   headerCard: {
@@ -807,15 +846,50 @@ const createStyles = (theme: any, themeMode: string) => StyleSheet.create({
     fontSize: 12,
     fontFamily: theme.fonts.heading,
   },
-  headerLocationButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: "rgba(0,0,0,0.05)",
+  headerTools: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  headerTool: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     alignItems: "center",
     justifyContent: "center",
+    backgroundColor: themeMode === "light" ? "rgba(0,0,0,0.05)" : "rgba(255,255,255,0.08)",
     borderWidth: 1,
     borderColor: theme.colors.border,
+  },
+  headerToolActive: {
+    backgroundColor: theme.colors.reportAction,
+    borderColor: theme.colors.reportAction,
+  },
+  destMeta: {
+    gap: 6,
+  },
+  destEmpty: {
+    fontSize: 11,
+    fontFamily: theme.fonts.body,
+    color: theme.colors.textMuted,
+  },
+  destChips: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+  },
+  destChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: theme.radius.pill,
+    backgroundColor: theme.colors.surfaceAlt,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+  },
+  destChipText: {
+    fontSize: 11,
+    fontFamily: theme.fonts.body,
+    color: theme.colors.text,
   },
   sponsorMarker: {
     width: 28,
@@ -877,37 +951,6 @@ const createStyles = (theme: any, themeMode: string) => StyleSheet.create({
     fontSize: 13,
     fontFamily: theme.fonts.body,
     paddingVertical: 0,
-  },
-  layerSelector: {
-    position: "absolute",
-    top: 54,
-    right: 16,
-    borderRadius: theme.radius.pill,
-    overflow: "hidden",
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    zIndex: 20,
-  },
-  layerButton: {
-    width: 44,
-    height: 44,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: themeMode === "light" ? "rgba(255,255,255,0.85)" : "rgba(26,26,26,0.7)",
-  },
-  layerButtonActive: {
-    backgroundColor: theme.colors.reportAction,
-  },
-  layerLock: {
-    position: "absolute",
-    top: 5,
-    right: 5,
-    width: 14,
-    height: 14,
-    borderRadius: 7,
-    backgroundColor: theme.colors.accent,
-    alignItems: "center",
-    justifyContent: "center",
   },
   timeFilterWrap: {
     position: "absolute",
