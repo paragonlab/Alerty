@@ -11,11 +11,12 @@ import React, {
 import { StyleSheet, Text, View } from "react-native";
 import type { AlertCategory } from "../lib/alerty/types";
 import { CATEGORY_ICONS } from "../lib/alerty/constants";
+import { riskColor, type GridCell } from "../lib/alerty/risk";
 
 const API_KEY = process.env.EXPO_PUBLIC_GOOGLE_MAPS_KEY ?? "";
 
 /** Pause fancy pulse rings when many pins (mobile Safari). */
-const PULSE_SIMPLIFY_AT = 36;
+const PULSE_SIMPLIFY_AT = 10;
 
 type Region = {
   latitude: number;
@@ -104,7 +105,6 @@ export function Polygon(_props: PolygonProps) {
 export const PROVIDER_GOOGLE = "google";
 
 let mapsLoad: Promise<void> | null = null;
-let stylesInjected = false;
 
 function loadGoogleMaps(): Promise<void> {
   if (typeof window === "undefined") {
@@ -124,7 +124,7 @@ function loadGoogleMaps(): Promise<void> {
       return;
     }
     const script = document.createElement("script");
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(API_KEY)}&v=weekly&libraries=visualization`;
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(API_KEY)}&v=weekly`;
     script.async = true;
     script.defer = true;
     script.setAttribute("data-pulso-gmaps", "1");
@@ -135,28 +135,63 @@ function loadGoogleMaps(): Promise<void> {
   return mapsLoad;
 }
 
-async function ensureVisualization(): Promise<void> {
-  const g = (window as any).google;
-  if (g?.maps?.visualization) return;
-  if (typeof g?.maps?.importLibrary === "function") {
-    await g.maps.importLibrary("visualization");
+let leafletLoad: Promise<void> | null = null;
+
+function loadLeaflet(): Promise<void> {
+  if (typeof window === "undefined") {
+    return Promise.reject(new Error("no window"));
   }
+  if ((window as any).L?.map) return Promise.resolve();
+  if (leafletLoad) return leafletLoad;
+  leafletLoad = new Promise((resolve, reject) => {
+    if (!document.querySelector("link[data-pulso-leaflet]")) {
+      const css = document.createElement("link");
+      css.rel = "stylesheet";
+      css.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
+      css.setAttribute("data-pulso-leaflet", "1");
+      document.head.appendChild(css);
+    }
+    const existing = document.querySelector("script[data-pulso-leaflet-js]");
+    if (existing) {
+      existing.addEventListener("load", () => resolve());
+      existing.addEventListener("error", () => reject(new Error("leaflet-error")));
+      return;
+    }
+    const script = document.createElement("script");
+    script.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
+    script.async = true;
+    script.setAttribute("data-pulso-leaflet-js", "1");
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error("leaflet-error"));
+    document.head.appendChild(script);
+  });
+  return leafletLoad;
 }
 
+const GRID_THEME = {
+  success: "#1F9D6E",
+  mapYellow: "#E5C548",
+  mapOrange: "#E9792F",
+  mapRed: "#D9342B",
+};
+
 function ensurePulseStyles() {
-  if (typeof document === "undefined" || stylesInjected) return;
-  stylesInjected = true;
-  const style = document.createElement("style");
-  style.setAttribute("data-pulso-glow-markers", "1");
+  if (typeof document === "undefined") return;
+  let style = document.querySelector("style[data-pulso-glow-markers]") as HTMLStyleElement | null;
+  if (!style) {
+    style = document.createElement("style");
+    style.setAttribute("data-pulso-glow-markers", "1");
+    document.head.appendChild(style);
+  }
   style.textContent = `
 @keyframes pulso-halo {
-  0%, 100% { transform: scale(0.85); opacity: var(--pulso-halo-min, 0.45); }
-  50% { transform: scale(1.1); opacity: var(--pulso-halo-max, 0.75); }
+  0%, 100% { transform: scale(0.9); opacity: var(--pulso-halo-min, 0.2); }
+  50% { transform: scale(1.05); opacity: var(--pulso-halo-max, 0.35); }
 }
 @keyframes pulso-ring {
-  0% { transform: scale(0.7); opacity: 0.9; }
-  60% { opacity: 0.25; }
-  100% { transform: scale(3.6); opacity: 0; }
+  0% { transform: scale(0.8); opacity: 0.45; }
+  70% { opacity: 0.12; }
+  100% { transform: scale(1.7); opacity: 0; }
 }
 @keyframes pulso-beat {
   0%, 100% { opacity: 0; }
@@ -404,8 +439,29 @@ function ensurePulseStyles() {
   .pulso-pin__halo { opacity: 0.5; transform: scale(1); }
   .pulso-pin__ring { display: none; }
 }
+.pulso-leaflet-pin {
+  background: none !important;
+  border: none !important;
+}
+.pulso-leaflet-pin .pulso-pin,
+.pulso-leaflet-pin .pulso-community,
+.pulso-leaflet-pin .pulso-sponsor {
+  margin: 0 !important;
+}
+.pulso-leaflet-pin .pulso-pin {
+  width: 48px;
+  height: 48px;
+}
+.pulso-leaflet-pin .pulso-pin__dot {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.28);
+}
+.leaflet-container {
+  width: 100%;
+  height: 100%;
+  background: #1a1a1a;
+  font-family: inherit;
+}
 `;
-  document.head.appendChild(style);
 }
 
 function regionToZoom(delta?: number) {
@@ -561,6 +617,21 @@ function splitCssColor(color?: string): { color: string; opacity?: number } {
   return { color };
 }
 
+function aggregateHeatPoints(points: HeatmapPoint[]): HeatmapPoint[] {
+  const bucket = 0.01;
+  const cells = new Map<string, { lat: number; lng: number; weight: number }>();
+  for (const p of points) {
+    const lat = Math.round(p.latitude / bucket) * bucket;
+    const lng = Math.round(p.longitude / bucket) * bucket;
+    const key = `${lat},${lng}`;
+    const cur = cells.get(key);
+    const w = typeof p.weight === "number" && p.weight > 0 ? p.weight : 1;
+    if (cur) cur.weight += w;
+    else cells.set(key, { lat, lng, weight: w });
+  }
+  return [...cells.values()].map((c) => ({ latitude: c.lat, longitude: c.lng, weight: c.weight }));
+}
+
 function collectHeatmap(node: React.ReactNode): HeatmapProps | null {
   let found: HeatmapProps | null = null;
   Children.forEach(node, (child) => {
@@ -580,9 +651,22 @@ function collectHeatmap(node: React.ReactNode): HeatmapProps | null {
 function collectPolygons(node: React.ReactNode, out: PolygonProps[] = []): PolygonProps[] {
   Children.forEach(node, (child) => {
     if (!isValidElement(child)) return;
-    const props = child.props as PolygonProps & { children?: React.ReactNode };
+    const props = child.props as PolygonProps & { children?: React.ReactNode; cells?: GridCell[] };
     if (Array.isArray(props.coordinates) && props.coordinates.length >= 3) {
       out.push(props);
+      return;
+    }
+    if (Array.isArray(props.cells)) {
+      for (const cell of props.cells) {
+        if (!Array.isArray(cell.coordinates) || cell.coordinates.length < 3) continue;
+        const color = riskColor(cell.level, GRID_THEME);
+        out.push({
+          coordinates: cell.coordinates,
+          fillColor: `${color}55`,
+          strokeColor: `${color}AA`,
+          strokeWidth: 1,
+        });
+      }
       return;
     }
     if (props.children != null) {
@@ -656,16 +740,12 @@ function buildAlertPinElement(meta: AlertPinMeta, simplify: boolean): HTMLDivEle
         <span class="pulso-pin__icon">${categoryIconSvg(meta.category)}</span>
       `;
 
-  if (!staticPulse) {
-    el.innerHTML = `
-      <div class="pulso-pin__halo"></div>
-      <div class="pulso-pin__ring"></div>
-      ${simplify ? "" : '<div class="pulso-pin__ring pulso-pin__ring--delayed"></div>'}
-      <div class="pulso-pin__dot">${coreInner}</div>
-    `;
+  if (simplify || staticPulse) {
+    el.innerHTML = `<div class="pulso-pin__dot">${coreInner}</div>`;
   } else {
     el.innerHTML = `
       <div class="pulso-pin__halo"></div>
+      <div class="pulso-pin__ring"></div>
       <div class="pulso-pin__dot">${coreInner}</div>
     `;
   }
@@ -842,12 +922,20 @@ type MapViewProps = {
   provider?: unknown;
 };
 
+function pinElement(meta: PinMeta, simplify: boolean): HTMLDivElement {
+  if (meta.kind === "sponsor") return buildSponsorPinElement(meta);
+  if (meta.kind === "community") return buildCommunityPinElement(meta);
+  return buildAlertPinElement(meta, simplify);
+}
+
 const ExpoMapView = forwardRef<MapHandle, MapViewProps>(function ExpoMapView(props, ref) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<any>(null);
+  const engineRef = useRef<"google" | "leaflet" | null>(null);
   const overlaysRef = useRef<OverlayHandle[]>([]);
-  const heatmapLayerRef = useRef<any>(null);
+  const heatCirclesRef = useRef<any[]>([]);
   const polygonsRef = useRef<any[]>([]);
+  const leafletGroupRef = useRef<any>(null);
   const longPressTimer = useRef<number | null>(null);
   const onLongPressRef = useRef(props.onLongPress);
   onLongPressRef.current = props.onLongPress;
@@ -861,11 +949,16 @@ const ExpoMapView = forwardRef<MapHandle, MapViewProps>(function ExpoMapView(pro
   cancelLongPressRef.current = cancelLongPress;
   const [error, setError] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
+  const [mapEpoch, setMapEpoch] = useState(0);
 
   useImperativeHandle(ref, () => ({
     animateToRegion: (region: Region) => {
       const map = mapRef.current;
       if (!map || !region) return;
+      if (engineRef.current === "leaflet") {
+        map.setView([region.latitude, region.longitude], regionToZoom(region.latitudeDelta));
+        return;
+      }
       map.panTo({ lat: region.latitude, lng: region.longitude });
       map.setZoom(regionToZoom(region.latitudeDelta));
     },
@@ -875,16 +968,60 @@ const ExpoMapView = forwardRef<MapHandle, MapViewProps>(function ExpoMapView(pro
     let cancelled = false;
     let resizeObserver: ResizeObserver | null = null;
 
-    loadGoogleMaps()
-      .then(() => {
+    const region = props.initialRegion ?? {
+      latitude: 24.8091,
+      longitude: -107.394,
+      latitudeDelta: 0.16,
+    };
+
+    const startLeaflet = () =>
+      loadLeaflet().then(() => {
+        if (cancelled || !hostRef.current) return;
+        ensurePulseStyles();
+        hostRef.current.innerHTML = "";
+        const L = (window as any).L;
+        const map = L.map(hostRef.current, { zoomControl: true, attributionControl: true });
+        L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+          attribution: "&copy; OpenStreetMap",
+          maxZoom: 19,
+        }).addTo(map);
+        map.setView([region.latitude, region.longitude], regionToZoom(region.latitudeDelta));
+        mapRef.current = map;
+        engineRef.current = "leaflet";
+
+        map.on("contextmenu", (e: any) => {
+          if (!e?.latlng) return;
+          onLongPressRef.current?.({
+            nativeEvent: { coordinate: { latitude: e.latlng.lat, longitude: e.latlng.lng } },
+          });
+        });
+        map.on("mousedown", (e: any) => {
+          if (!e?.latlng) return;
+          if (longPressTimer.current) window.clearTimeout(longPressTimer.current);
+          const latlng = e.latlng;
+          longPressTimer.current = window.setTimeout(() => {
+            onLongPressRef.current?.({
+              nativeEvent: { coordinate: { latitude: latlng.lat, longitude: latlng.lng } },
+            });
+          }, 550);
+        });
+        map.on("mouseup dragstart", () => cancelLongPressRef.current());
+
+        const triggerResize = () => map.invalidateSize();
+        requestAnimationFrame(triggerResize);
+        if (typeof ResizeObserver !== "undefined" && hostRef.current) {
+          resizeObserver = new ResizeObserver(() => triggerResize());
+          resizeObserver.observe(hostRef.current);
+        }
+        setMapEpoch((n) => n + 1);
+        setReady(true);
+      });
+
+    const startGoogle = () =>
+      loadGoogleMaps().then(() => {
         if (cancelled || !hostRef.current) return;
         ensurePulseStyles();
         const g = (window as any).google;
-        const region = props.initialRegion ?? {
-          latitude: 24.8091,
-          longitude: -107.394,
-          latitudeDelta: 0.16,
-        };
         const map = new g.maps.Map(hostRef.current, {
           center: { lat: region.latitude, lng: region.longitude },
           zoom: regionToZoom(region.latitudeDelta),
@@ -895,6 +1032,7 @@ const ExpoMapView = forwardRef<MapHandle, MapViewProps>(function ExpoMapView(pro
           styles: props.userInterfaceStyle === "dark" ? DARK_STYLES : [],
         });
         mapRef.current = map;
+        engineRef.current = "google";
 
         const emitLongPress = (latLng: any) => {
           onLongPressRef.current?.({
@@ -933,27 +1071,33 @@ const ExpoMapView = forwardRef<MapHandle, MapViewProps>(function ExpoMapView(pro
           resizeObserver.observe(hostRef.current);
         }
 
+        setMapEpoch((n) => n + 1);
         setReady(true);
-      })
-      .catch((err) => {
-        if (cancelled) return;
-        if (String(err?.message) === "missing-key") {
-          setError("Falta EXPO_PUBLIC_GOOGLE_MAPS_KEY en Vercel.");
-        } else {
-          setError("No se pudo cargar Google Maps.");
-        }
       });
+
+    const boot = API_KEY
+      ? startGoogle().catch(() => startLeaflet())
+      : startLeaflet();
+
+    boot.catch(() => {
+      if (!cancelled) setError("No se pudo cargar el mapa.");
+    });
 
     return () => {
       cancelled = true;
+      setReady(false);
       resizeObserver?.disconnect();
       if (longPressTimer.current) window.clearTimeout(longPressTimer.current);
       overlaysRef.current.forEach((o) => o.setMap(null));
       overlaysRef.current = [];
-      heatmapLayerRef.current?.setMap(null);
-      heatmapLayerRef.current = null;
-      polygonsRef.current.forEach((p) => p.setMap(null));
+      heatCirclesRef.current.forEach((c) => c.setMap?.(null));
+      heatCirclesRef.current = [];
+      polygonsRef.current.forEach((p) => p.setMap?.(null));
       polygonsRef.current = [];
+      leafletGroupRef.current?.clearLayers?.();
+      if (engineRef.current === "leaflet") {
+        mapRef.current?.remove?.();
+      }
     };
     // Map instance is created once; region/theme updates aren't remounted on purpose.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -961,49 +1105,102 @@ const ExpoMapView = forwardRef<MapHandle, MapViewProps>(function ExpoMapView(pro
 
   useEffect(() => {
     const map = mapRef.current;
-    const g = typeof window !== "undefined" ? (window as any).google : null;
-    if (!map || !g?.maps || !ready) return;
-    let cancelled = false;
+    const engine = engineRef.current;
+    if (!map || !ready || !engine) return;
 
     ensurePulseStyles();
     overlaysRef.current.forEach((o) => o.setMap(null));
     overlaysRef.current = [];
-    heatmapLayerRef.current?.setMap(null);
-    heatmapLayerRef.current = null;
-    polygonsRef.current.forEach((p) => p.setMap(null));
+    heatCirclesRef.current.forEach((c) => c.setMap?.(null));
+    heatCirclesRef.current = [];
+    polygonsRef.current.forEach((p) => p.setMap?.(null));
     polygonsRef.current = [];
+    leafletGroupRef.current?.clearLayers?.();
 
     const markers = collectMarkerProps(props.children);
+    const polygons = collectPolygons(props.children);
+    const heat = collectHeatmap(props.children);
     const alertCount = markers.filter((m) => m.meta.kind === "alert").length;
     const simplify = alertCount >= PULSE_SIMPLIFY_AT;
+    const heatPoints = aggregateHeatPoints(
+      (heat?.points ?? []).filter((p) => Number.isFinite(p.latitude) && Number.isFinite(p.longitude)),
+    );
+
+    if (engine === "leaflet") {
+      const L = (window as any).L;
+      if (!L) return;
+      const group = L.layerGroup().addTo(map);
+      leafletGroupRef.current = group;
+
+      heatPoints.forEach((p) => {
+        const weight = typeof p.weight === "number" && p.weight > 0 ? p.weight : 1;
+        group.addLayer(
+          L.circleMarker([p.latitude, p.longitude], {
+            radius: Math.min(14, 7 + 2 * Math.sqrt(weight)),
+            fillColor: "#E84F1F",
+            fillOpacity: Math.min(0.16, 0.07 + 0.02 * Math.sqrt(weight)),
+            stroke: false,
+            interactive: false,
+          }),
+        );
+      });
+
+      polygons.forEach((poly) => {
+        const fill = splitCssColor(poly.fillColor);
+        const stroke = splitCssColor(poly.strokeColor);
+        group.addLayer(
+          L.polygon(
+            poly.coordinates.map((c) => [c.latitude, c.longitude]),
+            {
+              fillColor: fill.color,
+              fillOpacity: fill.opacity ?? 0.35,
+              color: stroke.color,
+              opacity: stroke.opacity ?? 0.7,
+              weight: poly.strokeWidth ?? 1,
+            },
+          ),
+        );
+      });
+
+      markers.forEach((p) => {
+        const content = pinElement(p.meta, simplify);
+        const size = p.meta.kind === "alert" ? 48 : p.meta.kind === "community" ? 40 : 32;
+        const icon = L.divIcon({
+          html: content.outerHTML,
+          className: "pulso-leaflet-pin",
+          iconSize: [size, size],
+          iconAnchor: [size / 2, size / 2],
+        });
+        const marker = L.marker([p.coordinate.latitude, p.coordinate.longitude], {
+          icon,
+          keyboard: false,
+        });
+        if (p.onPress) marker.on("click", () => p.onPress?.());
+        group.addLayer(marker);
+      });
+      return;
+    }
+
+    const g = typeof window !== "undefined" ? (window as any).google : null;
+    if (!g?.maps) return;
 
     markers.forEach((p) => {
-      const position = { lat: p.coordinate.latitude, lng: p.coordinate.longitude };
-      let content: HTMLDivElement;
-      if (p.meta.kind === "sponsor") {
-        content = buildSponsorPinElement(p.meta);
-      } else if (p.meta.kind === "community") {
-        content = buildCommunityPinElement(p.meta);
-      } else {
-        content = buildAlertPinElement(p.meta, simplify);
-      }
       const overlay = createHtmlOverlay(
         g,
         map,
-        position,
-        content,
+        { lat: p.coordinate.latitude, lng: p.coordinate.longitude },
+        pinElement(p.meta, simplify),
         p.onPress,
         () => cancelLongPressRef.current(),
       );
       overlaysRef.current.push(overlay);
     });
 
-    collectPolygons(props.children).forEach((poly) => {
+    polygons.forEach((poly) => {
       const fill = splitCssColor(poly.fillColor);
       const stroke = splitCssColor(poly.strokeColor);
-      const path = poly.coordinates.map((c) => ({ lat: c.latitude, lng: c.longitude }));
       const shape = new g.maps.Polygon({
-        paths: path,
+        paths: poly.coordinates.map((c) => ({ lat: c.latitude, lng: c.longitude })),
         fillColor: fill.color,
         fillOpacity: fill.opacity ?? 0.35,
         strokeColor: stroke.color,
@@ -1015,38 +1212,20 @@ const ExpoMapView = forwardRef<MapHandle, MapViewProps>(function ExpoMapView(pro
       polygonsRef.current.push(shape);
     });
 
-    const heat = collectHeatmap(props.children);
-    if (heat?.points?.length) {
-      void ensureVisualization().then(() => {
-        if (cancelled) return;
-        const viz = (window as any).google?.maps?.visualization;
-        if (!viz?.HeatmapLayer) return;
-        const data = heat.points
-          .filter((p) => Number.isFinite(p.latitude) && Number.isFinite(p.longitude))
-          .map((p) => ({
-            location: new g.maps.LatLng(p.latitude, p.longitude),
-            weight: typeof p.weight === "number" && p.weight > 0 ? p.weight : 1,
-          }));
-        if (!data.length) return;
-        heatmapLayerRef.current?.setMap(null);
-        const layer = new viz.HeatmapLayer({
-          data,
-          dissipating: true,
-          radius: heat.radius ?? 42,
-          opacity: heat.opacity ?? 0.65,
-        });
-        if (heat.gradient?.colors?.length) {
-          layer.set("gradient", ["rgba(0,0,0,0)", ...heat.gradient.colors]);
-        }
-        layer.setMap(map);
-        heatmapLayerRef.current = layer;
+    heatPoints.forEach((p) => {
+      const weight = typeof p.weight === "number" && p.weight > 0 ? p.weight : 1;
+      const circle = new g.maps.Circle({
+        center: { lat: p.latitude, lng: p.longitude },
+        radius: Math.max(160, 200 * Math.sqrt(weight)),
+        fillColor: "#E84F1F",
+        fillOpacity: Math.min(0.2, 0.08 + 0.03 * weight),
+        strokeWeight: 0,
+        clickable: false,
+        map,
       });
-    }
-
-    return () => {
-      cancelled = true;
-    };
-  }, [props.children, ready]);
+      heatCirclesRef.current.push(circle);
+    });
+  }, [props.children, ready, mapEpoch]);
 
   if (error) {
     return (

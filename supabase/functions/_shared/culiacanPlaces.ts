@@ -44,7 +44,22 @@ export const CULIACAN_PLACES: CuliacanPlace[] = [
   { name: "Lomas de San Isidro", lat: 24.83, lng: -107.42, aliases: ["San Isidro"] },
   { name: "Nuevo Culiacán", lat: 24.77, lng: -107.42, aliases: ["Nuevo Culiacan"] },
   { name: "Villa del Real", lat: 24.815, lng: -107.36 },
+  { name: "Tierra Blanca", lat: 24.788, lng: -107.428 },
+  { name: "Recursos Hidráulicos", lat: 24.812, lng: -107.428, aliases: ["Recursos Hidraulicos"] },
+  { name: "Montebello", lat: 24.802, lng: -107.362 },
+  { name: "La Forestal", lat: 24.834, lng: -107.398 },
+  { name: "Guadalupe Victoria", lat: 24.776, lng: -107.388 },
+  { name: "La Lima", lat: 24.822, lng: -107.378 },
+  { name: "Las Torres", lat: 24.804, lng: -107.368 },
+  { name: "El Vallado", lat: 24.772, lng: -107.392 },
+  { name: "5 de Mayo", lat: 24.796, lng: -107.398, aliases: ["Cinco de Mayo"] },
+  { name: "Los Ángeles", lat: 24.788, lng: -107.378, aliases: ["Los Angeles"] },
+  { name: "Isla Musala", lat: 24.818, lng: -107.392, aliases: ["Musala"] },
+  { name: "El Diez", lat: 24.732, lng: -107.448 },
 ];
+
+const CITY_CENTER = { lat: 24.8091, lng: -107.394 };
+export const CITY_APPROX_LABEL = "Culiacán (aproximado)";
 
 export type GeoSource = "tweet_coords" | "place_bbox" | "text_colonia" | "none";
 
@@ -96,17 +111,20 @@ function findPlaceByNameFragment(fragment: string): CuliacanPlace | null {
     .trim();
   if (frag.length < 3) return null;
 
+  let exact: CuliacanPlace | null = null;
   let best: { place: CuliacanPlace; len: number } | null = null;
   for (const place of CULIACAN_PLACES) {
     for (const n of placeNames(place)) {
       const nn = normalize(n);
-      if (frag === nn || frag.includes(nn) || nn.includes(frag)) {
+      if (frag === nn) {
+        if (!exact || nn.length > normalize(exact.name).length) exact = place;
+      } else if (frag.includes(nn) || nn.includes(frag)) {
         const len = nn.length;
         if (!best || len > best.len) best = { place, len };
       }
     }
   }
-  return best?.place ?? null;
+  return exact ?? best?.place ?? null;
 }
 
 /**
@@ -142,6 +160,15 @@ export function extractColoniasFromText(text: string): TextColoniaHit[] {
 
   for (const place of ranked) {
     if (seen.has(place.name)) continue;
+    if (
+      [...seen].some((name) => {
+        const sn = normalize(name);
+        const pn = normalize(place.name);
+        return sn.includes(pn) || pn.includes(sn);
+      })
+    ) {
+      continue;
+    }
     for (const n of placeNames(place)) {
       const nn = normalize(n);
       if (nn.length < 4 && place.name !== "Centro") continue;
@@ -214,6 +241,38 @@ function placeLabelLooksLikeCityOnly(label: string | null | undefined): boolean 
   );
 }
 
+export function isCityApproxLabel(label: string | null | undefined): boolean {
+  return Boolean(label && /aproximad/i.test(label));
+}
+
+function mentionsCuliacanArea(text: string): boolean {
+  const n = normalize(text);
+  return n.includes("culiacan") || n.includes("sinaloa");
+}
+
+/** Spread city-level pins so they do not sit on one pixel. ~200–700 m. */
+function cityApproxOffset(seed: string): { lat: number; lng: number } {
+  let h = 0;
+  for (let i = 0; i < seed.length; i += 1) h = (h * 31 + seed.charCodeAt(i)) >>> 0;
+  const angle = (h % 360) * (Math.PI / 180);
+  const ring = 0.002 + ((h >>> 8) % 8) * 0.0006;
+  return { lat: Math.sin(angle) * ring, lng: Math.cos(angle) * ring };
+}
+
+function cityApproxPin(seed: string, placeNameSource: string | null): TextGeoResolution {
+  const offset = cityApproxOffset(seed);
+  return {
+    lat: CITY_CENTER.lat + offset.lat,
+    lng: CITY_CENTER.lng + offset.lng,
+    placeLabel: CITY_APPROX_LABEL,
+    geoSource: "place_bbox",
+    placeNameSource,
+    geocodedFromText: null,
+    mapEligible: true,
+    confidence: "low",
+  };
+}
+
 function textColoniaDiffersFromPublisher(
   textPlace: CuliacanPlace,
   publisherLabel: string | null | undefined,
@@ -247,6 +306,8 @@ export function resolveCommunityGeo(opts: {
   placeBboxCenter?: { lat: number; lng: number } | null;
   publisherPlaceLabel?: string | null;
   fallbackLabel: string;
+  /** RSS: pin at city center when there is no colonia (badge: zona aproximada). */
+  allowCityApprox?: boolean;
 }): TextGeoResolution {
   const blob = [opts.title, opts.text].filter(Boolean).join("\n");
   const textHit = resolveTextColonia(blob);
@@ -326,7 +387,7 @@ export function resolveCommunityGeo(opts: {
     };
   }
 
-  if (textHit && !textHit.ambiguous) {
+  if (textHit && !textHit.ambiguous && textHit.confidence === "high") {
     return {
       lat: textHit.place.lat,
       lng: textHit.place.lng,
@@ -334,9 +395,16 @@ export function resolveCommunityGeo(opts: {
       geoSource: "text_colonia",
       placeNameSource,
       geocodedFromText: textHit.place.name,
-      mapEligible: textHit.confidence === "high",
-      confidence: textHit.confidence,
+      mapEligible: true,
+      confidence: "high",
     };
+  }
+
+  if (
+    opts.allowCityApprox &&
+    (mentionsCuliacanArea(blob) || placeLabelLooksLikeCityOnly(opts.fallbackLabel))
+  ) {
+    return cityApproxPin(blob, placeNameSource);
   }
 
   return {
@@ -345,7 +413,7 @@ export function resolveCommunityGeo(opts: {
     placeLabel: placeNameSource ?? opts.fallbackLabel,
     geoSource: "none",
     placeNameSource,
-    geocodedFromText: null,
+    geocodedFromText: textHit?.place.name ?? null,
     mapEligible: false,
     confidence: "none",
   };

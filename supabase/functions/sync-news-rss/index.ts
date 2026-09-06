@@ -7,7 +7,7 @@
 //   supabase secrets set NEWS_RSS_FEEDS='https://...,https://...'
 //
 // Cron: igual que sync-x-community (cada 10–30 min).
-// Geo: geocode de colonias en título/descripción; si no hay match → Feed-only.
+// Geo: colonia del texto, o pin de ciudad (Culiacán aproximado) si solo dice la ciudad.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.97.0";
 import { resolveCommunityGeo } from "../_shared/culiacanPlaces.ts";
@@ -185,6 +185,7 @@ Deno.serve(async (req) => {
           title: item.title,
           publisherPlaceLabel: null,
           fallbackLabel: "Sinaloa (noticia)",
+          allowCityApprox: true,
         });
         const externalId = item.link.slice(0, 240);
         rows.push({
