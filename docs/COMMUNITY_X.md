@@ -13,7 +13,7 @@ Pulso muestra señales externas de seguridad en Culiacán en el **Feed** y el **
 ## Retención vs ventana de horario (honesto)
 
 - Los posts de comunidad **permanecen en la base de datos**. No hay borrado silencioso por antigüedad.
-- Feed y Mapa cargan los **últimos 50** (`loadCommunityPosts`) y filtran por `timeFilter` (`createdAt` en 1h / 6h / 24h / 7d).
+- Feed y Mapa cargan los **últimos 50** (`loadCommunityPosts`) y filtran por `timeFilter`: alerta ciudadana por `createdAt`; comunidad por `createdAt` **o** primera `fetchedAt` (1h / 6h / 24h / 7d).
 - Si un post “desaparece” de la vista, es porque quedó **fuera de la ventana** seleccionada (o del top 50), no porque haya expirado en DB.
 - Feed y Mapa comparten el mismo `timeFilter` / `setTimeFilter` del store (pills sincronizadas).
 - Caption UI: “Ventana: últimos Xh · no caducan en DB”.

@@ -19,7 +19,7 @@ import { useAlertyStore } from "../../lib/alerty/store";
 import {
   getTimeFilterWindowLabel,
   isAlertInWindow,
-  isCreatedAtInWindow,
+  isCommunityInWindow,
   shouldSuppressAlert,
 } from "../../lib/alerty/utils";
 import type { AlertItem, CommunityPost, SponsoredZone } from "../../lib/alerty/types";
@@ -70,7 +70,7 @@ export default function FeedScreen() {
 
   const filteredCommunity = useMemo(
     () =>
-      communityPosts.filter((post) => isCreatedAtInWindow(post.createdAt, timeFilter)),
+      communityPosts.filter((post) => isCommunityInWindow(post, timeFilter)),
     [communityPosts, timeFilter],
   );
 
@@ -234,9 +234,8 @@ export default function FeedScreen() {
         })}
       </View>
       <Text style={styles.windowCaption}>
-        Ventana: {getTimeFilterWindowLabel(timeFilter)}. Los posts de comunidad permanecen en
-        la base; aquí y en el mapa se muestran los últimos 50 dentro de esta ventana (no
-        caducan en silencio).
+        Ventana: {getTimeFilterWindowLabel(timeFilter)}. Comunidad entra si el medio publicó
+        o Pulso lo ingirió en esta ventana (no caducan en DB).
       </Text>
     </View>
   );

@@ -5,7 +5,7 @@ import {
   COMMUNITY_DEFAULT_PIN_COLOR,
   TIME_FILTER_WINDOW_LABEL,
 } from "./constants";
-import type { AlertItem, TimeFilter } from "./types";
+import type { AlertItem, CommunityPost, TimeFilter } from "./types";
 
 export const getAlertAgeMinutes = (createdAt: string) =>
   Math.max(0, Math.floor((Date.now() - new Date(createdAt).getTime()) / 60000));
@@ -38,6 +38,10 @@ export const isCreatedAtInWindow = (createdAt: string, filter: TimeFilter) => {
 
 export const isAlertInWindow = (alert: AlertItem, filter: TimeFilter) =>
   isCreatedAtInWindow(alert.createdAt, filter);
+
+/** Comunidad: fecha del medio o primera ingesta en Pulso (fetched_at no se pisa en resync). */
+export const isCommunityInWindow = (post: CommunityPost, filter: TimeFilter) =>
+  isCreatedAtInWindow(post.createdAt, filter) || isCreatedAtInWindow(post.fetchedAt, filter);
 
 export const getIntensityColor = (createdAt: string) => {
   const minutes = getAlertAgeMinutes(createdAt);
