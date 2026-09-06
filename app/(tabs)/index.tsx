@@ -22,7 +22,7 @@ import {
   toCommunityHeatPoint,
   type RiskAssessment,
 } from "../../lib/alerty/risk";
-import { nearestCuliacanPlace } from "../../lib/alerty/coloniaGeocode";
+import { nearestCuliacanPlace, resolveCommunityMapPoint } from "../../lib/alerty/coloniaGeocode";
 import { shareZonePulse } from "../../lib/alerty/share";
 import { GlassView } from "expo-glass-effect";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -101,19 +101,18 @@ export default function MapScreen() {
     [communityPosts, timeFilter],
   );
 
-  // Mapa: solo pines con geo real o place bbox (lat/lng no nulos). Feed puede tener más.
+  // Mapa: geo persistida, o pin de ciudad para RSS sin colonia.
   const mapCommunity = useMemo(
     () =>
       filteredCommunity.flatMap((post) => {
-        if (
-          typeof post.lat !== "number" ||
-          typeof post.lng !== "number" ||
-          !Number.isFinite(post.lat) ||
-          !Number.isFinite(post.lng)
-        ) {
-          return [];
-        }
-        return [{ ...post, lat: post.lat, lng: post.lng }];
+        const point = resolveCommunityMapPoint(post);
+        if (!point) return [];
+        return [{
+          ...post,
+          lat: point.lat,
+          lng: point.lng,
+          placeLabel: point.placeLabel,
+        }];
       }),
     [filteredCommunity],
   );

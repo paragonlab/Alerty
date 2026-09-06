@@ -12,6 +12,7 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { Video, ResizeMode } from "expo-av";
 import { formatRelativeTime } from "../lib/alerty/utils";
+import { isCityApproxLabel } from "../lib/alerty/coloniaGeocode";
 import type { CommunityPost } from "../lib/alerty/types";
 import { useAlertyTheme } from "../lib/useAlertyTheme";
 
@@ -163,13 +164,15 @@ export function CommunityPostPreview({ post, onClose }: CommunityPostPreviewProp
           <Ionicons name="location-outline" size={12} color={theme.colors.textMuted} />
           <Text style={styles.metaText} numberOfLines={2}>
             {post.placeLabel}
-            {post.geoSource === "text_colonia" && post.geocodedFromText
-              ? ` · pin por texto (${post.geocodedFromText})`
-              : post.geoSource === "tweet_coords"
-                ? " · coords del autor"
-                : post.geoSource === "place_bbox"
-                  ? " · lugar del autor"
-                  : ""}
+            {isCityApproxLabel(post.placeLabel)
+              ? " · zona aproximada"
+              : post.geoSource === "text_colonia" && post.geocodedFromText
+                ? ` · pin por texto (${post.geocodedFromText})`
+                : post.geoSource === "tweet_coords"
+                  ? " · coords del autor"
+                  : post.geoSource === "place_bbox"
+                    ? " · lugar del autor"
+                    : ""}
           </Text>
           <View style={styles.dot} />
           <Text style={styles.metaText}>{formatRelativeTime(post.createdAt)}</Text>

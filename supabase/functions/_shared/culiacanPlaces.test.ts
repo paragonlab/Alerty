@@ -63,3 +63,27 @@ Deno.test("resolveTextColonia high confidence on ocurrió en", () => {
   assertEquals(hit?.confidence, "high");
   assertEquals(hit?.ambiguous, false);
 });
+
+Deno.test("RSS city-only text gets approximate city pin", () => {
+  const geo = resolveCommunityGeo({
+    text: "Reportan balacera en Culiacán esta tarde.",
+    title: "Balacera en Culiacán",
+    fallbackLabel: "Sinaloa (noticia)",
+    allowCityApprox: true,
+  });
+  assertEquals(geo.mapEligible, true);
+  assertEquals(geo.placeLabel, "Culiacán (aproximado)");
+  assertEquals(geo.confidence, "low");
+  assertExists(geo.lat);
+  assertExists(geo.lng);
+});
+
+Deno.test("ambiguous colonias stay off the map even with city approx", () => {
+  const geo = resolveCommunityGeo({
+    text: "Hay reportes en Guadalupe y en Chapultepec esta tarde.",
+    fallbackLabel: "Sinaloa (noticia)",
+    allowCityApprox: true,
+  });
+  assertEquals(geo.mapEligible, false);
+  assertEquals(geo.lat, null);
+});

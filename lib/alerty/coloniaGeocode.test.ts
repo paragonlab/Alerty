@@ -72,6 +72,26 @@ function run() {
   const hits = extractColoniasFromText("Accidente en col. Tres Ríos cerca del periférico");
   assert(hits[0]?.place.name === "Tres Ríos", "col. abbreviation works");
 
+  const rssCity = resolveCommunityGeo({
+    text: "Reportan balacera en Culiacán esta tarde.",
+    title: "Balacera en Culiacán",
+    fallbackLabel: "Sinaloa (noticia)",
+    allowCityApprox: true,
+  });
+  assert(rssCity.mapEligible === true, "RSS city-only gets a pin");
+  assert(rssCity.placeLabel === "Culiacán (aproximado)", rssCity.placeLabel);
+  assert(typeof rssCity.lat === "number" && typeof rssCity.lng === "number", "approx coords");
+
+  const stillAmbiguous = resolveCommunityGeo({
+    text: "Hay reportes en Guadalupe y en Chapultepec esta tarde.",
+    fallbackLabel: "Sinaloa (noticia)",
+    allowCityApprox: true,
+  });
+  assert(stillAmbiguous.mapEligible === false, "ambiguous stays off the map");
+
+  const guadalupePhrase = resolveTextColonia("Reportan bloqueo en colonia Guadalupe, Culiacán.");
+  assert(guadalupePhrase?.place.name === "Guadalupe", "Guadalupe not swallowed by Guadalupe Victoria");
+
   console.log("coloniaGeocode tests: OK");
 }
 
