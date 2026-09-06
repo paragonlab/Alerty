@@ -24,6 +24,7 @@ import { GlassView, GlassContainer } from "expo-glass-effect";
 import { LinearGradient } from "expo-linear-gradient";
 import { CATEGORY_ICONS, CATEGORY_LABELS, REPUTATION_LEVELS } from "../../lib/alerty/constants";
 import { useAlertyStore } from "../../lib/alerty/store";
+import { requireSession } from "../../lib/alerty/session";
 import { Sounds } from "../../lib/sounds";
 import { calculateDistance, formatRelativeTime, getIntensityColor } from "../../lib/alerty/utils";
 import type { AlertMedia, AlertUpdate } from "../../lib/alerty/types";
@@ -133,6 +134,7 @@ export default function AlertDetailScreen() {
 
   const handleAddUpdate = async () => {
     if (!updateText.trim() && updateMedia.length === 0) return;
+    if (!(await requireSession(`/alert/${alert.id}`))) return;
 
     // Verify distance
     try {
@@ -262,8 +264,11 @@ export default function AlertDetailScreen() {
           <Pressable 
             style={[styles.followButton, isFollowing && styles.followButtonActive]}
             onPress={() => {
-              toggleFollowAlert(alert.id);
-              void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+              void requireSession(`/alert/${alert.id}`).then((ok) => {
+                if (!ok) return;
+                toggleFollowAlert(alert.id);
+                void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+              });
             }}
           >
             <Ionicons 
@@ -336,9 +341,12 @@ export default function AlertDetailScreen() {
                   style={[styles.voteButton, myVote === "upvote" && styles.voteButtonActive]}
                   onPress={() => {
                     if (voted) return;
-                    void Sounds.tap();
-                    voteAlert(alert.id, "upvote");
-                    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    void requireSession(`/alert/${alert.id}`).then((ok) => {
+                      if (!ok) return;
+                      void Sounds.tap();
+                      voteAlert(alert.id, "upvote");
+                      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    });
                   }}
                   disabled={voted}
                 >
@@ -355,9 +363,12 @@ export default function AlertDetailScreen() {
                   style={[styles.voteButton, myVote === "downvote" && styles.voteButtonDanger]}
                   onPress={() => {
                     if (voted) return;
-                    void Sounds.tap();
-                    voteAlert(alert.id, "downvote");
-                    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    void requireSession(`/alert/${alert.id}`).then((ok) => {
+                      if (!ok) return;
+                      void Sounds.tap();
+                      voteAlert(alert.id, "downvote");
+                      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    });
                   }}
                   disabled={voted}
                 >
