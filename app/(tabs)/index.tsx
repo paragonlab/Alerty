@@ -12,7 +12,14 @@ import {
 import MapView, { Heatmap, Marker, PROVIDER_GOOGLE } from "../../components/ExpoMapView";
 import { RiskGrid } from "../../components/RiskGrid";
 import { ZoneRiskCard } from "../../components/ZoneRiskCard";
-import { buildRiskGrid, scoreAt, type RiskAssessment } from "../../lib/alerty/risk";
+import {
+  buildHeatPoints,
+  buildRiskGridFromPoints,
+  scoreAtPoints,
+  toAlertHeatPoint,
+  toCommunityHeatPoint,
+  type RiskAssessment,
+} from "../../lib/alerty/risk";
 import { GlassView, GlassContainer } from "expo-glass-effect";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
@@ -66,7 +73,6 @@ export default function MapScreen() {
     setSosWarningAccepted,
     addAlert,
     themeMode,
-    currentUser,
     sponsoredZones,
   } = useAlertyStore();
 
@@ -109,13 +115,21 @@ export default function MapScreen() {
     [filteredCommunity],
   );
 
-  const heatmapPoints = useMemo(() => {
-    return filteredAlerts.map(alert => ({
-      latitude: alert.lat,
-      longitude: alert.lng,
-      weight: getPulseDuration(alert.createdAt) <= 1200 ? 3 : 1
-    }));
-  }, [filteredAlerts]);
+  const heatSources = useMemo(
+    () => [
+      ...filteredAlerts.flatMap((alert) => {
+        const point = toAlertHeatPoint(alert);
+        return point ? [point] : [];
+      }),
+      ...mapCommunity.flatMap((post) => {
+        const point = toCommunityHeatPoint(post);
+        return point ? [point] : [];
+      }),
+    ],
+    [filteredAlerts, mapCommunity],
+  );
+
+  const heatmapPoints = useMemo(() => buildHeatPoints(heatSources), [heatSources]);
 
   const criticalCount = useMemo(
     () => filteredAlerts.filter((alert) => getPulseDuration(alert.createdAt) <= 1200).length,
@@ -135,20 +149,9 @@ export default function MapScreen() {
     return withDist[0] ?? null;
   }, [userLocation, filteredAlerts]);
 
-  const isPremium = Boolean(currentUser.isPremium);
-
-  // Para el riesgo usamos todas las alertas activas (sin filtro de categoría ni
-  // ventana de tiempo) — no queremos ocultar peligro por las preferencias del feed.
-  const riskAlerts = useMemo(
-    () => alerts.filter(
-      (alert) => alert.status === "active" && !alert.parentAlertId && !shouldSuppressAlert(alert),
-    ),
-    [alerts],
-  );
-
   const riskGrid = useMemo(
-    () => (showGrid ? buildRiskGrid(riskAlerts, CULIACAN_CENTER) : []),
-    [showGrid, riskAlerts],
+    () => (showGrid ? buildRiskGridFromPoints(heatSources, CULIACAN_CENTER) : []),
+    [showGrid, heatSources],
   );
 
   useEffect(() => {
@@ -198,7 +201,7 @@ export default function MapScreen() {
 
   const runRiskCheck = (lat: number, lng: number, label: string) => {
     setSelectedCommunity(null);
-    setRiskResult({ assessment: scoreAt(riskAlerts, lat, lng), label });
+    setRiskResult({ assessment: scoreAtPoints(heatSources, lat, lng), label });
   };
 
   const handleMapLongPress = (e: { nativeEvent?: { coordinate?: { latitude: number; longitude: number } } }) => {
@@ -233,15 +236,14 @@ export default function MapScreen() {
     }
   };
 
-  // El mapa de calor y los cuadrantes de riesgo son features de Pulso Plus.
-  const selectLayer = (layer: "markers" | "heat" | "grid") => {
+  const toggleHeat = () => {
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    if (layer !== "markers" && !isPremium) {
-      router.push("/premium");
-      return;
-    }
-    setShowHeatmap(layer === "heat");
-    setShowGrid(layer === "grid");
+    setShowHeatmap(!showHeatmap);
+  };
+
+  const toggleGrid = () => {
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setShowGrid(!showGrid);
   };
 
   const styles = createStyles(theme, themeMode);
@@ -262,11 +264,11 @@ export default function MapScreen() {
             userInterfaceStyle={isDark ? "dark" : "light"}
             onLongPress={handleMapLongPress}
           >
-            {showHeatmap && !isWeb && (
+            {showHeatmap && heatmapPoints.length > 0 && (
               <Heatmap
                 points={heatmapPoints}
-                radius={40}
-                opacity={0.7}
+                radius={48}
+                opacity={0.68}
                 gradient={{
                   colors: [theme.colors.mapYellow, theme.colors.mapOrange, theme.colors.mapRed],
                   startPoints: [0.2, 0.5, 0.8],
@@ -275,7 +277,7 @@ export default function MapScreen() {
               />
             )}
             {showGrid && <RiskGrid cells={riskGrid} />}
-            {!showHeatmap && !showGrid && filteredAlerts.map((alert) => (
+            {filteredAlerts.map((alert) => (
               <Marker
                 key={alert.id}
                 coordinate={{ latitude: alert.lat, longitude: alert.lng }}
@@ -299,7 +301,7 @@ export default function MapScreen() {
             ))}
 
             {/* Posts de comunidad desde X — pin estático, no GlowMarker; solo con geo usable */}
-            {!showHeatmap && !showGrid && mapCommunity.map((post) => (
+            {mapCommunity.map((post) => (
               <Marker
                 key={`x-${post.id}`}
                 coordinate={{ latitude: post.lat, longitude: post.lng }}
@@ -323,7 +325,7 @@ export default function MapScreen() {
             ))}
             
             {/* Zonas Patrocinadas */}
-            {!showHeatmap && !showGrid && sponsoredZones.map((zone) => (
+            {sponsoredZones.map((zone) => (
               <Marker
                 key={zone.id}
                 coordinate={{ latitude: zone.lat, longitude: zone.lng }}
@@ -371,7 +373,7 @@ export default function MapScreen() {
           />
           <View style={{ flex: 1 }}>
             <Text style={styles.cityLabel}>Culiacán, Sinaloa</Text>
-            <Text style={styles.subLabel}>Alertas verificadas en tiempo real</Text>
+            <Text style={styles.subLabel}>Zonas peligrosas en tiempo real</Text>
           </View>
 
           <Pressable
@@ -417,42 +419,30 @@ export default function MapScreen() {
           </View>
         )}
 
-        {/* Selector de capa del mapa (calor y cuadrantes son Plus) */}
-        {!isWeb && (
-          <View style={styles.layerSelector}>
-            {([
-              { key: "markers", icon: "location" },
-              { key: "heat", icon: "flame" },
-              { key: "grid", icon: "grid" },
-            ] as const).map((item) => {
-              const active =
-                item.key === "markers"
-                  ? !showHeatmap && !showGrid
-                  : item.key === "heat"
-                    ? showHeatmap
-                    : showGrid;
-              const locked = item.key !== "markers" && !isPremium;
-              return (
-                <Pressable
-                  key={item.key}
-                  style={[styles.layerButton, active && styles.layerButtonActive]}
-                  onPress={() => selectLayer(item.key)}
-                >
-                  <Ionicons
-                    name={item.icon}
-                    size={18}
-                    color={active ? "#FFFFFF" : theme.colors.textMuted}
-                  />
-                  {locked && (
-                    <View style={styles.layerLock}>
-                      <Ionicons name="lock-closed" size={9} color="#fff" />
-                    </View>
-                  )}
-                </Pressable>
-              );
-            })}
-          </View>
-        )}
+        <View style={[styles.layerSelector, isWeb && styles.layerSelectorWeb]}>
+          <Pressable
+            style={[styles.layerButton, showHeatmap && styles.layerButtonActive]}
+            onPress={toggleHeat}
+            accessibilityLabel="Mapa de calor"
+          >
+            <Ionicons
+              name="flame"
+              size={18}
+              color={showHeatmap ? "#FFFFFF" : theme.colors.textMuted}
+            />
+          </Pressable>
+          <Pressable
+            style={[styles.layerButton, showGrid && styles.layerButtonActive]}
+            onPress={toggleGrid}
+            accessibilityLabel="Zonas por cuadrantes"
+          >
+            <Ionicons
+              name="grid"
+              size={18}
+              color={showGrid ? "#FFFFFF" : theme.colors.textMuted}
+            />
+          </Pressable>
+        </View>
 
         {/* Horario: mismo timeFilter que Feed — overlay compacto, no bloquea gestos del mapa */}
         <View style={[styles.timeFilterWrap, isWeb && styles.timeFilterWrapWeb]} pointerEvents="box-none">
@@ -477,7 +467,8 @@ export default function MapScreen() {
             })}
           </View>
           <Text style={styles.timeWindowCaption} pointerEvents="none">
-            Ventana: {getTimeFilterWindowLabel(timeFilter)} · evento o primera ingesta
+            Ventana: {getTimeFilterWindowLabel(timeFilter)}
+            {showHeatmap ? " · calor en vivo" : ""}
           </Text>
         </View>
 
@@ -658,6 +649,9 @@ const createStyles = (theme: any, themeMode: string) => StyleSheet.create({
     borderWidth: 1,
     borderColor: theme.colors.border,
     zIndex: 20,
+  },
+  layerSelectorWeb: {
+    top: 156,
   },
   layerButton: {
     width: 44,

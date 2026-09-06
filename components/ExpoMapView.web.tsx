@@ -69,11 +69,35 @@ export function Marker(_props: MarkerProps) {
   return null;
 }
 
-export function Heatmap(_props: unknown) {
+export type HeatmapPoint = {
+  latitude: number;
+  longitude: number;
+  weight?: number;
+};
+
+export type HeatmapProps = {
+  points: HeatmapPoint[];
+  radius?: number;
+  opacity?: number;
+  gradient?: {
+    colors: string[];
+    startPoints: number[];
+    colorMapSize?: number;
+  };
+};
+
+export function Heatmap(_props: HeatmapProps) {
   return null;
 }
 
-export function Polygon(_props: unknown) {
+export type PolygonProps = {
+  coordinates: { latitude: number; longitude: number }[];
+  fillColor?: string;
+  strokeColor?: string;
+  strokeWidth?: number;
+};
+
+export function Polygon(_props: PolygonProps) {
   return null;
 }
 
@@ -100,7 +124,7 @@ function loadGoogleMaps(): Promise<void> {
       return;
     }
     const script = document.createElement("script");
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(API_KEY)}&v=weekly`;
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(API_KEY)}&v=weekly&libraries=visualization`;
     script.async = true;
     script.defer = true;
     script.setAttribute("data-pulso-gmaps", "1");
@@ -109,6 +133,14 @@ function loadGoogleMaps(): Promise<void> {
     document.head.appendChild(script);
   });
   return mapsLoad;
+}
+
+async function ensureVisualization(): Promise<void> {
+  const g = (window as any).google;
+  if (g?.maps?.visualization) return;
+  if (typeof g?.maps?.importLibrary === "function") {
+    await g.maps.importLibrary("visualization");
+  }
 }
 
 function ensurePulseStyles() {
@@ -518,6 +550,48 @@ function collectMarkerProps(node: React.ReactNode, out: CollectedMarker[] = []):
   return out;
 }
 
+function splitCssColor(color?: string): { color: string; opacity?: number } {
+  if (!color) return { color: "#E53935" };
+  if (/^#[0-9a-fA-F]{8}$/.test(color)) {
+    return {
+      color: color.slice(0, 7),
+      opacity: parseInt(color.slice(7, 9), 16) / 255,
+    };
+  }
+  return { color };
+}
+
+function collectHeatmap(node: React.ReactNode): HeatmapProps | null {
+  let found: HeatmapProps | null = null;
+  Children.forEach(node, (child) => {
+    if (found || !isValidElement(child)) return;
+    const props = child.props as HeatmapProps & { children?: React.ReactNode };
+    if (Array.isArray(props.points)) {
+      found = props;
+      return;
+    }
+    if (props.children != null) {
+      found = collectHeatmap(props.children);
+    }
+  });
+  return found;
+}
+
+function collectPolygons(node: React.ReactNode, out: PolygonProps[] = []): PolygonProps[] {
+  Children.forEach(node, (child) => {
+    if (!isValidElement(child)) return;
+    const props = child.props as PolygonProps & { children?: React.ReactNode };
+    if (Array.isArray(props.coordinates) && props.coordinates.length >= 3) {
+      out.push(props);
+      return;
+    }
+    if (props.children != null) {
+      collectPolygons(props.children, out);
+    }
+  });
+  return out;
+}
+
 /** Minimal Ionicons-like SVGs for category identity on HTML overlays. */
 const ICON_SVGS: Record<string, string> = {
   warning:
@@ -768,6 +842,8 @@ const ExpoMapView = forwardRef<MapHandle, MapViewProps>(function ExpoMapView(pro
   const hostRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<any>(null);
   const overlaysRef = useRef<OverlayHandle[]>([]);
+  const heatmapLayerRef = useRef<any>(null);
+  const polygonsRef = useRef<any[]>([]);
   const longPressTimer = useRef<number | null>(null);
   const onLongPressRef = useRef(props.onLongPress);
   onLongPressRef.current = props.onLongPress;
@@ -870,6 +946,10 @@ const ExpoMapView = forwardRef<MapHandle, MapViewProps>(function ExpoMapView(pro
       if (longPressTimer.current) window.clearTimeout(longPressTimer.current);
       overlaysRef.current.forEach((o) => o.setMap(null));
       overlaysRef.current = [];
+      heatmapLayerRef.current?.setMap(null);
+      heatmapLayerRef.current = null;
+      polygonsRef.current.forEach((p) => p.setMap(null));
+      polygonsRef.current = [];
     };
     // Map instance is created once; region/theme updates aren't remounted on purpose.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -879,10 +959,15 @@ const ExpoMapView = forwardRef<MapHandle, MapViewProps>(function ExpoMapView(pro
     const map = mapRef.current;
     const g = typeof window !== "undefined" ? (window as any).google : null;
     if (!map || !g?.maps || !ready) return;
+    let cancelled = false;
 
     ensurePulseStyles();
     overlaysRef.current.forEach((o) => o.setMap(null));
     overlaysRef.current = [];
+    heatmapLayerRef.current?.setMap(null);
+    heatmapLayerRef.current = null;
+    polygonsRef.current.forEach((p) => p.setMap(null));
+    polygonsRef.current = [];
 
     const markers = collectMarkerProps(props.children);
     const alertCount = markers.filter((m) => m.meta.kind === "alert").length;
@@ -908,6 +993,55 @@ const ExpoMapView = forwardRef<MapHandle, MapViewProps>(function ExpoMapView(pro
       );
       overlaysRef.current.push(overlay);
     });
+
+    collectPolygons(props.children).forEach((poly) => {
+      const fill = splitCssColor(poly.fillColor);
+      const stroke = splitCssColor(poly.strokeColor);
+      const path = poly.coordinates.map((c) => ({ lat: c.latitude, lng: c.longitude }));
+      const shape = new g.maps.Polygon({
+        paths: path,
+        fillColor: fill.color,
+        fillOpacity: fill.opacity ?? 0.35,
+        strokeColor: stroke.color,
+        strokeOpacity: stroke.opacity ?? 0.7,
+        strokeWeight: poly.strokeWidth ?? 1,
+        clickable: false,
+      });
+      shape.setMap(map);
+      polygonsRef.current.push(shape);
+    });
+
+    const heat = collectHeatmap(props.children);
+    if (heat?.points?.length) {
+      void ensureVisualization().then(() => {
+        if (cancelled) return;
+        const viz = (window as any).google?.maps?.visualization;
+        if (!viz?.HeatmapLayer) return;
+        const data = heat.points
+          .filter((p) => Number.isFinite(p.latitude) && Number.isFinite(p.longitude))
+          .map((p) => ({
+            location: new g.maps.LatLng(p.latitude, p.longitude),
+            weight: typeof p.weight === "number" && p.weight > 0 ? p.weight : 1,
+          }));
+        if (!data.length) return;
+        heatmapLayerRef.current?.setMap(null);
+        const layer = new viz.HeatmapLayer({
+          data,
+          dissipating: true,
+          radius: heat.radius ?? 42,
+          opacity: heat.opacity ?? 0.65,
+        });
+        if (heat.gradient?.colors?.length) {
+          layer.set("gradient", ["rgba(0,0,0,0)", ...heat.gradient.colors]);
+        }
+        layer.setMap(map);
+        heatmapLayerRef.current = layer;
+      });
+    }
+
+    return () => {
+      cancelled = true;
+    };
   }, [props.children, ready]);
 
   if (error) {

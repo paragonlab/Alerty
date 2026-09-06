@@ -1,5 +1,5 @@
-// Overlay de cuadrantes de riesgo (feature Plus). Dibuja un polígono coloreado
-// por cada celda de la cuadrícula con alertas.
+// Overlay de cuadrantes de riesgo. Dibuja un polígono coloreado
+// por cada celda de la cuadrícula con actividad reciente.
 import { Polygon } from "./ExpoMapView";
 import { useAlertyTheme } from "../lib/useAlertyTheme";
 import { riskColor, type GridCell } from "../lib/alerty/risk";

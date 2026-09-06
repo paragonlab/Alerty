@@ -247,7 +247,7 @@ export default function SettingsScreen() {
             </View>
             <View style={{ flex: 1 }}>
               <Text style={styles.premiumBannerTitle}>Pulso Plus</Text>
-              <Text style={styles.premiumBannerDesc}>Mejora para tener mapa de calor, cuadrantes de riesgo y sin anuncios.</Text>
+              <Text style={styles.premiumBannerDesc}>Zonas seguras para tu familia, insignia de confianza y sin anuncios.</Text>
             </View>
             <Ionicons name="chevron-forward" size={20} color="#fff" />
           </Pressable>
@@ -301,23 +301,12 @@ export default function SettingsScreen() {
           </View>
           <View style={styles.settingRow}>
             <View style={{ flex: 1 }}>
-              <Text style={styles.settingLabel}>
-                Mapa de Calor 
-                {!currentUser.isPremium && (
-                  <Text style={{ color: theme.colors.accent }}> (Plus)</Text>
-                )}
-              </Text>
-              <Text style={styles.helperText}>Visualiza zonas de alta actividad de reportes.</Text>
+              <Text style={styles.settingLabel}>Mapa de Calor</Text>
+              <Text style={styles.helperText}>Zonas peligrosas en vivo: reportes + comunidad.</Text>
             </View>
             <Switch
               value={showHeatmap}
-              onValueChange={(val) => {
-                if (!currentUser.isPremium) {
-                  router.push("/premium");
-                  return;
-                }
-                setShowHeatmap(val);
-              }}
+              onValueChange={setShowHeatmap}
               trackColor={{ false: theme.colors.border, true: theme.colors.accent + "80" }}
               thumbColor={showHeatmap ? theme.colors.accent : "#C9BBA8"}
             />
