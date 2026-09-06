@@ -16,6 +16,7 @@ import {
   type PurchasesPackage,
 } from "../lib/revenuecat";
 import { supabase } from "../lib/supabase";
+import { safeBack } from "../lib/alerty/nav";
 
 export default function PremiumScreen() {
   const router = useRouter();
@@ -104,7 +105,7 @@ export default function PremiumScreen() {
         await new Promise((resolve) => setTimeout(resolve, 1500));
         await useAlertyStore.getState().loadUserProfile();
         Alert.alert("¡Felicidades!", "Ahora eres usuario de Pulso Plus. 🎉", [
-          { text: "Continuar", onPress: () => router.back() },
+          { text: "Continuar", onPress: () => safeBack(router) },
         ]);
       }
       // En web no llegamos aquí — purchasePlus redirige fuera de la app.
@@ -159,7 +160,7 @@ export default function PremiumScreen() {
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()} style={styles.closeButton}>
+        <Pressable onPress={() => safeBack(router)} style={styles.closeButton} hitSlop={12}>
           <Ionicons name="close" size={24} color={theme.colors.textMuted} />
         </Pressable>
       </View>

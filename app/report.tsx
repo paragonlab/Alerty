@@ -29,8 +29,9 @@ import type { AlertCategory, AlertMedia } from "../lib/alerty/types";
 import { calculateDistance } from "../lib/alerty/utils";
 import { APP_SHARE_URL } from "../lib/alerty/share";
 import { requireSession } from "../lib/alerty/session";
+import { safeBack } from "../lib/alerty/nav";
 
-// Categories shown in the 3-column grid (exclude SOS – that's the long-press)
+// Categories shown in the type grid (exclude SOS – that's the long-press)
 const GRID_CATS = ALERT_CATEGORIES.filter((c) => c !== "sos");
 
 const SUBMIT_AUTH_TIMEOUT_MS = 8_000;
@@ -713,7 +714,7 @@ export default function ReportScreen() {
 
         {/* Category label */}
         <Text style={S.sheetLabel}>¿Qué está pasando?</Text>
-        <Text style={S.sheetHint}>Elige una categoría para publicar. El título es opcional.</Text>
+        <Text style={S.sheetHint}>Toca el tipo. El título es opcional.</Text>
 
         {/* Category grid */}
         <View style={S.catGrid}>
@@ -725,8 +726,8 @@ export default function ReportScreen() {
             >
               <Ionicons
                 name={(CATEGORY_ICONS[cat] ?? "alert-circle") as any}
-                size={20}
-                color={category === cat ? "#FF6060" : "rgba(255,255,255,0.65)"}
+                size={32}
+                color={category === cat ? "#FF6060" : "rgba(255,255,255,0.8)"}
               />
               <Text style={[S.catLabel, category === cat && S.catLabelActive]}>
                 {CATEGORY_LABELS[cat]}
@@ -903,7 +904,7 @@ export default function ReportScreen() {
             <Text style={S.locSkipText}>Reintentar GPS</Text>
           </Pressable>
         ) : null}
-        <Pressable style={S.locSkipBtn} onPress={() => router.back()}>
+        <Pressable style={S.locSkipBtn} onPress={() => safeBack(router)}>
           <Text style={S.locSkipText}>Cancelar</Text>
         </Pressable>
       </View>
@@ -973,8 +974,8 @@ export default function ReportScreen() {
                 {step === 3 ? "Revisa" : step === 1 ? "Evidencia" : "Nuevo pulso"}
               </Text>
               <StepDots current={step === 1 ? 1 : 2} total={2} />
-              <Pressable style={S.closeBtn} onPress={() => router.back()}>
-                <Ionicons name="close" size={14} color="#fff" />
+              <Pressable style={S.closeBtn} onPress={() => safeBack(router)} hitSlop={12}>
+                <Ionicons name="close" size={18} color="#fff" />
               </Pressable>
             </View>
           )}
@@ -1120,7 +1121,7 @@ const S = StyleSheet.create({
     fontSize: 17, fontWeight: "700", letterSpacing: -0.3, color: "#fff", fontFamily: "SpaceGrotesk_700Bold",
   },
   closeBtn: {
-    width: 28, height: 28, borderRadius: 999,
+    width: 40, height: 40, borderRadius: 999,
     backgroundColor: "rgba(255,255,255,0.08)",
     borderWidth: 1, borderColor: "rgba(255,255,255,0.12)",
     alignItems: "center", justifyContent: "center",
@@ -1275,21 +1276,21 @@ const S = StyleSheet.create({
   },
 
   // Category grid
-  catGrid: { display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 6 },
+  catGrid: { display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 8 },
   catCell: {
-    width: "31.5%", alignItems: "center", gap: 5,
-    paddingVertical: 12, paddingHorizontal: 4,
-    borderRadius: 12,
+    width: "48%", alignItems: "center", gap: 8,
+    paddingVertical: 16, paddingHorizontal: 6,
+    borderRadius: 16,
     backgroundColor: "rgba(255,255,255,0.04)",
     borderWidth: 1, borderColor: "rgba(255,255,255,0.08)",
-    minHeight: 64,
+    minHeight: 92,
   },
   catCellActive: {
     backgroundColor: "rgba(255,0,0,0.16)",
     borderColor: "rgba(255,0,0,0.5)",
     shadowColor: "#FF0000", shadowOpacity: 0.25, shadowRadius: 10, shadowOffset: { width: 0, height: 4 },
   },
-  catLabel: { fontSize: 10, fontWeight: "700", letterSpacing: 0.4, color: "rgba(255,255,255,0.65)", textAlign: "center", fontFamily: "SpaceGrotesk_700Bold" },
+  catLabel: { fontSize: 13, fontWeight: "700", letterSpacing: 0.3, color: "rgba(255,255,255,0.8)", textAlign: "center", fontFamily: "SpaceGrotesk_700Bold" },
   catLabelActive: { color: "#FF6060" },
 
   // Title input

@@ -53,6 +53,8 @@ const CATEGORY_KEYWORDS: Array<{ guess: string; pattern: RegExp }> = [
   { guess: "bloqueo", pattern: /\bbloqueo\b|\bbloqueos\b|\btoma de\b/i },
   { guess: "robo", pattern: /\brobo\b|\basalto\b/i },
   { guess: "accidente", pattern: /\baccidente\b|\bchoque\b|\bvolcadura\b/i },
+  { guess: "incendio", pattern: /\bincendio\b|\bse quema\b|\bconflagraci[oó]n\b|\blamas\b/i },
+  { guess: "inundacion", pattern: /\binundaci[oó]n\b|\binundad[oa]s?\b|\bencharcamiento\b|\bdesborde\b/i },
   { guess: "alerta", pattern: /\balerta\b|\balertan\b|\breportan\b|\bzona de riesgo\b/i },
 ];
 

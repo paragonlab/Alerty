@@ -16,6 +16,8 @@ const SEVERITY_WEIGHT: Record<string, number> = {
   narcobloqueo: 2.5,
   enfrentamiento: 2.5,
   detonaciones: 2,
+  incendio: 2.5,
+  inundacion: 2,
   robo: 1.5,
   bloqueo: 1,
   captura: 1,

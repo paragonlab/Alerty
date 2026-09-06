@@ -16,6 +16,7 @@ const CRITICAL_CATEGORIES = new Set([
   "balacera",
   "enfrentamiento",
   "narcobloqueo",
+  "incendio",
 ]);
 
 export function AlertCard({ alert, onPress, onPressVideo }: AlertCardProps) {
