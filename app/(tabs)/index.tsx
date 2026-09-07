@@ -396,8 +396,8 @@ export default function MapScreen() {
             {showHeatmap && heatmapPoints.length > 0 && Platform.OS !== "ios" && (
               <Heatmap
                 points={heatmapPoints}
-                radius={48}
-                opacity={0.68}
+                radius={18}
+                opacity={0.42}
                 gradient={{
                   colors: [theme.colors.mapYellow, theme.colors.mapOrange, theme.colors.mapRed],
                   startPoints: [0.2, 0.5, 0.8],
