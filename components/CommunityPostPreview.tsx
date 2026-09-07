@@ -14,6 +14,7 @@ import { Video, ResizeMode } from "expo-av";
 import { formatRelativeTime } from "../lib/alerty/utils";
 import { isCityApproxLabel } from "../lib/alerty/coloniaGeocode";
 import type { CommunityPost } from "../lib/alerty/types";
+import { communitySourceLabel, isNewsPost } from "../lib/alerty/communityLabel";
 import { useAlertyTheme } from "../lib/useAlertyTheme";
 
 const X_ACCENT = "#1D9BF0";
@@ -69,14 +70,13 @@ export function CommunityPostPreview({ post, onClose }: CommunityPostPreviewProp
   const trustBadges = useMemo(() => {
     const badges: Array<{ key: string; label: string; tone: "x" | "news" | "medio" | "oficial" | "demo" }> = [];
     if (post.isDemo) badges.push({ key: "demo", label: "DEMO", tone: "demo" });
-    if (post.source === "rss" || post.trustTier === "news") {
-      badges.push({ key: "news", label: "Noticia", tone: "news" });
+    if (isNewsPost(post)) {
+      badges.push({ key: "news", label: communitySourceLabel(post), tone: "news" });
     } else {
       badges.push({ key: "x", label: "Desde X", tone: "x" });
+      badges.push({ key: "com", label: "Comunidad", tone: "x" });
     }
-    if (post.trustTier === "medio") badges.push({ key: "medio", label: "Medio", tone: "medio" });
     if (post.trustTier === "oficial") badges.push({ key: "oficial", label: "Oficial", tone: "oficial" });
-    badges.push({ key: "com", label: "Comunidad", tone: "x" });
     return badges;
   }, [post]);
 

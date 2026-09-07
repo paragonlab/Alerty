@@ -4,7 +4,7 @@
 // Setup:
 //   supabase functions deploy stripe-customer-portal
 //   supabase secrets set STRIPE_SECRET_KEY=sk_test_...
-//   supabase secrets set PLUS_RETURN_URL=https://alerty.app/premium
+//   supabase secrets set PLUS_RETURN_URL=https://alerty-two.vercel.app/premium
 // Verifica JWT — usa el token del usuario para identificarlo.
 
 import Stripe from "https://esm.sh/stripe@17.5.0?target=deno";
@@ -15,7 +15,7 @@ const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY")!, {
   httpClient: Stripe.createFetchHttpClient(),
 });
 
-const RETURN_URL = Deno.env.get("PLUS_RETURN_URL") ?? "https://alerty.app/premium";
+const RETURN_URL = Deno.env.get("PLUS_RETURN_URL") ?? "https://alerty-two.vercel.app/premium";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",

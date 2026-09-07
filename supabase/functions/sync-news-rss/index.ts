@@ -7,7 +7,7 @@
 //   supabase secrets set NEWS_RSS_FEEDS='https://...,https://...'
 //
 // Cron: igual que sync-x-community (cada 10–30 min).
-// Geo: colonia del texto, o pin de ciudad (Culiacán aproximado) si solo dice la ciudad.
+// Geo: pin solo con colonia clara + mención de Culiacán. Mazatlán/otras ciudades: sin pin.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.97.0";
 import { resolveCommunityGeo } from "../_shared/culiacanPlaces.ts";
@@ -41,7 +41,27 @@ const DEFAULT_FEEDS: Array<{ name: string; handle: string; url: string; logoUrl?
 ];
 
 const EVENT_HINT =
-  /\b(alerta|balacera|tiroteo|accidente|bloqueo|detonaci|enfrentamiento|asalto|robo|narcobloqueo|choque|incendio|inundaci|persecuci|culiac[aá]n|sinaloa)\b/i;
+  /\b(alerta|balacera|tiroteo|accidente|bloqueo|detonaci|enfrentamiento|asalto|robo|narcobloqueo|choque|incendio|inundaci|persecuci|culiac[aá]n)\b/i;
+
+function mentionsCuliacan(text: string): boolean {
+  return text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .includes("culiacan");
+}
+
+function isOtherCityStory(text: string): boolean {
+  const n = text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+  const other =
+    /\b(mazatlan|los mochis|navolato|guamuchil|escuinapa|el rosario|concordia|cosala|guasave|ahome|el fuerte|choix|angostura|salvador alvarado|el dorado)\b/.test(
+      n,
+    );
+  return other && !n.includes("culiacan");
+}
 
 function json(payload: unknown, status = 200) {
   return new Response(JSON.stringify(payload), {
@@ -177,15 +197,17 @@ Deno.serve(async (req) => {
       const items = parseRss(xml).slice(0, 12);
       for (const item of items) {
         const blob = `${item.title} ${item.description}`;
-        // Preferir piezas locales / con señal de evento; no inundar con portada nacional.
-        if (!EVENT_HINT.test(blob)) continue;
+        // Solo Culiacán: Mazatlán / Los Mochis etc. no entran al mapa ni al feed local.
+        if (isOtherCityStory(blob)) continue;
+        if (!EVENT_HINT.test(blob) && !mentionsCuliacan(blob)) continue;
 
         const geo = resolveCommunityGeo({
           text: item.description,
           title: item.title,
           publisherPlaceLabel: null,
-          fallbackLabel: "Sinaloa (noticia)",
-          allowCityApprox: true,
+          fallbackLabel: "Culiacán (noticia)",
+          allowCityApprox: false,
+          requireCuliacanMention: true,
         });
         const externalId = item.link.slice(0, 240);
         rows.push({

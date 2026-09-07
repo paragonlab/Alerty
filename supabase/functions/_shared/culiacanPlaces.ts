@@ -245,9 +245,32 @@ export function isCityApproxLabel(label: string | null | undefined): boolean {
   return Boolean(label && /aproximad/i.test(label));
 }
 
-function mentionsCuliacanArea(text: string): boolean {
-  const n = normalize(text);
-  return n.includes("culiacan") || n.includes("sinaloa");
+function mentionsCuliacan(text: string): boolean {
+  return normalize(text).includes("culiacan");
+}
+
+/** Otras ciudades de Sinaloa: no pincharlas en el mapa de Culiacán. */
+function mentionsOtherSinaloaCity(text: string): boolean {
+  return /\b(mazatlan|los mochis|navolato|guamuchil|escuinapa|el rosario|concordia|cosala|guasave|ahome|el fuerte|choix|angostura|salvador alvarado|el dorado)\b/.test(
+    normalize(text),
+  );
+}
+
+function feedOnlyResolution(
+  placeLabel: string,
+  placeNameSource: string | null,
+  geocodedFromText: string | null,
+): TextGeoResolution {
+  return {
+    lat: null,
+    lng: null,
+    placeLabel,
+    geoSource: "none",
+    placeNameSource,
+    geocodedFromText,
+    mapEligible: false,
+    confidence: "none",
+  };
 }
 
 /** Spread city-level pins so they do not sit on one pixel. ~200–700 m. */
@@ -308,10 +331,22 @@ export function resolveCommunityGeo(opts: {
   fallbackLabel: string;
   /** RSS: pin at city center when there is no colonia (badge: zona aproximada). */
   allowCityApprox?: boolean;
+  /** RSS: no pinchar sin mencionar Culiacán (evita colonias homónimas de Mazatlán). */
+  requireCuliacanMention?: boolean;
 }): TextGeoResolution {
   const blob = [opts.title, opts.text].filter(Boolean).join("\n");
   const textHit = resolveTextColonia(blob);
   const placeNameSource = opts.publisherPlaceLabel?.trim() || null;
+  const inCuliacan = mentionsCuliacan(blob);
+  const otherCity = mentionsOtherSinaloaCity(blob);
+
+  if (otherCity && !inCuliacan) {
+    return feedOnlyResolution(placeNameSource ?? opts.fallbackLabel, placeNameSource, textHit?.place.name ?? null);
+  }
+
+  if (opts.requireCuliacanMention && !inCuliacan) {
+    return feedOnlyResolution(placeNameSource ?? opts.fallbackLabel, placeNameSource, textHit?.place.name ?? null);
+  }
 
   if (textHit?.ambiguous) {
     return {
@@ -329,6 +364,7 @@ export function resolveCommunityGeo(opts: {
   const preferText =
     textHit &&
     textHit.confidence === "high" &&
+    !otherCity &&
     textColoniaDiffersFromPublisher(textHit.place, placeNameSource);
 
   if (preferText && textHit) {
@@ -387,7 +423,7 @@ export function resolveCommunityGeo(opts: {
     };
   }
 
-  if (textHit && !textHit.ambiguous && textHit.confidence === "high") {
+  if (textHit && !textHit.ambiguous && textHit.confidence === "high" && !otherCity) {
     return {
       lat: textHit.place.lat,
       lng: textHit.place.lng,
@@ -400,10 +436,7 @@ export function resolveCommunityGeo(opts: {
     };
   }
 
-  if (
-    opts.allowCityApprox &&
-    (mentionsCuliacanArea(blob) || placeLabelLooksLikeCityOnly(opts.fallbackLabel))
-  ) {
+  if (opts.allowCityApprox && inCuliacan && !otherCity) {
     return cityApproxPin(blob, placeNameSource);
   }
 

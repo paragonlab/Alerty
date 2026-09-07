@@ -13,12 +13,14 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-import * as Location from "expo-location";
 import * as WebBrowser from "expo-web-browser";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { lightTheme as theme } from "../lib/theme";
 import { supabase } from "../lib/supabase";
 import { safeBack } from "../lib/alerty/nav";
+import { APP_SHARE_URL } from "../lib/alerty/share";
+import { ALIADO_PRICE_LABEL } from "../lib/alerty/circulo";
+import { getCurrentCoords } from "../lib/alerty/geolocation";
 
 type ZoneType = "refugio" | "anuncio";
 
@@ -56,14 +58,9 @@ export default function BusinessOnboarding() {
   const handleUseCurrentLocation = async () => {
     setLocationLoading(true);
     try {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== "granted") {
-        Alert.alert("Permiso denegado", "No se pudo acceder a tu ubicación.");
-        return;
-      }
-      const pos = await Location.getCurrentPositionAsync({});
-      setLat(pos.coords.latitude.toFixed(6));
-      setLng(pos.coords.longitude.toFixed(6));
+      const pos = await getCurrentCoords();
+      setLat(pos.latitude.toFixed(6));
+      setLng(pos.longitude.toFixed(6));
     } catch {
       Alert.alert("Error", "No se pudo obtener la ubicación.");
     } finally {
@@ -133,10 +130,10 @@ export default function BusinessOnboarding() {
             <View style={styles.heroIcon}>
               <Ionicons name="shield-checkmark" size={28} color={theme.colors.accent} />
             </View>
-            <Text style={styles.title}>Aparece en el mapa</Text>
+            <Text style={styles.title}>Aliado en el mapa</Text>
             <Text style={styles.subtitle}>
-              Negocios, farmacias, refugios y comercios pueden destacar su ubicación
-              como zona segura o aliada para la comunidad.
+              Farmacia abierta, gasolinera, clínica u OXXO. Un pin útil: aquí hay gente,
+              puedes parar. No es un anuncio en el feed.
             </Text>
           </View>
 
@@ -144,12 +141,11 @@ export default function BusinessOnboarding() {
             <View style={styles.card}>
               <Text style={styles.label}>Inscripción de negocios</Text>
               <Text style={styles.priceAmount}>
-                Para registrar tu negocio como pin patrocinado, completa el
-                proceso desde nuestro sitio web. Te tomará un par de minutos.
+                El pin de Aliado se paga en la web ({ALIADO_PRICE_LABEL}). En iPhone no se cobra dentro de la app.
               </Text>
               <Pressable
                 style={styles.submitButton}
-                onPress={() => WebBrowser.openBrowserAsync("https://alerty.app/business")}
+                onPress={() => WebBrowser.openBrowserAsync(`${APP_SHARE_URL}/business`)}
               >
                 <Text style={styles.submitText}>Abrir registro web</Text>
               </Pressable>
@@ -168,7 +164,7 @@ export default function BusinessOnboarding() {
                   color={type === "refugio" ? "#fff" : theme.colors.success}
                 />
                 <Text style={[styles.typeText, type === "refugio" && styles.typeTextActive]}>
-                  Refugio Seguro
+                  Refugio
                 </Text>
               </Pressable>
               <Pressable
@@ -181,7 +177,7 @@ export default function BusinessOnboarding() {
                   color={type === "anuncio" ? "#fff" : theme.colors.accent}
                 />
                 <Text style={[styles.typeText, type === "anuncio" && styles.typeTextActive]}>
-                  Patrocinado
+                  Aliado
                 </Text>
               </Pressable>
             </View>
@@ -256,9 +252,9 @@ export default function BusinessOnboarding() {
             )}
 
             <View style={styles.priceBox}>
-              <Text style={styles.priceLabel}>Plan mensual</Text>
+              <Text style={styles.priceLabel}>$499 MXN / mes</Text>
               <Text style={styles.priceAmount}>
-                Suscripción recurrente. Cancela cuando quieras.
+                Una sucursal en el mapa. Cancela cuando quieras.
               </Text>
             </View>
 
@@ -275,8 +271,8 @@ export default function BusinessOnboarding() {
             </Pressable>
 
             <Text style={styles.legalText}>
-              Al continuar aceptas que tu pin aparecerá en el mapa mientras tu suscripción esté activa.
-              El equipo de Pulso revisa cada inscripción antes de publicarla.
+              El pin aparece en el mapa mientras la suscripción esté activa.
+              Pulso revisa cada Aliado antes de publicarlo.
             </Text>
           </View>
           )}

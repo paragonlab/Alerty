@@ -2,6 +2,7 @@ import { Platform, Share } from "react-native";
 import { GO_DEST_LABEL, GO_OUT_LABEL, RISK_LABEL, type RiskAssessment } from "./risk";
 
 export const APP_SHARE_URL = "https://alerty-two.vercel.app";
+export const APP_PRIVACY_URL = `${APP_SHARE_URL}/privacy`;
 
 export const zoneShareMessage = (
   assessment: RiskAssessment,

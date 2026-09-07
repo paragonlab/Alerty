@@ -1,9 +1,10 @@
 import { useEffect, useRef, useMemo } from "react";
-import { StyleSheet, View, Animated, Easing, Image } from "react-native";
+import { StyleSheet, View, Animated, Easing, Image, Text } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useAlertyStore } from "../lib/alerty/store";
 import type { AlertCategory } from "../lib/alerty/types";
 import { CATEGORY_ICONS } from "../lib/alerty/constants";
+import { isHttpAvatar, presetFromUrl } from "../lib/alerty/avatars";
 
 type GlowMarkerProps = {
   category: AlertCategory;
@@ -116,7 +117,9 @@ export function GlowMarker({
   const mediaColor = isDark ? "#FF00FF" : "#5A4C3B";
   const verifiedColor = isDark ? "#00E0FF" : "#2C7BE5";
   const badgeBg = isDark ? "#000000" : "#FFFFFF";
-  const showAvatar = Boolean(avatarUrl);
+  const preset = presetFromUrl(avatarUrl);
+  const httpAvatar = isHttpAvatar(avatarUrl);
+  const showAvatar = Boolean(preset || httpAvatar);
 
   return (
     <View style={styles.container}>
@@ -163,7 +166,7 @@ export function GlowMarker({
         style={[
           styles.dot,
           {
-            backgroundColor: showAvatar ? "#111" : color,
+            backgroundColor: preset ? preset.color : showAvatar ? "#111" : color,
             borderColor: isDark ? "rgba(255,255,255,0.92)" : "#FFFFFF",
             shadowColor: color,
             shadowOpacity: isDark ? 0.9 : 0.55,
@@ -173,7 +176,9 @@ export function GlowMarker({
           },
         ]}
       >
-        {showAvatar ? (
+        {preset ? (
+          <Text style={styles.presetEmoji}>{preset.emoji}</Text>
+        ) : httpAvatar ? (
           <Image source={{ uri: avatarUrl! }} style={styles.avatar} />
         ) : (
           <>
@@ -248,6 +253,10 @@ const styles = StyleSheet.create({
     width: "100%",
     height: "100%",
     borderRadius: 999,
+  },
+  presetEmoji: {
+    fontSize: 11,
+    lineHeight: 13,
   },
   avatarRing: {
     ...StyleSheet.absoluteFillObject,

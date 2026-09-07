@@ -21,7 +21,7 @@ export default function PrivacyScreen() {
       </View>
       <ScrollView contentContainerStyle={styles.body}>
         <Text style={styles.title}>Política de privacidad</Text>
-        <Text style={styles.meta}>Última actualización: 6 de septiembre de 2026</Text>
+        <Text style={styles.meta}>Última actualización: 7 de septiembre de 2026</Text>
         <Text style={styles.p}>
           Pulso (la app también aparece como Alerty) es un mapa de alertas ciudadanas para
           Culiacán, operado por Gustavo Montoya (“nosotros”). Esta política describe qué
@@ -77,9 +77,10 @@ export default function PrivacyScreen() {
         <Text style={styles.h}>4. Conservación y tus derechos</Text>
         <Text style={styles.p}>
           Conservamos la cuenta y el contenido mientras el servicio esté activo o hasta
-          que pidas borrar tus datos, salvo que la ley nos obligue a retenerlos. En México
-          puedes solicitar acceso, rectificación, cancelación u oposición escribiendo al
-          correo de contacto de la app en el App Store.
+          que borres la cuenta. En Ajustes puedes eliminar tu cuenta: se borran tu perfil,
+          zonas de Círculo y votos. Los pulsos que ya publicaste quedan anónimos en el
+          mapa. En México también puedes solicitar acceso, rectificación, cancelación u
+          oposición al correo de la ficha de App Store.
         </Text>
 
         <Text style={styles.h}>5. Menores</Text>
