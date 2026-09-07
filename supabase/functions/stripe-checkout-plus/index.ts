@@ -5,7 +5,7 @@
 //   supabase functions deploy stripe-checkout-plus
 //   supabase secrets set STRIPE_SECRET_KEY=sk_test_...
 //   supabase secrets set STRIPE_PRICE_ID_PLUS=price_...
-//   supabase secrets set PLUS_RETURN_URL=https://alerty.app/plus/return
+//   supabase secrets set PLUS_RETURN_URL=https://alerty-two.vercel.app/premium
 //
 // Esta función SÍ verifica JWT — usa el token de Supabase del usuario para identificarlo.
 
@@ -18,7 +18,7 @@ const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY")!, {
 });
 
 const PRICE_ID = Deno.env.get("STRIPE_PRICE_ID_PLUS")!;
-const RETURN_URL = Deno.env.get("PLUS_RETURN_URL") ?? "https://alerty.app/plus";
+const RETURN_URL = Deno.env.get("PLUS_RETURN_URL") ?? "https://alerty-two.vercel.app/premium";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",

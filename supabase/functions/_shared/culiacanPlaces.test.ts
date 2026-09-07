@@ -64,18 +64,41 @@ Deno.test("resolveTextColonia high confidence on ocurrió en", () => {
   assertEquals(hit?.ambiguous, false);
 });
 
-Deno.test("RSS city-only text gets approximate city pin", () => {
+Deno.test("RSS city-only Culiacán stays off the map (no fake downtown pin)", () => {
   const geo = resolveCommunityGeo({
     text: "Reportan balacera en Culiacán esta tarde.",
     title: "Balacera en Culiacán",
-    fallbackLabel: "Sinaloa (noticia)",
+    fallbackLabel: "Culiacán (noticia)",
+    allowCityApprox: false,
+    requireCuliacanMention: true,
+  });
+  assertEquals(geo.mapEligible, false);
+  assertEquals(geo.lat, null);
+});
+
+Deno.test("RSS Mazatlán story is not pinned in Culiacán", () => {
+  const geo = resolveCommunityGeo({
+    text: "Reportan bloqueo en el centro de Mazatlán esta tarde.",
+    title: "Bloqueo en Mazatlán",
+    fallbackLabel: "Culiacán (noticia)",
     allowCityApprox: true,
+    requireCuliacanMention: true,
+  });
+  assertEquals(geo.mapEligible, false);
+  assertEquals(geo.lat, null);
+});
+
+Deno.test("RSS Culiacán + colonia pins at that colonia", () => {
+  const geo = resolveCommunityGeo({
+    text: "El incidente ocurrió en la colonia Las Quintas, Culiacán.",
+    title: "Balacera en Las Quintas",
+    fallbackLabel: "Culiacán (noticia)",
+    allowCityApprox: false,
+    requireCuliacanMention: true,
   });
   assertEquals(geo.mapEligible, true);
-  assertEquals(geo.placeLabel, "Culiacán (aproximado)");
-  assertEquals(geo.confidence, "low");
-  assertExists(geo.lat);
-  assertExists(geo.lng);
+  assertEquals(geo.placeLabel, "Las Quintas");
+  assertEquals(geo.geoSource, "text_colonia");
 });
 
 Deno.test("ambiguous colonias stay off the map even with city approx", () => {

@@ -17,6 +17,7 @@ import {
 } from "../lib/revenuecat";
 import { supabase } from "../lib/supabase";
 import { safeBack } from "../lib/alerty/nav";
+import { CIRCULO_PRICE_LABEL } from "../lib/alerty/circulo";
 
 export default function PremiumScreen() {
   const router = useRouter();
@@ -28,6 +29,11 @@ export default function PremiumScreen() {
   const [pkg, setPkg] = useState<PurchasesPackage | null>(null);
 
   const isAlreadyPremium = currentUser.isPremium;
+  const storePrice =
+    pkg && "product" in pkg && typeof (pkg as { product?: { priceString?: string } }).product?.priceString === "string"
+      ? (pkg as { product: { priceString: string } }).product.priceString
+      : null;
+  const priceLabel = storePrice ?? CIRCULO_PRICE_LABEL;
 
   // Stripe regresa a esta pantalla con ?status=success|cancel después del Checkout web
   useEffect(() => {
@@ -42,7 +48,7 @@ export default function PremiumScreen() {
         if (latest.isPremium || attempts >= 6) {
           clearInterval(interval);
           if (latest.isPremium) {
-            Alert.alert("¡Felicidades!", "Ahora eres usuario de Pulso Plus. 🎉");
+            Alert.alert("Listo", "Círculo está activo. Ya puedes vigilar más zonas.");
           } else {
             Alert.alert(
               "Pago recibido",
@@ -104,8 +110,8 @@ export default function PremiumScreen() {
       if (Platform.OS !== "web") {
         await new Promise((resolve) => setTimeout(resolve, 1500));
         await useAlertyStore.getState().loadUserProfile();
-        Alert.alert("¡Felicidades!", "Ahora eres usuario de Pulso Plus. 🎉", [
-          { text: "Continuar", onPress: () => safeBack(router) },
+        Alert.alert("Listo", "Círculo está activo. Ya puedes vigilar más zonas.", [
+          { text: "Mis zonas", onPress: () => router.replace("/circulo") },
         ]);
       }
       // En web no llegamos aquí — purchasePlus redirige fuera de la app.
@@ -123,7 +129,7 @@ export default function PremiumScreen() {
       const info = await restorePurchases();
       if (info && hasActivePlus(info)) {
         await useAlertyStore.getState().loadUserProfile();
-        Alert.alert("Listo", "Tu suscripción Plus se restauró correctamente.");
+        Alert.alert("Listo", "Tu suscripción de Círculo se restauró.");
       } else {
         Alert.alert("Sin compras", "No encontramos una suscripción activa para restaurar.");
       }
@@ -167,28 +173,32 @@ export default function PremiumScreen() {
       
       <ScrollView contentContainerStyle={styles.container}>
         <View style={styles.heroSection}>
-          <Ionicons name="shield-checkmark" size={60} color={theme.colors.accent} />
-          <Text style={styles.title}>Pulso <Text style={{ color: theme.colors.accent }}>Plus</Text></Text>
-          <Text style={styles.subtitle}>Desbloquea la seguridad definitiva para ti y tu familia.</Text>
+          <Ionicons name="people" size={60} color={theme.colors.accent} />
+          <Text style={styles.title}>
+            Pulso <Text style={{ color: theme.colors.accent }}>Círculo</Text>
+          </Text>
+          <Text style={styles.subtitle}>
+            Avísame si se pone pesado en otra colonia. El mapa y los pulsos siguen gratis.
+          </Text>
         </View>
 
         <View style={styles.featuresList}>
           <FeatureItem
-            icon="people"
-            title="Zonas Múltiples Seguras"
-            description="Agrega hasta 5 zonas para notificar a tu familia."
+            icon="home-outline"
+            title="1 zona gratis"
+            description="Casa o donde estás. Sin pagar."
             theme={theme}
           />
           <FeatureItem
-            icon="notifications-off"
-            title="Sin anuncios"
-            description="Mapa y feed limpios, sin zonas patrocinadas."
+            icon="people"
+            title="Hasta 5 zonas"
+            description="Escuela, trabajo, casa de mamá. Push cuando hay un pulso cerca."
             theme={theme}
           />
-          <FeatureItem 
-            icon="star" 
-            title="Insignia de Confianza" 
-            description="Tus reportes tienen mayor visibilidad instantánea." 
+          <FeatureItem
+            icon="map-outline"
+            title="El mapa no se cobra"
+            description="Ver Culiacán, reportar y SOS siguen libres."
             theme={theme}
           />
         </View>
@@ -199,9 +209,12 @@ export default function PremiumScreen() {
               <View style={styles.activePlanCard}>
                 <Ionicons name="checkmark-circle" size={24} color={theme.colors.success} />
                 <Text style={[styles.priceText, { color: theme.colors.success }]}>
-                  Ya eres Pulso Plus
+                  Ya tienes Círculo
                 </Text>
               </View>
+              <Pressable style={styles.manageButton} onPress={() => router.replace("/circulo")}>
+                <Text style={styles.manageText}>Administrar zonas</Text>
+              </Pressable>
               {Platform.OS === "web" && (
                 <Pressable
                   style={styles.manageButton}
@@ -222,7 +235,7 @@ export default function PremiumScreen() {
                 <ActivityIndicator color="#fff" />
               ) : (
                 <>
-                  <Text style={styles.subscribeText}>Mejorar por $49 MXN/mes</Text>
+                  <Text style={styles.subscribeText}>Activar Círculo · {priceLabel}</Text>
                   <Text style={styles.cancelText}>Cancela cuando quieras</Text>
                 </>
               )}
@@ -230,13 +243,18 @@ export default function PremiumScreen() {
           )}
 
           {Platform.OS !== "web" && !isAlreadyPremium && (
-            <Pressable
-              style={styles.restoreButton}
-              onPress={handleRestore}
-              disabled={loading}
-            >
-              <Text style={styles.restoreText}>Restaurar compras</Text>
-            </Pressable>
+            <>
+              <Pressable
+                style={styles.restoreButton}
+                onPress={handleRestore}
+                disabled={loading}
+              >
+                <Text style={styles.restoreText}>Restaurar compras</Text>
+              </Pressable>
+              <Text style={styles.legalText}>
+                Pago y renovación por la tienda de tu teléfono. Cancela en Ajustes.
+              </Text>
+            </>
           )}
         </View>
       </ScrollView>
@@ -356,6 +374,14 @@ const createStyles = (theme: any) => StyleSheet.create({
     fontSize: 13,
     fontFamily: theme.fonts.body,
     textDecorationLine: "underline",
+  },
+  legalText: {
+    color: theme.colors.textMuted,
+    fontSize: 11,
+    fontFamily: theme.fonts.body,
+    textAlign: "center",
+    lineHeight: 16,
+    paddingHorizontal: 12,
   },
   subscribeButton: {
     backgroundColor: theme.colors.accent,

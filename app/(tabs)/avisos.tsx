@@ -3,7 +3,7 @@ import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from "
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import * as Location from "expo-location";
+import { getCurrentCoords } from "../../lib/alerty/geolocation";
 import { useAlertyStore } from "../../lib/alerty/store";
 import { useAlertyTheme } from "../../lib/useAlertyTheme";
 import { AVISOS_RADIUS_KM, CATEGORY_ICONS, CATEGORY_LABELS } from "../../lib/alerty/constants";
@@ -38,18 +38,8 @@ export default function AvisosScreen() {
     setLocating(true);
     setLocationDenied(false);
     try {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== "granted") {
-        setLocationDenied(true);
-        return;
-      }
-      const loc = await Promise.race([
-        Location.getCurrentPositionAsync({}),
-        new Promise<never>((_, reject) => {
-          setTimeout(() => reject(new Error("timeout")), 15_000);
-        }),
-      ]);
-      setUserCoords({ latitude: loc.coords.latitude, longitude: loc.coords.longitude });
+      const coords = await getCurrentCoords();
+      setUserCoords(coords);
     } catch {
       setLocationDenied(true);
     } finally {
@@ -168,7 +158,9 @@ export default function AvisosScreen() {
           : "Sin GPS no podemos filtrar por distancia"}
       </Text>
       <Text style={styles.emptyHint}>
-        Las alertas que sigues aparecen igual. El resto solo si están a {AVISOS_RADIUS_KM} km.
+        {locationDenied
+          ? "En el navegador, permite ubicación en el candado de la barra y vuelve a intentar."
+          : `Las alertas que sigues aparecen igual. El resto solo si están a ${AVISOS_RADIUS_KM} km.`}
       </Text>
       <Pressable style={styles.emptyCta} onPress={requestLocation}>
         <Text style={styles.emptyCtaText}>Activar ubicación</Text>

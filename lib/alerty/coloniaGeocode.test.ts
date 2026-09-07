@@ -77,12 +77,32 @@ function run() {
   const rssCity = resolveCommunityGeo({
     text: "Reportan balacera en Culiacán esta tarde.",
     title: "Balacera en Culiacán",
-    fallbackLabel: "Sinaloa (noticia)",
-    allowCityApprox: true,
+    fallbackLabel: "Culiacán (noticia)",
+    allowCityApprox: false,
+    requireCuliacanMention: true,
   });
-  assert(rssCity.mapEligible === true, "RSS city-only gets a pin");
-  assert(rssCity.placeLabel === "Culiacán (aproximado)", rssCity.placeLabel);
-  assert(typeof rssCity.lat === "number" && typeof rssCity.lng === "number", "approx coords");
+  assert(rssCity.mapEligible === false, "RSS city-only stays off the map");
+  assert(rssCity.lat === null, "no invented downtown pin");
+
+  const mazatlan = resolveCommunityGeo({
+    text: "Reportan bloqueo en el centro de Mazatlán esta tarde.",
+    title: "Bloqueo en Mazatlán",
+    fallbackLabel: "Culiacán (noticia)",
+    allowCityApprox: true,
+    requireCuliacanMention: true,
+  });
+  assert(mazatlan.mapEligible === false, "Mazatlán is not a Culiacán pin");
+  assert(mazatlan.lat === null, "Mazatlán has no coords");
+
+  const rssColonia = resolveCommunityGeo({
+    text: "El incidente ocurrió en la colonia Las Quintas, Culiacán.",
+    title: "Balacera en Las Quintas",
+    fallbackLabel: "Culiacán (noticia)",
+    allowCityApprox: false,
+    requireCuliacanMention: true,
+  });
+  assert(rssColonia.mapEligible === true, "Culiacán + colonia pins");
+  assert(rssColonia.placeLabel === "Las Quintas", rssColonia.placeLabel);
 
   const stillAmbiguous = resolveCommunityGeo({
     text: "Hay reportes en Guadalupe y en Chapultepec esta tarde.",

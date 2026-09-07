@@ -7,10 +7,13 @@ import type {
   CommunityPost,
   SponsoredZone,
   TimeFilter,
+  WatchedZone,
 } from "./types";
-import { ALERT_CATEGORIES, REPUTATION_LEVELS } from "./constants";
+import { ALERT_CATEGORIES, REPUTATION_LEVELS, getLevelProgress } from "./constants";
+import { canAddCirculoZone } from "./circulo";
 import { baseAlerts, createRandomAlert, demoCommunityPosts, isDemoEnabled } from "./mock";
 import { matchInboxAlert, type UserCoords } from "./utils";
+import { isOtherSinaloaCityStory } from "./coloniaGeocode";
 import { isSupabaseConfigured, supabase } from "../supabase";
 import { uploadMediaBatch } from "../upload";
 import type { RealtimeChannel } from "@supabase/supabase-js";
@@ -95,7 +98,7 @@ type AlertyState = {
   setLowConnection: (value: boolean) => void;
   setPushEnabled: (value: boolean) => void;
   loadAlertsFromSupabase: () => Promise<void>;
-  loadCommunityPosts: () => Promise<void>;
+  loadCommunityPosts: (opts?: { refreshNews?: boolean }) => Promise<void>;
   toggleFollowAlert: (id: string) => void;
   addUpdateToAlert: (alertId: string, content: string, media?: AlertMedia[]) => Promise<void>;
   addAngleAlert: (parentAlertId: string, video: AlertMedia) => Promise<void>;
@@ -109,9 +112,18 @@ type AlertyState = {
   loadUserProfile: () => Promise<void>;
   resetGuest: () => void;
   updateUsername: (newUsername: string) => Promise<{ error: string | null }>;
+  updateAvatar: (avatarUrl: string) => Promise<{ error: string | null }>;
   recomputeVerifiedStatus: () => void;
   sponsoredZones: SponsoredZone[];
   loadSponsoredZones: () => Promise<void>;
+  watchedZones: WatchedZone[];
+  loadWatchedZones: () => Promise<void>;
+  addWatchedZone: (input: {
+    label: string;
+    lat: number;
+    lng: number;
+  }) => Promise<{ error: string | null }>;
+  deleteWatchedZone: (id: string) => Promise<{ error: string | null }>;
   feedViewMode: "list" | "reels";
   setFeedViewMode: (mode: "list" | "reels") => void;
   reelsInitialAlertId: string | null;
@@ -135,6 +147,26 @@ const syncPreference = async (key: string, value: any) => {
 const isDbId = (id: string) =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
 
+const COMMUNITY_POST_COLUMNS =
+  "id,source,external_id,author_handle,author_name,text,url,media_url,author_avatar_url,lat,lng,place_label,geo_source,place_name_source,geocoded_from_text,created_at,fetched_at,category_guess,is_demo,trust_tier";
+
+const NEWS_SYNC_MIN_MS = 2 * 60 * 1000;
+let lastNewsSyncAt = 0;
+let newsSyncInflight: Promise<void> | null = null;
+
+const communityActivityAt = (post: CommunityPost) =>
+  Math.max(new Date(post.createdAt).getTime(), new Date(post.fetchedAt).getTime());
+
+const mergeCommunityRows = (rssRows: any[] | null, otherRows: any[] | null) => {
+  const byId = new Map<string, CommunityPost>();
+  for (const row of [...(rssRows ?? []), ...(otherRows ?? [])]) {
+    const post = mapCommunityRow(row);
+    if (post.isDemo) continue;
+    byId.set(post.id, post);
+  }
+  return [...byId.values()].sort((a, b) => communityActivityAt(b) - communityActivityAt(a));
+};
+
 const GUEST_USER: AlertUser = {
   id: "local-user",
   username: "@invitado",
@@ -143,6 +175,36 @@ const GUEST_USER: AlertUser = {
   trustScore: 10,
   level: "CIUDADANO",
   followersCount: 0,
+};
+
+const SCORE_REPORT = 5;
+const SCORE_UPVOTE = 1;
+
+const normalizeTrustScore = (raw: number): number => {
+  if (!Number.isFinite(raw)) return 10;
+  if (raw <= 1) return Math.round(raw * 20);
+  return Math.max(0, Math.min(100, Math.round(raw)));
+};
+
+const levelFromScore = (score: number): string => getLevelProgress(score).currentKey;
+
+const mapUserFromRow = (row: any, fallbackId?: string): AlertUser => {
+  const trustScore = normalizeTrustScore(Number(row?.trust_score ?? 0.5));
+  return {
+    id: row?.id ?? fallbackId ?? "unknown",
+    username: row?.username ?? "@anon",
+    avatarUrl: row?.avatar_url ?? null,
+    isVerified: Boolean(row?.is_verified),
+    isPremium: Boolean(row?.is_premium),
+    trustScore,
+    level: levelFromScore(trustScore),
+    followersCount: Number(row?.followers_count ?? 0),
+  };
+};
+
+const persistTrustScore = (userId: string, score: number) => {
+  if (!isSupabaseConfigured || !supabase || userId === "local-user" || !isDbId(userId)) return;
+  void supabase.from("users").update({ trust_score: score }).eq("id", userId);
 };
 
 export const useAlertyStore = create<AlertyState>((set, get) => ({
@@ -165,6 +227,7 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
   themeMode: "light",
   currentUser: GUEST_USER,
   sponsoredZones: [],
+  watchedZones: [],
   feedViewMode: "list",
   setFeedViewMode: (mode) => set({ feedViewMode: mode }),
   reelsInitialAlertId: null,
@@ -230,15 +293,7 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
           downvotes: 0,
           media: [],
           updates: [],
-          user: {
-            id: userData?.id ?? row.user_id ?? "unknown",
-            username: userData?.username ?? "@anon",
-            avatarUrl: userData?.avatar_url ?? null,
-            isVerified: Boolean(userData?.is_verified),
-            trustScore: Number(userData?.trust_score ?? 0.5),
-            level: "CIUDADANO",
-            followersCount: Number(userData?.followers_count ?? 0),
-          },
+          user: mapUserFromRow(userData, row.user_id),
         };
 
         set((state) => {
@@ -289,15 +344,7 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
           id: row.id,
           content: row.content,
           createdAt: row.created_at,
-          user: {
-            id: userData?.id ?? row.user_id,
-            username: userData?.username ?? "@anon",
-            avatarUrl: userData?.avatar_url ?? null,
-            isVerified: Boolean(userData?.is_verified),
-            trustScore: Number(userData?.trust_score ?? 0.5),
-            level: "CIUDADANO",
-            followersCount: Number(userData?.followers_count ?? 0),
-          },
+          user: mapUserFromRow(userData, row.user_id),
         };
 
         set((state) => ({
@@ -333,6 +380,7 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
       (payload) => {
         const post = mapCommunityRow(payload.new);
         if (post.isDemo) return;
+        if (isOtherSinaloaCityStory(post.text)) return;
         set((state) => {
           if (state.communityPosts.some((p) => p.id === post.id || p.externalId === post.externalId)) {
             return state;
@@ -350,7 +398,18 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
       set({ realtimeStarted: false, realtimeChannel: null });
     };
   },
-  addAlert: (alert) => set((state) => state.alerts.some((a) => a.id === alert.id) ? state : { alerts: [alert, ...state.alerts] }),
+  addAlert: (alert) => {
+    let added = false;
+    set((state) => {
+      if (state.alerts.some((a) => a.id === alert.id)) return state;
+      added = true;
+      return { alerts: [alert, ...state.alerts] };
+    });
+    const me = get().currentUser;
+    if (added && alert.user?.id === me.id && me.id !== "local-user") {
+      get().updateUserScore(SCORE_REPORT);
+    }
+  },
   recomputeVerifiedStatus: () => {
     const { alerts, currentUser } = get();
     const myAlerts = alerts.filter((a) => a.user.id === currentUser.id);
@@ -385,6 +444,10 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
       }),
     }));
     get().recomputeVerifiedStatus();
+
+    if (vote === "upvote") {
+      get().updateUserScore(SCORE_UPVOTE);
+    }
 
     if (!isSupabaseConfigured || !supabase || !isDbId(id)) return;
     void supabase.auth.getUser().then(({ data }) => {
@@ -424,6 +487,7 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
       currentUser: GUEST_USER,
       followingAlertIds: [],
       votedAlerts: {},
+      watchedZones: [],
     }),
   loadUserProfile: async () => {
     if (!isSupabaseConfigured || !supabase) return;
@@ -443,6 +507,7 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
     }
 
     if (data) {
+      const trustScore = normalizeTrustScore(Number(data.trust_score ?? 0.5));
       set((state) => ({
         currentUser: {
           ...state.currentUser,
@@ -450,7 +515,8 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
           username: data.username,
           avatarUrl: data.avatar_url,
           isVerified: Boolean(data.is_verified),
-          trustScore: Number(data.trust_score),
+          trustScore,
+          level: levelFromScore(trustScore),
           followersCount: Number(data.followers_count),
           themeMode: data.theme_mode,
           pushEnabled: data.push_enabled,
@@ -463,7 +529,9 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
         pushEnabled: data.push_enabled ?? state.pushEnabled,
         lowConnection: data.low_connection ?? state.lowConnection,
         activeCategories: data.active_categories ?? state.activeCategories,
+        showHeatmap: data.show_heatmap ?? true,
       }));
+      void get().loadWatchedZones();
     }
   },
   loadSponsoredZones: async () => {
@@ -492,38 +560,149 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
     }));
     set({ sponsoredZones: zones });
   },
-  loadCommunityPosts: async () => {
+  loadWatchedZones: async () => {
     if (!isSupabaseConfigured || !supabase) {
-      set({ communityPosts: [] });
+      set({ watchedZones: [] });
       return;
     }
+    const { data: sess } = await supabase.auth.getSession();
+    if (!sess?.session?.user) {
+      set({ watchedZones: [] });
+      return;
+    }
+    const { data, error } = await supabase
+      .from("watched_zones")
+      .select("id,label,lat,lng,created_at")
+      .eq("user_id", sess.session.user.id)
+      .order("created_at", { ascending: true });
+    if (error || !data) {
+      console.warn("loadWatchedZones failed", error);
+      return;
+    }
+    set({
+      watchedZones: data.map((row) => ({
+        id: row.id,
+        label: row.label,
+        lat: row.lat,
+        lng: row.lng,
+        createdAt: row.created_at,
+      })),
+    });
+  },
+  addWatchedZone: async ({ label, lat, lng }) => {
+    if (!isSupabaseConfigured || !supabase) {
+      return { error: "No hay conexión." };
+    }
+    const { currentUser, watchedZones } = get();
+    if (!currentUser.id || currentUser.id === "local-user") {
+      return { error: "Inicia sesión para guardar una zona." };
+    }
+    if (!canAddCirculoZone(watchedZones.length, Boolean(currentUser.isPremium))) {
+      return { error: "limit" };
+    }
+    const trimmed = label.trim();
+    if (trimmed.length < 1 || trimmed.length > 40) {
+      return { error: "Ponle un nombre corto a la zona." };
+    }
+    const { data, error } = await supabase
+      .from("watched_zones")
+      .insert({
+        user_id: currentUser.id,
+        label: trimmed,
+        lat,
+        lng,
+      })
+      .select("id,label,lat,lng,created_at")
+      .single();
+    if (error || !data) {
+      if (error?.message?.includes("watched_zone_limit")) {
+        return { error: "limit" };
+      }
+      return { error: error?.message ?? "No se pudo guardar la zona." };
+    }
+    set((state) => ({
+      watchedZones: [
+        ...state.watchedZones,
+        {
+          id: data.id,
+          label: data.label,
+          lat: data.lat,
+          lng: data.lng,
+          createdAt: data.created_at,
+        },
+      ],
+    }));
+    return { error: null };
+  },
+  deleteWatchedZone: async (id) => {
+    if (!isSupabaseConfigured || !supabase) {
+      return { error: "No hay conexión." };
+    }
+    const { error } = await supabase.from("watched_zones").delete().eq("id", id);
+    if (error) return { error: error.message };
+    set((state) => ({
+      watchedZones: state.watchedZones.filter((zone) => zone.id !== id),
+    }));
+    return { error: null };
+  },
+  loadCommunityPosts: async (opts) => {
+    if (!isSupabaseConfigured || !supabase) {
+      if (get().communityPosts.length === 0) set({ communityPosts: [] });
+      return;
+    }
+    const client = supabase;
 
     try {
-      const { data, error } = await supabase
+      const rssQuery = client
         .from("community_posts")
-        .select(
-          "id,source,external_id,author_handle,author_name,text,url,media_url,author_avatar_url,lat,lng,place_label,geo_source,place_name_source,geocoded_from_text,created_at,fetched_at,category_guess,is_demo,trust_tier",
-        )
-        .order("created_at", { ascending: false })
+        .select(COMMUNITY_POST_COLUMNS)
         .eq("is_demo", false)
-        .limit(50);
+        .eq("source", "rss")
+        .order("fetched_at", { ascending: false })
+        .limit(30);
+      const otherQuery = client
+        .from("community_posts")
+        .select(COMMUNITY_POST_COLUMNS)
+        .eq("is_demo", false)
+        .neq("source", "rss")
+        .order("created_at", { ascending: false })
+        .limit(40);
 
-      if (error) {
-        console.warn("loadCommunityPosts failed", error.message);
-        set({ communityPosts: [] });
+      const [rssRes, otherRes] = await Promise.all([rssQuery, otherQuery]);
+      if (rssRes.error) console.warn("loadCommunityPosts rss failed", rssRes.error.message);
+      if (otherRes.error) console.warn("loadCommunityPosts x failed", otherRes.error.message);
+
+      if (rssRes.error && otherRes.error) {
+        if (get().communityPosts.length === 0) set({ communityPosts: [] });
         return;
       }
 
-      if (!data || data.length === 0) {
-        set({ communityPosts: [] });
-        return;
-      }
-
-      set({ communityPosts: data.map(mapCommunityRow) });
+      set({
+        communityPosts: mergeCommunityRows(rssRes.data, otherRes.data).filter(
+          (post) => !isOtherSinaloaCityStory(post.text),
+        ),
+      });
     } catch (err) {
       console.warn("loadCommunityPosts failed", err);
-      set({ communityPosts: [] });
+      if (get().communityPosts.length === 0) set({ communityPosts: [] });
     }
+
+    if (!opts?.refreshNews) return;
+    const now = Date.now();
+    if (newsSyncInflight || now - lastNewsSyncAt < NEWS_SYNC_MIN_MS) return;
+    lastNewsSyncAt = now;
+    newsSyncInflight = (async () => {
+      try {
+        await client.functions.invoke("sync-news-rss", {
+          body: { source: "app_open" },
+        });
+        await get().loadCommunityPosts();
+      } catch (err) {
+        console.warn("sync-news-rss on open failed", err);
+      } finally {
+        newsSyncInflight = null;
+      }
+    })();
   },
   updateUsername: async (newUsername) => {
     if (!isSupabaseConfigured || !supabase) return { error: "Sin conexión" };
@@ -551,6 +730,22 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
 
     set((state) => ({
       currentUser: { ...state.currentUser, username: newUsername },
+    }));
+    return { error: null };
+  },
+  updateAvatar: async (avatarUrl) => {
+    if (!isSupabaseConfigured || !supabase) return { error: "Sin conexión" };
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user) return { error: "No autenticado" };
+
+    const { error } = await supabase
+      .from("users")
+      .update({ avatar_url: avatarUrl })
+      .eq("id", session.user.id);
+    if (error) return { error: "No se pudo guardar. Intenta de nuevo." };
+
+    set((state) => ({
+      currentUser: { ...state.currentUser, avatarUrl },
     }));
     return { error: null };
   },
@@ -636,32 +831,14 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
         id: upd.id,
         content: upd.content,
         createdAt: upd.created_at,
-          user: {
-            id: upd.users?.id ?? upd.user_id,
-            username: upd.users?.username ?? "@anon",
-            avatarUrl: upd.users?.avatar_url ?? null,
-            isVerified: Boolean(upd.users?.is_verified),
-            isPremium: Boolean(upd.users?.is_premium),
-            trustScore: Number(upd.users?.trust_score ?? 0.5),
-            level: "CIUDADANO",
-            followersCount: Number(upd.users?.followers_count ?? 0),
-          },
+          user: mapUserFromRow(upd.users, upd.user_id),
           media: (row.media ?? [])
             .filter((m: any) => m.update_id === upd.id)
             .map((m: any) => ({ id: m.id, url: m.media_url, type: m.media_type })),
       })).sort((a: AlertUpdate, b: AlertUpdate) =>
         new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
       ),
-      user: {
-        id: row.users?.id ?? "unknown",
-        username: row.users?.username ?? "@anon",
-        avatarUrl: row.users?.avatar_url ?? null,
-        isVerified: Boolean(row.users?.is_verified),
-        isPremium: Boolean(row.users?.is_premium),
-        trustScore: Number(row.users?.trust_score ?? 0.5),
-        level: "CIUDADANO",
-        followersCount: Number(row.users?.followers_count ?? 0),
-      },
+      user: mapUserFromRow(row.users),
       };
     });
 
@@ -759,8 +936,8 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
         username: data.users?.username ?? "@me",
         avatarUrl: data.users?.avatar_url ?? null,
         isVerified: Boolean(data.users?.is_verified),
-        trustScore: Number(data.users?.trust_score ?? 1.0),
-        level: (get().currentUser.level) || "CIUDADANO",
+        trustScore: normalizeTrustScore(Number(data.users?.trust_score ?? 0.5)),
+        level: levelFromScore(normalizeTrustScore(Number(data.users?.trust_score ?? 0.5))),
         followersCount: Number(data.users?.followers_count ?? 0),
       },
       media: uploadedMedia,
@@ -871,18 +1048,13 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
     syncPreference("theme_mode", mode);
   },
   updateUserScore: (score) => {
-    set((state) => {
-      const newScore = Math.max(0, Math.min(100, state.currentUser.trustScore + score));
-      let newLevel: string = "CIUDADANO";
-      
-      if (newScore >= REPUTATION_LEVELS.HEROE.minScore) newLevel = "HEROE";
-      else if (newScore >= REPUTATION_LEVELS.PROTECTOR.minScore) newLevel = "PROTECTOR";
-      else if (newScore >= REPUTATION_LEVELS.VIGIA.minScore) newLevel = "VIGIA";
-      
-      return {
-        currentUser: { ...state.currentUser, trustScore: newScore, level: newLevel }
-      };
+    const state = get();
+    const newScore = Math.max(0, Math.min(100, state.currentUser.trustScore + score));
+    const newLevel = levelFromScore(newScore);
+    set({
+      currentUser: { ...state.currentUser, trustScore: newScore, level: newLevel },
     });
+    persistTrustScore(state.currentUser.id, newScore);
   },
   getReportingRange: () => {
     const { currentUser } = get();

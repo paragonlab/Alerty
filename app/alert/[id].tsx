@@ -483,9 +483,6 @@ export default function AlertDetailScreen() {
                   {alert.user.isVerified && (
                     <Ionicons name="checkmark-circle" size={12} color={theme.colors.accent} />
                   )}
-                  {alert.user.isPremium && (
-                    <Ionicons name="star" size={12} color="#F59E0B" />
-                  )}
                   <Text style={styles.threadAction}>Reportó el incidente</Text>
                 </View>
                 <Text style={styles.threadTime}>{formatRelativeTime(alert.createdAt)}</Text>
@@ -503,9 +500,6 @@ export default function AlertDetailScreen() {
                     <Text style={styles.threadUser}>{update.user.username}</Text>
                     {update.user.isVerified && (
                       <Ionicons name="checkmark-circle" size={12} color={theme.colors.accent} />
-                    )}
-                    {update.user.isPremium && (
-                      <Ionicons name="star" size={12} color="#F59E0B" />
                     )}
                     {(() => {
                       const levelKey = (update.user.level as keyof typeof REPUTATION_LEVELS) || "CIUDADANO";

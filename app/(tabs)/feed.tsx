@@ -23,13 +23,11 @@ import {
   isCommunityInWindow,
   shouldSuppressAlert,
 } from "../../lib/alerty/utils";
-import type { AlertItem, CommunityPost, SponsoredZone } from "../../lib/alerty/types";
-import { AdCard } from "../../components/AdCard";
+import type { AlertItem, CommunityPost } from "../../lib/alerty/types";
 
 type FeedRow =
   | { kind: "alert"; item: AlertItem }
-  | { kind: "community"; item: CommunityPost }
-  | { kind: "ad"; item: SponsoredZone };
+  | { kind: "community"; item: CommunityPost };
 
 export default function FeedScreen() {
   const router = useRouter();
@@ -39,7 +37,6 @@ export default function FeedScreen() {
     timeFilter,
     setTimeFilter,
     activeCategories,
-    sponsoredZones,
     feedViewMode: viewMode,
     setFeedViewMode: setViewMode,
     openReels,
@@ -104,22 +101,8 @@ export default function FeedScreen() {
       })),
     ].sort((a, b) => b.at - a.at);
 
-    const items: FeedRow[] = [];
-    let adIndex = 0;
-    let alertCount = 0;
-
-    timed.forEach(({ row }) => {
-      items.push(row);
-      if (row.kind === "alert") {
-        alertCount += 1;
-        if (alertCount % 5 === 0 && sponsoredZones[adIndex]) {
-          items.push({ kind: "ad", item: sponsoredZones[adIndex] });
-          adIndex = (adIndex + 1) % sponsoredZones.length;
-        }
-      }
-    });
-    return items;
-  }, [filteredAlerts, filteredCommunity, sponsoredZones]);
+    return timed.map(({ row }) => row);
+  }, [filteredAlerts, filteredCommunity]);
 
   const renderItem = useCallback(
     ({ item }: { item: FeedRow }) => {
@@ -132,20 +115,10 @@ export default function FeedScreen() {
           />
         );
       }
-      if (item.kind === "community") {
-        return (
-          <CommunityPostCard
-            post={item.item}
-            onPress={() => setPreviewPost(item.item)}
-          />
-        );
-      }
       return (
-        <AdCard
-          zone={item.item}
-          onPress={() => {
-            router.push("/(tabs)");
-          }}
+        <CommunityPostCard
+          post={item.item}
+          onPress={() => setPreviewPost(item.item)}
         />
       );
     },
@@ -154,7 +127,6 @@ export default function FeedScreen() {
 
   const keyExtractor = useCallback((item: FeedRow) => {
     if (item.kind === "community") return `c-${item.item.source}-${item.item.id}`;
-    if (item.kind === "ad") return `ad-${item.item.id}`;
     return item.item.id;
   }, []);
 

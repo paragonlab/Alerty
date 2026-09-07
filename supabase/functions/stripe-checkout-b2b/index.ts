@@ -4,7 +4,7 @@
 //   supabase functions deploy stripe-checkout-b2b --no-verify-jwt
 //   supabase secrets set STRIPE_SECRET_KEY=sk_test_...
 //   supabase secrets set STRIPE_PRICE_ID_PIN=price_...
-//   supabase secrets set BUSINESS_RETURN_URL=https://alerty.app/business/return
+//   supabase secrets set BUSINESS_RETURN_URL=https://alerty-two.vercel.app/business
 //
 // Body esperado:
 //   { name, description, lat, lng, type, owner_email }
@@ -23,7 +23,7 @@ const supabase = createClient(
 );
 
 const PRICE_ID = Deno.env.get("STRIPE_PRICE_ID_PIN")!;
-const RETURN_URL = Deno.env.get("BUSINESS_RETURN_URL") ?? "https://alerty.app/business";
+const RETURN_URL = Deno.env.get("BUSINESS_RETURN_URL") ?? "https://alerty-two.vercel.app/business";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",

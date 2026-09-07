@@ -9,7 +9,7 @@ import {
   TextInput,
   View,
 } from "react-native";
-import MapView, { Heatmap, Marker, PROVIDER_GOOGLE } from "../../components/ExpoMapView";
+import MapView, { Circle, Heatmap, Marker, PROVIDER_GOOGLE } from "../../components/ExpoMapView";
 import { RiskGrid } from "../../components/RiskGrid";
 import {
   GO_DEST_LABEL,
@@ -30,10 +30,10 @@ import {
   suggestDestinationPlaces,
 } from "../../lib/alerty/coloniaGeocode";
 import { shareZonePulse } from "../../lib/alerty/share";
-import { GlassView } from "expo-glass-effect";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import * as Location from "expo-location";
+import { getCurrentCoords } from "../../lib/alerty/geolocation";
 import * as Haptics from "expo-haptics";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
@@ -116,7 +116,7 @@ export default function MapScreen() {
     [communityPosts, timeFilter],
   );
 
-  // Mapa: geo persistida, o pin de ciudad para RSS sin colonia.
+  // Mapa: solo noticias con colonia clara en Culiacán. El resto vive en el Feed.
   const mapCommunity = useMemo(
     () =>
       filteredCommunity.flatMap((post) => {
@@ -229,25 +229,9 @@ export default function MapScreen() {
   };
 
   useEffect(() => {
-    if (isWeb) {
-      if (typeof navigator === "undefined" || !navigator.geolocation) return;
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          const coords = { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
-          setUserLocation(coords);
-          useAlertyStore.getState().setUserCoords(coords);
-        },
-        () => {},
-        { enableHighAccuracy: false, maximumAge: 60_000, timeout: 8000 },
-      );
-      return;
-    }
     void (async () => {
       try {
-        const { status } = await Location.requestForegroundPermissionsAsync();
-        if (status !== "granted") return;
-        const loc = await Location.getCurrentPositionAsync({});
-        const coords = { latitude: loc.coords.latitude, longitude: loc.coords.longitude };
+        const coords = await getCurrentCoords();
         setUserLocation(coords);
         useAlertyStore.getState().setUserCoords(coords);
       } catch {}
@@ -256,30 +240,24 @@ export default function MapScreen() {
 
   const handleCenterLocation = async () => {
     try {
-      if (isWeb) {
-        Alert.alert("Mapa", "La ubicación en tiempo real está disponible en iOS y Android.");
-        return;
-      }
       setLocating(true);
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== "granted") {
-        Alert.alert("Permiso requerido", "Activa ubicación para centrar el mapa.");
-        return;
-      }
-
-      const location = await Location.getCurrentPositionAsync({});
-      const coords = { latitude: location.coords.latitude, longitude: location.coords.longitude };
+      const coords = await getCurrentCoords();
       setUserLocation(coords);
       useAlertyStore.getState().setUserCoords(coords);
       mapRef.current?.animateToRegion({
-        latitude: location.coords.latitude,
-        longitude: location.coords.longitude,
+        latitude: coords.latitude,
+        longitude: coords.longitude,
         latitudeDelta: 0.04,
         longitudeDelta: 0.04,
       });
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    } catch (error) {
-      Alert.alert("Ubicación", "No se pudo obtener la ubicación actual.");
+    } catch {
+      Alert.alert(
+        "Ubicación",
+        isWeb
+          ? "Permite ubicación en el candado del navegador y vuelve a intentar."
+          : "Activa ubicación para centrar el mapa.",
+      );
     } finally {
       setLocating(false);
     }
@@ -415,7 +393,7 @@ export default function MapScreen() {
             onPress={handleMapPick}
             onLongPress={handleMapPick}
           >
-            {showHeatmap && heatmapPoints.length > 0 && (
+            {showHeatmap && heatmapPoints.length > 0 && Platform.OS !== "ios" && (
               <Heatmap
                 points={heatmapPoints}
                 radius={48}
@@ -427,6 +405,24 @@ export default function MapScreen() {
                 }}
               />
             )}
+            {showHeatmap && heatmapPoints.length > 0 && Platform.OS === "ios" && heatmapPoints.map((point, index) => {
+              const weight = typeof point.weight === "number" ? point.weight : 1;
+              const fill =
+                weight >= 3
+                  ? `${theme.colors.mapRed}55`
+                  : weight >= 1.5
+                    ? `${theme.colors.mapOrange}44`
+                    : `${theme.colors.mapYellow}33`;
+              return (
+                <Circle
+                  key={`heat-${index}`}
+                  center={{ latitude: point.latitude, longitude: point.longitude }}
+                  radius={Math.max(90, Math.min(280, 80 + weight * 50))}
+                  fillColor={fill}
+                  strokeWidth={0}
+                />
+              );
+            })}
             {showGrid && <RiskGrid cells={riskGrid} />}
             {filteredAlerts.map((alert) => (
               <Marker
@@ -484,7 +480,7 @@ export default function MapScreen() {
                 onPress={() => {
                   void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                   Alert.alert(
-                    zone.type === "refugio" ? "🛡️ Zona Segura" : "⭐ Patrocinado", 
+                    zone.type === "refugio" ? "Refugio" : "Aliado", 
                     `${zone.name}\n\n${zone.description}`
                   );
                 }}
@@ -511,12 +507,7 @@ export default function MapScreen() {
         />
 
         <View style={styles.headerStack}>
-          <GlassView 
-            colorScheme={isDark ? "dark" : "light"} 
-            glassEffectStyle="regular" 
-            tintColor={isDark ? "rgba(255, 82, 82, 0.05)" : "rgba(229, 57, 53, 0.05)"}
-            style={styles.headerCard}
-          >
+          <View style={styles.headerCard}>
             <LinearGradient
               colors={["rgba(255,255,255,0.15)", "rgba(255,255,255,0.05)", "transparent"]}
               start={{ x: 0, y: 0 }}
@@ -707,7 +698,7 @@ export default function MapScreen() {
                 )}
               </View>
             ) : null}
-          </GlassView>
+          </View>
 
           {showDestinationSuggestions ? (
             <View style={styles.suggestList}>

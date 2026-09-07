@@ -61,6 +61,14 @@ export type SponsoredZone = {
   type: "refugio" | "anuncio";
 };
 
+export type WatchedZone = {
+  id: string;
+  label: string;
+  lat: number;
+  lng: number;
+  createdAt: string;
+};
+
 /** Post de comunidad desde X (Twitter). No es una alerta ciudadana de Pulso. */
 export type CommunitySource = "x" | "rss";
 

@@ -3,7 +3,7 @@ import { isSupabaseConfigured, supabase } from "../supabase";
 
 const AUTH_NEXT_KEY = "alerty_auth_next";
 
-const ALLOWED_EXACT = new Set(["/report", "/premium", "/business"]);
+const ALLOWED_EXACT = new Set(["/report", "/premium", "/business", "/circulo"]);
 
 export function isAllowedAuthNext(next: string | undefined): next is string {
   if (!next || next.includes("://") || next.includes("..") || !next.startsWith("/")) {

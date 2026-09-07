@@ -2,6 +2,7 @@ import { Pressable, StyleSheet, Text, View, Image } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { formatRelativeTime } from "../lib/alerty/utils";
 import type { CommunityPost } from "../lib/alerty/types";
+import { communitySourceLabel, isNewsPost } from "../lib/alerty/communityLabel";
 import { useAlertyTheme } from "../lib/useAlertyTheme";
 
 type CommunityPostCardProps = {
@@ -15,24 +16,26 @@ const NEWS_ACCENT = "#0D9488";
 export function CommunityPostCard({ post, onPress }: CommunityPostCardProps) {
   const theme = useAlertyTheme();
   const styles = createStyles(theme);
-  const accent = post.source === "rss" ? NEWS_ACCENT : X_ACCENT;
+  const news = isNewsPost(post);
+  const sourceLabel = communitySourceLabel(post);
+  const accent = news ? NEWS_ACCENT : X_ACCENT;
 
   return (
     <Pressable
       style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
       onPress={onPress}
       accessibilityRole="button"
-      accessibilityLabel={`Publicación de ${post.authorHandle}`}
+      accessibilityLabel={`Publicación de ${sourceLabel}`}
     >
       <View style={[styles.accentBar, { backgroundColor: accent }]} />
 
       <View style={styles.inner}>
         <View style={styles.headerRow}>
           <View style={styles.badgeRow}>
-            {post.source === "rss" || post.trustTier === "news" ? (
+            {news ? (
               <View style={[styles.sourcePill, { borderColor: NEWS_ACCENT + "55", backgroundColor: NEWS_ACCENT + "14" }]}>
                 <Ionicons name="newspaper-outline" size={11} color={NEWS_ACCENT} />
-                <Text style={[styles.sourceText, { color: NEWS_ACCENT }]}>Noticia</Text>
+                <Text style={[styles.sourceText, { color: NEWS_ACCENT }]}>{sourceLabel}</Text>
               </View>
             ) : (
               <View style={styles.sourcePill}>
@@ -40,19 +43,16 @@ export function CommunityPostCard({ post, onPress }: CommunityPostCardProps) {
                 <Text style={styles.sourceText}>Desde X</Text>
               </View>
             )}
-            {post.trustTier === "medio" ? (
-              <View style={styles.medioPill}>
-                <Text style={styles.medioText}>Medio</Text>
-              </View>
-            ) : null}
             {post.trustTier === "oficial" ? (
               <View style={styles.oficialPill}>
                 <Text style={styles.oficialText}>Oficial</Text>
               </View>
             ) : null}
-            <View style={styles.communityPill}>
-              <Text style={styles.communityText}>Comunidad</Text>
-            </View>
+            {!news ? (
+              <View style={styles.communityPill}>
+                <Text style={styles.communityText}>Comunidad</Text>
+              </View>
+            ) : null}
             {post.isDemo ? (
               <View style={styles.demoPill}>
                 <Text style={styles.demoText}>DEMO</Text>
@@ -79,7 +79,7 @@ export function CommunityPostCard({ post, onPress }: CommunityPostCardProps) {
           <Ionicons name="location-outline" size={11} color={theme.colors.textMuted} />
           <Text style={styles.metaText}>{post.placeLabel}</Text>
           <View style={styles.metaDivider} />
-          <Text style={styles.metaText}>{post.authorHandle}</Text>
+          <Text style={styles.metaText}>{news ? sourceLabel : post.authorHandle}</Text>
         </View>
 
         <View style={styles.footerRow}>

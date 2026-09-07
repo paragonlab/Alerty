@@ -1,6 +1,7 @@
 import { Stack, usePathname, useRootNavigationState, useRouter, useSegments } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import { Alert } from "react-native";
+import { SafeAreaProvider } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 import * as Linking from "expo-linking";
 import { useFonts, SpaceGrotesk_400Regular, SpaceGrotesk_500Medium, SpaceGrotesk_700Bold } from "@expo-google-fonts/space-grotesk";
@@ -9,6 +10,7 @@ import { darkHighVisibility, lightTheme } from "../lib/theme";
 import { isSupabaseConfigured, supabase } from "../lib/supabase";
 import { useAlertyStore } from "../lib/alerty/store";
 import { consumeAuthNext, setAuthNext } from "../lib/alerty/session";
+import { authCodeFromUrl, exchangeAuthCodeOnce } from "../lib/alerty/oauth";
 import { isDemoEnabled } from "../lib/alerty/mock";
 import { calculateDistance } from "../lib/alerty/utils";
 import {
@@ -20,7 +22,7 @@ import { identifyUser as identifyRevenueCatUser } from "../lib/revenuecat";
 import * as Location from "expo-location";
 import * as Haptics from "expo-haptics";
 
-const AUTH_ONLY_ROUTES = new Set(["report", "premium", "business"]);
+const AUTH_ONLY_ROUTES = new Set(["report", "premium", "business", "circulo"]);
 
 export default function RootLayout() {
   const { loadAlertsFromSupabase, startRealtime, themeMode, loadUserProfile, loadSponsoredZones, loadCommunityPosts, startDemo, resetGuest } = useAlertyStore();
@@ -71,12 +73,9 @@ export default function RootLayout() {
     });
 
     const handleDeepLink = async (event: { url: string }) => {
-      if (!supabase) return;
-      const codeMatch = event.url.match(/[?&#]code=([^&]+)/);
-      if (!codeMatch) return;
-      const { data, error } = await supabase.auth.exchangeCodeForSession(
-        decodeURIComponent(codeMatch[1]),
-      );
+      const code = authCodeFromUrl(event.url);
+      if (!code) return;
+      const { data, error } = await exchangeAuthCodeOnce(code);
       if (data?.session) setHasSession(true);
       if (error) console.error("OAuth exchange error:", error.message);
     };
@@ -140,7 +139,6 @@ export default function RootLayout() {
   }, [alerts, currentUser.id, router]);
 
   useEffect(() => {
-    if (!isReady) return;
     if (isDemoEnabled) {
       startDemo();
       return;
@@ -148,7 +146,11 @@ export default function RootLayout() {
     if (!isSupabaseConfigured) return;
     void loadAlertsFromSupabase();
     void loadSponsoredZones();
-    void loadCommunityPosts();
+    void loadCommunityPosts({ refreshNews: true });
+  }, []);
+
+  useEffect(() => {
+    if (!isReady || isDemoEnabled || !isSupabaseConfigured) return;
     const unsubscribeRealtime = startRealtime();
     if (hasSession) {
       void syncPushRegistration();
@@ -180,14 +182,20 @@ export default function RootLayout() {
     if (!isReady || !rootNavigationState?.key) return;
     const currentGroup = segments[0];
     const isInAuth = currentGroup === "(auth)";
-    const authOnlyPath = pathname === "/report" || pathname.startsWith("/premium") || pathname.startsWith("/business");
+    const authOnlyPath =
+      pathname === "/report" ||
+      pathname.startsWith("/premium") ||
+      pathname.startsWith("/business") ||
+      pathname.startsWith("/circulo");
 
     if (!hasSession && (AUTH_ONLY_ROUTES.has(String(currentGroup)) || authOnlyPath)) {
       const next = pathname.startsWith("/premium")
         ? "/premium"
         : pathname.startsWith("/business")
           ? "/business"
-          : "/report";
+          : pathname.startsWith("/circulo")
+            ? "/circulo"
+            : "/report";
       setAuthNext(next);
       router.replace("/(auth)/login");
       return;
@@ -203,7 +211,7 @@ export default function RootLayout() {
   }
 
   return (
-    <>
+    <SafeAreaProvider>
       <StatusBar style={themeMode === "darkHighVisibility" ? "light" : "dark"} />
       <Stack
         initialRouteName="(tabs)"
@@ -238,7 +246,20 @@ export default function RootLayout() {
             headerShown: false,
           }}
         />
+        <Stack.Screen
+          name="circulo"
+          options={{
+            presentation: "modal",
+            headerShown: false,
+          }}
+        />
+        <Stack.Screen
+          name="privacy"
+          options={{
+            headerShown: false,
+          }}
+        />
       </Stack>
-    </>
+    </SafeAreaProvider>
   );
 }

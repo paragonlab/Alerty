@@ -102,6 +102,18 @@ export function Polygon(_props: PolygonProps) {
   return null;
 }
 
+export type CircleProps = {
+  center: { latitude: number; longitude: number };
+  radius: number;
+  fillColor?: string;
+  strokeColor?: string;
+  strokeWidth?: number;
+};
+
+export function Circle(_props: CircleProps) {
+  return null;
+}
+
 export const PROVIDER_GOOGLE = "google";
 
 let mapsLoad: Promise<void> | null = null;
@@ -781,7 +793,7 @@ function buildSponsorPinElement(meta: SponsorPinMeta): HTMLDivElement {
   el.style.setProperty("--pulso-color", meta.color);
   el.setAttribute("role", "button");
   el.setAttribute("tabindex", "0");
-  el.setAttribute("aria-label", meta.icon === "shield" ? "Zona segura" : "Patrocinado");
+  el.setAttribute("aria-label", meta.icon === "shield" ? "Refugio" : "Aliado");
   el.innerHTML = ICON_SVGS[meta.icon] ?? ICON_SVGS.star;
   return el;
 }

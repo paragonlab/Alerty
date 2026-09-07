@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -9,11 +10,15 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { UserAvatar } from "../../components/UserAvatar";
+import { PROFILE_PRESETS, presetAvatarUrl } from "../../lib/alerty/avatars";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { ALERT_CATEGORIES, CATEGORY_LABELS, getLevelProgress } from "../../lib/alerty/constants";
+import { ALIADO_PRICE_LABEL, CIRCULO_PRICE_LABEL, circuloZoneLimit } from "../../lib/alerty/circulo";
 import { useAlertyStore } from "../../lib/alerty/store";
 import { useAlertyTheme } from "../../lib/useAlertyTheme";
+import { requireSession } from "../../lib/alerty/session";
 import { supabase } from "../../lib/supabase";
 import { syncPushRegistration, removePushTokens } from "../../lib/notifications";
 import { useRouter } from "expo-router";
@@ -33,6 +38,9 @@ export default function SettingsScreen() {
     setShowHeatmap,
     currentUser,
     updateUsername,
+    updateAvatar,
+    watchedZones,
+    resetGuest,
   } = useAlertyStore();
 
   const theme = useAlertyTheme();
@@ -43,6 +51,9 @@ export default function SettingsScreen() {
   const [usernameInput, setUsernameInput] = useState("");
   const [usernameError, setUsernameError] = useState<string | null>(null);
   const [savingUsername, setSavingUsername] = useState(false);
+  const [pickingAvatar, setPickingAvatar] = useState(false);
+  const [savingAvatar, setSavingAvatar] = useState(false);
+  const [deletingAccount, setDeletingAccount] = useState(false);
 
   const allSelected = useMemo(
     () => activeCategories.length === ALERT_CATEGORIES.length,
@@ -98,6 +109,44 @@ export default function SettingsScreen() {
     setSavingUsername(false);
   };
 
+  const confirmDeleteAccount = async () => {
+    if (!supabase || deletingAccount) return;
+    setDeletingAccount(true);
+    try {
+      const { error } = await supabase.functions.invoke("delete-account");
+      if (error) {
+        Alert.alert("No se pudo eliminar", "Intenta de nuevo en unos segundos.");
+        return;
+      }
+      await removePushTokens();
+      await supabase.auth.signOut();
+      resetGuest();
+      Alert.alert("Cuenta eliminada", "Tus datos de cuenta ya no están en Pulso.");
+    } catch {
+      Alert.alert("No se pudo eliminar", "Intenta de nuevo en unos segundos.");
+    } finally {
+      setDeletingAccount(false);
+    }
+  };
+
+  const handleDeleteAccount = () => {
+    Alert.alert(
+      "Eliminar cuenta",
+      "Se borra tu perfil, zonas y votos. Los pulsos que ya publicaste quedan anónimos. Esto no se puede deshacer.",
+      [
+        { text: "Cancelar", style: "cancel" },
+        { text: "Eliminar", style: "destructive", onPress: () => void confirmDeleteAccount() },
+      ],
+    );
+  };
+
+  const handlePickAvatar = async (id: string) => {
+    setSavingAvatar(true);
+    const { error } = await updateAvatar(presetAvatarUrl(id));
+    setSavingAvatar(false);
+    if (!error) setPickingAvatar(false);
+  };
+
   const isDark = themeMode === "darkHighVisibility";
   const isGuest = currentUser.id === "local-user";
   const levelProgress = getLevelProgress(Number(currentUser.trustScore ?? 0));
@@ -107,6 +156,7 @@ export default function SettingsScreen() {
       <ScrollView
         contentContainerStyle={styles.container}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
       >
         <View style={styles.header}>
           <Text style={styles.title}>Ajustes</Text>
@@ -116,9 +166,23 @@ export default function SettingsScreen() {
         {/* Account Card */}
         <View style={styles.accountCard}>
           <View style={styles.accountTop}>
-            <View style={styles.avatarCircle}>
-              <Ionicons name="person" size={26} color={theme.colors.textMuted} />
-            </View>
+            {isGuest ? (
+              <View style={styles.avatarCircle}>
+                <Ionicons name="person" size={26} color={theme.colors.textMuted} />
+              </View>
+            ) : (
+              <Pressable
+                onPress={() => setPickingAvatar((open) => !open)}
+                disabled={savingAvatar}
+                accessibilityLabel="Cambiar personaje de perfil"
+              >
+                <UserAvatar
+                  url={currentUser.avatarUrl}
+                  muted={theme.colors.textMuted}
+                  border={theme.colors.border}
+                />
+              </Pressable>
+            )}
             {isGuest ? (
               <View style={{ flex: 1, gap: 6 }}>
                 <Text style={styles.accountUsername}>Sin cuenta</Text>
@@ -157,9 +221,6 @@ export default function SettingsScreen() {
                   <Text style={styles.accountUsername}>{currentUser.username}</Text>
                   {currentUser.isVerified && (
                     <Ionicons name="checkmark-circle" size={16} color={theme.colors.accent} />
-                  )}
-                  {currentUser.isPremium && (
-                    <Ionicons name="star" size={16} color="#F59E0B" />
                   )}
                   <Pressable
                     onPress={handleStartEditUsername}
@@ -216,6 +277,28 @@ export default function SettingsScreen() {
               </View>
             </View>
           )}
+
+          {!isGuest && pickingAvatar && (
+            <View style={styles.avatarPicker}>
+              <Text style={styles.helperText}>Elige un personaje. Se ve en el mapa cuando reportas.</Text>
+              <View style={styles.avatarGrid}>
+                {PROFILE_PRESETS.map((preset) => {
+                  const selected = currentUser.avatarUrl === presetAvatarUrl(preset.id);
+                  return (
+                    <Pressable
+                      key={preset.id}
+                      style={[styles.avatarOption, selected && styles.avatarOptionActive]}
+                      onPress={() => void handlePickAvatar(preset.id)}
+                      disabled={savingAvatar}
+                    >
+                      <Text style={styles.avatarEmoji}>{preset.emoji}</Text>
+                      <Text style={styles.avatarOptionLabel}>{preset.label}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+          )}
         </View>
 
         {/* Level Progress Card */}
@@ -232,7 +315,7 @@ export default function SettingsScreen() {
             <View style={{ flex: 1 }}>
               <Text style={styles.levelCardLabel}>{levelProgress.current.label}</Text>
               <Text style={styles.levelCardScore}>
-                {Number(currentUser.trustScore ?? 0)} pts de reputación
+                {Math.round(Number(currentUser.trustScore ?? 0))} pts de reputación
               </Text>
             </View>
           </View>
@@ -257,22 +340,62 @@ export default function SettingsScreen() {
           ) : (
             <Text style={styles.progressHint}>Has alcanzado el nivel máximo.</Text>
           )}
+          <Text style={styles.helperText}>
+            +5 al reportar un pulso. +1 al confirmar el de alguien. Vigía a 20, Protector a 50, Héroe a 80.
+          </Text>
         </View>
         )}
 
-        {/* Premium Banner */}
         {!currentUser.isPremium && (
-          <Pressable style={styles.premiumBanner} onPress={() => router.push("/premium")}>
+          <Pressable
+            style={styles.premiumBanner}
+            onPress={async () => {
+              if (await requireSession("/premium")) router.push("/premium");
+            }}
+          >
             <View style={styles.premiumIconWrap}>
-              <Ionicons name="shield-checkmark" size={24} color="#fff" />
+              <Ionicons name="people" size={24} color="#fff" />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={styles.premiumBannerTitle}>Pulso Plus</Text>
-              <Text style={styles.premiumBannerDesc}>Zonas seguras para tu familia, insignia de confianza y sin anuncios.</Text>
+              <Text style={styles.premiumBannerTitle}>Círculo</Text>
+              <Text style={styles.premiumBannerDesc}>
+                Una zona gratis. Más zonas por {CIRCULO_PRICE_LABEL} (Apple o Google). El mapa sigue gratis.
+              </Text>
             </View>
             <Ionicons name="chevron-forward" size={20} color="#fff" />
           </Pressable>
         )}
+
+        <Pressable
+          style={styles.card}
+          onPress={async () => {
+            if (await requireSession("/circulo")) router.push("/circulo");
+          }}
+        >
+          <View style={styles.settingRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.settingLabel}>Mis zonas</Text>
+              <Text style={styles.helperText}>
+                {isGuest
+                  ? "Inicia sesión para vigilar una colonia."
+                  : `${watchedZones.length} de ${circuloZoneLimit(Boolean(currentUser.isPremium))} zonas`}
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={theme.colors.textMuted} />
+          </View>
+        </Pressable>
+
+        <Pressable style={styles.card} onPress={() => router.push("/business")}>
+          <View style={styles.settingRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.settingLabel}>Aliado en el mapa</Text>
+              <Text style={styles.helperText}>
+                Pin de negocio. Se paga en la web ({ALIADO_PRICE_LABEL}). En iPhone no se cobra dentro de la app.
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={theme.colors.textMuted} />
+          </View>
+        </Pressable>
 
         {/* Appearance */}
         <View style={styles.card}>
@@ -323,7 +446,9 @@ export default function SettingsScreen() {
           <View style={styles.settingRow}>
             <View style={{ flex: 1 }}>
               <Text style={styles.settingLabel}>Mapa de Calor</Text>
-              <Text style={styles.helperText}>Zonas peligrosas en vivo: reportes + comunidad.</Text>
+              <Text style={styles.helperText}>
+                Manchas de riesgo con reportes y noticias. En iPhone se ve como círculos; en Android y web como calor.
+              </Text>
             </View>
             <Switch
               value={showHeatmap}
@@ -377,6 +502,40 @@ export default function SettingsScreen() {
             })}
           </View>
         </View>
+
+        <Pressable style={styles.card} onPress={() => router.push("/privacy")}>
+          <View style={styles.settingRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.settingLabel}>Política de privacidad</Text>
+              <Text style={styles.helperText}>Qué datos usamos y para qué.</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={theme.colors.textMuted} />
+          </View>
+        </Pressable>
+
+        {!isGuest && (
+          <Pressable
+            style={styles.card}
+            onPress={handleDeleteAccount}
+            disabled={deletingAccount}
+          >
+            <View style={styles.settingRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.settingLabel, { color: theme.colors.danger }]}>
+                  Eliminar cuenta
+                </Text>
+                <Text style={styles.helperText}>
+                  Borra tu perfil de Pulso. Pedido por las tiendas de apps.
+                </Text>
+              </View>
+              {deletingAccount ? (
+                <ActivityIndicator size="small" color={theme.colors.danger} />
+              ) : (
+                <Ionicons name="trash-outline" size={18} color={theme.colors.danger} />
+              )}
+            </View>
+          </Pressable>
+        )}
       </ScrollView>
     </SafeAreaView>
   );
@@ -550,6 +709,38 @@ const createStyles = (theme: any) => StyleSheet.create({
     borderColor: theme.colors.border,
     alignItems: "center",
     justifyContent: "center",
+  },
+  avatarPicker: {
+    gap: 10,
+    paddingTop: 4,
+  },
+  avatarGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  avatarOption: {
+    width: "23%",
+    minWidth: 68,
+    alignItems: "center",
+    gap: 4,
+    paddingVertical: 8,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surfaceAlt,
+  },
+  avatarOptionActive: {
+    borderColor: theme.colors.accent,
+    backgroundColor: theme.colors.accent + "18",
+  },
+  avatarEmoji: {
+    fontSize: 22,
+  },
+  avatarOptionLabel: {
+    fontSize: 10,
+    fontFamily: theme.fonts.body,
+    color: theme.colors.textMuted,
   },
   accountUsername: {
     color: theme.colors.text,

@@ -14,7 +14,7 @@ export function AdCard({ zone, onPress }: { zone: SponsoredZone; onPress: () => 
       <View style={styles.header}>
         <View style={[styles.badge, isRefugio ? styles.badgeRefugio : styles.badgeAnuncio]}>
           <Ionicons name={isRefugio ? "shield-checkmark" : "star"} size={14} color="#fff" />
-          <Text style={styles.badgeText}>{isRefugio ? "Refugio Seguro" : "Patrocinado"}</Text>
+          <Text style={styles.badgeText}>{isRefugio ? "Refugio" : "Aliado"}</Text>
         </View>
       </View>
       <Text style={styles.name}>{zone.name}</Text>

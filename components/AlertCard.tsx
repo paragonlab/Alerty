@@ -85,9 +85,6 @@ export function AlertCard({ alert, onPress, onPressVideo }: AlertCardProps) {
             {alert.user.isVerified && (
               <Ionicons name="checkmark-circle" size={12} color={theme.colors.accent} />
             )}
-            {alert.user.isPremium && (
-              <Ionicons name="star" size={12} color="#F59E0B" />
-            )}
             <View style={[styles.levelBadge, { backgroundColor: levelInfo.color + "22" }]}>
               <Ionicons name={levelInfo.icon as any} size={10} color={levelInfo.color} />
             </View>

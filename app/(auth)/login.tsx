@@ -11,7 +11,6 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import * as WebBrowser from "expo-web-browser";
 import * as AppleAuthentication from "expo-apple-authentication";
-import { makeRedirectUri } from "expo-auth-session";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { trackEvent } from "../../lib/analytics";
@@ -19,6 +18,12 @@ import { lightTheme as theme } from "../../lib/theme";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { isSupabaseConfigured, supabase } from "../../lib/supabase";
 import { setAuthNext } from "../../lib/alerty/session";
+import {
+  authCodeFromUrl,
+  authErrorFromUrl,
+  exchangeAuthCodeOnce,
+  oauthRedirectTo,
+} from "../../lib/alerty/oauth";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -90,7 +95,7 @@ export default function LoginScreen() {
       void trackEvent({ event_type: "auth_oauth_started", metadata: { provider } });
 
       const isWeb = Platform.OS === "web";
-      const redirectTo = makeRedirectUri({ scheme: "alerty", path: "auth-callback" });
+      const redirectTo = oauthRedirectTo;
 
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider,
@@ -112,17 +117,15 @@ export default function LoginScreen() {
       if (!isWeb && data?.url) {
         const result = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
         if (result.type === "success" && result.url) {
-          const url = result.url;
-          const codeMatch = url.match(/[?&]code=([^&]+)/);
-
-          if (codeMatch) {
-            const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(
-              decodeURIComponent(codeMatch[1]),
-            );
-            if (exchangeError) Alert.alert("Error al iniciar sesión", exchangeError.message);
-          } else {
-            Alert.alert("Error al iniciar sesión", "Respuesta de autenticación inválida.");
+          const oauthError = authErrorFromUrl(result.url);
+          if (oauthError) {
+            Alert.alert("Error al iniciar sesión", oauthError);
+            return;
           }
+          const code = authCodeFromUrl(result.url);
+          if (!code) return;
+          const { error: exchangeError } = await exchangeAuthCodeOnce(code);
+          if (exchangeError) Alert.alert("Error al iniciar sesión", exchangeError.message);
         }
       }
     } catch {

@@ -36,6 +36,7 @@ const CATEGORY_LABELS: Record<string, string> = {
 };
 
 const EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send";
+const CIRCULO_RADIUS_KM = 0.8;
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -52,6 +53,16 @@ type PushMessage = {
   channelId: "default";
   data: Record<string, unknown>;
 };
+
+function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return 2 * 6371 * Math.asin(Math.sqrt(a));
+}
 
 function json(payload: unknown, status = 200) {
   return new Response(JSON.stringify(payload), {
@@ -109,25 +120,28 @@ Deno.serve(async (req) => {
   if (body.type === "alert" && body.alertId) {
     const { data: alert } = await admin
       .from("alerts")
-      .select("id,category,user_id,title")
+      .select("id,category,user_id,title,lat,lng")
       .eq("id", body.alertId)
       .single();
 
     if (!alert) return json({ sent: 0 });
 
+    const label = CATEGORY_LABELS[alert.category] ?? alert.category;
+    const byUser = new Map<string, PushMessage>();
+
     if (CRITICAL_CATEGORIES.includes(alert.category)) {
       let query = admin
         .from("push_tokens")
-        .select("token, users!inner(push_enabled)")
+        .select("token, user_id, users!inner(push_enabled)")
         .eq("users.push_enabled", true);
       if (alert.user_id) query = query.neq("user_id", alert.user_id);
       const { data: rows } = await query;
 
-      const label = CATEGORY_LABELS[alert.category] ?? alert.category;
       for (const row of rows ?? []) {
-        messages.push({
+        const userId = (row as { user_id: string }).user_id;
+        byUser.set(userId, {
           to: (row as { token: string }).token,
-          title: `🚨 ${label} reportada`,
+          title: `${label} reportada`,
           body: alert.title ?? `Se reportó ${label.toLowerCase()} en tu zona.`,
           sound: "default",
           priority: "high",
@@ -136,6 +150,52 @@ Deno.serve(async (req) => {
         });
       }
     }
+
+    const alertLat = Number(alert.lat);
+    const alertLng = Number(alert.lng);
+    if (
+      alert.category !== "zona segura" &&
+      Number.isFinite(alertLat) &&
+      Number.isFinite(alertLng)
+    ) {
+      const { data: zones } = await admin
+        .from("watched_zones")
+        .select("user_id,label,lat,lng");
+
+      const nearByUser = new Map<string, string>();
+      for (const zone of zones ?? []) {
+        if (alert.user_id && zone.user_id === alert.user_id) continue;
+        const km = haversineKm(alertLat, alertLng, Number(zone.lat), Number(zone.lng));
+        if (km <= CIRCULO_RADIUS_KM && !nearByUser.has(zone.user_id)) {
+          nearByUser.set(zone.user_id, zone.label);
+        }
+      }
+
+      if (nearByUser.size > 0) {
+        const { data: rows } = await admin
+          .from("push_tokens")
+          .select("token, user_id, users!inner(push_enabled)")
+          .in("user_id", [...nearByUser.keys()])
+          .eq("users.push_enabled", true);
+
+        for (const row of rows ?? []) {
+          const userId = (row as { user_id: string }).user_id;
+          const zoneLabel = nearByUser.get(userId);
+          if (!zoneLabel) continue;
+          byUser.set(userId, {
+            to: (row as { token: string }).token,
+            title: `${label} · ${zoneLabel}`,
+            body: `Se reportó ${label.toLowerCase()} cerca de ${zoneLabel}.`,
+            sound: "default",
+            priority: "high",
+            channelId: "default",
+            data: { alertId: alert.id },
+          });
+        }
+      }
+    }
+
+    messages.push(...byUser.values());
   } else if (body.type === "update" && body.updateId) {
     const { data: update } = await admin
       .from("alert_updates")

@@ -36,6 +36,7 @@ module.exports = {
       NSLocationAlwaysUsageDescription:
         "Permite alertas críticas cerca de tus zonas guardadas incluso con la app en segundo plano.",
       ITSAppUsesNonExemptEncryption: false,
+      CFBundleDisplayName: "Pulso",
     },
   },
   android: {
@@ -50,6 +51,7 @@ module.exports = {
       "ACCESS_FINE_LOCATION",
       "ACCESS_COARSE_LOCATION",
       "POST_NOTIFICATIONS",
+      "com.android.vending.BILLING",
     ],
     config: {
       googleMaps: {
