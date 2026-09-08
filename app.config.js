@@ -41,6 +41,7 @@ module.exports = {
   },
   android: {
     package: "com.paragonlabs.alerty",
+    newArchEnabled: false,
     adaptiveIcon: {
       foregroundImage: "./assets/adaptive-icon.png",
       backgroundColor: "#F6F2EA",
@@ -53,11 +54,15 @@ module.exports = {
       "POST_NOTIFICATIONS",
       "com.android.vending.BILLING",
     ],
-    config: {
-      googleMaps: {
-        apiKey: googleMapsKey,
-      },
-    },
+    ...(googleMapsKey
+      ? {
+          config: {
+            googleMaps: {
+              apiKey: googleMapsKey,
+            },
+          },
+        }
+      : {}),
   },
   web: {
     favicon: "./assets/favicon.png",

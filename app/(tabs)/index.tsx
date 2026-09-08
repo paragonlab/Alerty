@@ -97,6 +97,8 @@ export default function MapScreen() {
 
   const theme = useAlertyTheme();
   const isDark = themeMode === "darkHighVisibility";
+  const androidMapsReady =
+    Platform.OS !== "android" || Boolean(process.env.EXPO_PUBLIC_GOOGLE_MAPS_KEY);
 
   const filteredAlerts = useMemo(
     () =>
@@ -386,6 +388,16 @@ export default function MapScreen() {
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+          {!androidMapsReady ? (
+            <View style={[StyleSheet.absoluteFill, styles.androidMapsFallback]}>
+              <Text style={[styles.androidMapsFallbackTitle, { color: theme.colors.text }]}>
+                Mapa no disponible
+              </Text>
+              <Text style={[styles.androidMapsFallbackText, { color: theme.colors.textMuted }]}>
+                Este build de Android no trae la clave de Google Maps. El resto de la app sí abre.
+              </Text>
+            </View>
+          ) : (
           <MapView
             ref={mapRef}
             style={[StyleSheet.absoluteFill, isWeb && styles.webMapHost]}
@@ -505,6 +517,7 @@ export default function MapScreen() {
               </Marker>
             ))}
           </MapView>
+          )}
 
         {/* Top Header Overlays */}
         <LinearGradient
@@ -812,6 +825,22 @@ const createStyles = (theme: any, themeMode: string) => StyleSheet.create({
     flex: 1,
     position: "relative",
     minHeight: 0,
+  },
+  androidMapsFallback: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 32,
+  },
+  androidMapsFallbackTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    textAlign: "center",
+  },
+  androidMapsFallbackText: {
+    marginTop: 8,
+    fontSize: 14,
+    lineHeight: 20,
+    textAlign: "center",
   },
   webMapHost: {
     position: "absolute",
