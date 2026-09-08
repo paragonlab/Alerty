@@ -1155,15 +1155,6 @@ const ExpoMapView = forwardRef<MapHandle, MapViewProps>(function ExpoMapView(pro
     const engine = engineRef.current;
     if (!map || !ready || !engine) return;
 
-    ensurePulseStyles();
-    overlaysRef.current.forEach((o) => o.setMap(null));
-    overlaysRef.current = [];
-    heatCirclesRef.current.forEach((c) => c.setMap?.(null));
-    heatCirclesRef.current = [];
-    polygonsRef.current.forEach((p) => p.setMap?.(null));
-    polygonsRef.current = [];
-    leafletGroupRef.current?.clearLayers?.();
-
     const markers = collectMarkerProps(props.children);
     const polygons = collectPolygons(props.children);
     const heat = collectHeatmap(props.children);
@@ -1182,6 +1173,16 @@ const ExpoMapView = forwardRef<MapHandle, MapViewProps>(function ExpoMapView(pro
     }
     overlaySigRef.current = overlaySig;
     overlayEpochRef.current = mapEpoch;
+
+    ensurePulseStyles();
+    overlaysRef.current.forEach((o) => o.setMap(null));
+    overlaysRef.current = [];
+    heatCirclesRef.current.forEach((c) => c.setMap?.(null));
+    heatCirclesRef.current = [];
+    polygonsRef.current.forEach((p) => p.setMap?.(null));
+    polygonsRef.current = [];
+    leafletGroupRef.current?.clearLayers?.();
+
     const alertCount = markers.filter((m) => m.meta.kind === "alert").length;
     const simplify = alertCount >= PULSE_SIMPLIFY_AT;
     const heatPoints = aggregateHeatPoints(
