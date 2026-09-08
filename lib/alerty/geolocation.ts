@@ -40,6 +40,10 @@ function getWebCoords(): Promise<UserCoords> {
 async function getNativeCoords(): Promise<UserCoords> {
   const { status } = await Location.requestForegroundPermissionsAsync();
   if (status !== "granted") throw new LocationRequestError("denied");
-  const loc = await Location.getCurrentPositionAsync({});
+  const last = await Location.getLastKnownPositionAsync();
+  if (last?.coords) {
+    return { latitude: last.coords.latitude, longitude: last.coords.longitude };
+  }
+  const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
   return { latitude: loc.coords.latitude, longitude: loc.coords.longitude };
 }

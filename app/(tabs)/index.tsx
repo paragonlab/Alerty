@@ -76,6 +76,7 @@ export default function MapScreen() {
   } | null>(null);
   const [selectedCommunity, setSelectedCommunity] = useState<CommunityPost | null>(null);
   const [timeMenuOpen, setTimeMenuOpen] = useState(false);
+  const [pinTracks, setPinTracks] = useState(true);
   const isWeb = Platform.OS === "web";
 
   const {
@@ -237,6 +238,12 @@ export default function MapScreen() {
       } catch {}
     })();
   }, []);
+
+  useEffect(() => {
+    setPinTracks(true);
+    const timer = setTimeout(() => setPinTracks(false), 400);
+    return () => clearTimeout(timer);
+  }, [filteredAlerts.length, mapCommunity.length]);
 
   const handleCenterLocation = async () => {
     try {
@@ -428,7 +435,7 @@ export default function MapScreen() {
               <Marker
                 key={alert.id}
                 coordinate={{ latitude: alert.lat, longitude: alert.lng }}
-                tracksViewChanges={!lowConnection}
+                tracksViewChanges={Platform.OS === "android" ? pinTracks : !lowConnection}
                 onPress={() => {
                   void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                   setSelectedCommunity(null);

@@ -210,7 +210,7 @@ const persistTrustScore = (userId: string, score: number) => {
 export const useAlertyStore = create<AlertyState>((set, get) => ({
   alerts: [],
   communityPosts: [],
-  timeFilter: "24h",
+  timeFilter: "6h",
   activeCategories: [...ALERT_CATEGORIES],
   lowConnection: false,
   pushEnabled: true,
@@ -753,30 +753,6 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
     if (!isSupabaseConfigured || !supabase) return;
 
     try {
-    // Load follows first if logged in
-    const { data: { user } } = await supabase.auth.getUser();
-    if (user) {
-      const { data: follows } = await supabase
-        .from("alert_follows")
-        .select("alert_id")
-        .eq("user_id", user.id);
-      
-      if (follows) {
-        set({ followingAlertIds: follows.map(f => f.alert_id) });
-      }
-
-      const { data: myVotes } = await supabase
-        .from("verifications")
-        .select("alert_id, vote_type")
-        .eq("user_id", user.id);
-
-      if (myVotes) {
-        const votedAlerts: Record<string, "upvote" | "downvote"> = {};
-        myVotes.forEach((v: any) => { votedAlerts[v.alert_id] = v.vote_type; });
-        set({ votedAlerts });
-      }
-    }
-
     const { data } = await supabase
       .from("alerts")
       .select(`
@@ -793,57 +769,82 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
       return;
     }
 
+    const toItems = (voteCounts: Map<string, { up: number; down: number }>): AlertItem[] =>
+      data.map((row: any) => {
+        const counts = voteCounts.get(row.id) ?? { up: 0, down: 0 };
+        return {
+          id: row.id,
+          category: row.category,
+          lat: row.lat,
+          lng: row.lng,
+          title: row.title ?? undefined,
+          description: row.description ?? undefined,
+          createdAt: row.created_at,
+          status: row.status ?? "active",
+          neighborhood: undefined,
+          parentAlertId: row.parent_alert_id ?? undefined,
+          upvotes: counts.up,
+          downvotes: counts.down,
+          media: (row.media ?? []).map((media: any) => ({
+            id: media.id,
+            url: media.media_url,
+            type: media.media_type,
+          })),
+          updates: (row.alert_updates ?? [])
+            .map((upd: any) => ({
+              id: upd.id,
+              content: upd.content,
+              createdAt: upd.created_at,
+              user: mapUserFromRow(upd.users, upd.user_id),
+              media: (row.media ?? [])
+                .filter((m: any) => m.update_id === upd.id)
+                .map((m: any) => ({ id: m.id, url: m.media_url, type: m.media_type })),
+            }))
+            .sort(
+              (a: AlertUpdate, b: AlertUpdate) =>
+                new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+            ),
+          user: mapUserFromRow(row.users),
+        };
+      });
+
+    set({ alerts: toItems(new Map()) });
+    get().recomputeVerifiedStatus();
+
     const alertIds = data.map((row: any) => row.id);
-    const { data: votes } = await supabase
-      .from("verifications")
-      .select("alert_id,vote_type")
-      .in("alert_id", alertIds);
+    const [votesRes, userRes] = await Promise.all([
+      supabase.from("verifications").select("alert_id,vote_type").in("alert_id", alertIds),
+      supabase.auth.getUser(),
+    ]);
 
     const voteCounts = new Map<string, { up: number; down: number }>();
-    votes?.forEach((v: any) => {
+    votesRes.data?.forEach((v: any) => {
       const counts = voteCounts.get(v.alert_id) ?? { up: 0, down: 0 };
       if (v.vote_type === "upvote") counts.up++;
       else counts.down++;
       voteCounts.set(v.alert_id, counts);
     });
-
-    const parsed: AlertItem[] = data.map((row: any) => {
-      const counts = voteCounts.get(row.id) ?? { up: 0, down: 0 };
-      return {
-      id: row.id,
-      category: row.category,
-      lat: row.lat,
-      lng: row.lng,
-      title: row.title ?? undefined,
-      description: row.description ?? undefined,
-      createdAt: row.created_at,
-      status: row.status ?? "active",
-      neighborhood: undefined,
-      parentAlertId: row.parent_alert_id ?? undefined,
-      upvotes: counts.up,
-      downvotes: counts.down,
-      media: (row.media ?? []).map((media: any) => ({
-        id: media.id,
-        url: media.media_url,
-        type: media.media_type,
-      })),
-      updates: (row.alert_updates ?? []).map((upd: any) => ({
-        id: upd.id,
-        content: upd.content,
-        createdAt: upd.created_at,
-          user: mapUserFromRow(upd.users, upd.user_id),
-          media: (row.media ?? [])
-            .filter((m: any) => m.update_id === upd.id)
-            .map((m: any) => ({ id: m.id, url: m.media_url, type: m.media_type })),
-      })).sort((a: AlertUpdate, b: AlertUpdate) =>
-        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-      ),
-      user: mapUserFromRow(row.users),
-      };
-    });
-
-    set({ alerts: parsed });
+    set({ alerts: toItems(voteCounts) });
     get().recomputeVerifiedStatus();
+
+    const user = userRes.data?.user;
+    if (!user) return;
+
+    const [followsRes, myVotesRes] = await Promise.all([
+      supabase.from("alert_follows").select("alert_id").eq("user_id", user.id),
+      supabase.from("verifications").select("alert_id, vote_type").eq("user_id", user.id),
+    ]);
+
+    if (followsRes.data) {
+      set({ followingAlertIds: followsRes.data.map((f) => f.alert_id) });
+    }
+    if (myVotesRes.data) {
+      const votedAlerts: Record<string, "upvote" | "downvote"> = {};
+      myVotesRes.data.forEach((v: any) => {
+        votedAlerts[v.alert_id] = v.vote_type;
+      });
+      set({ votedAlerts });
+    }
     } catch (err) {
       console.warn("loadAlertsFromSupabase failed", err);
     }

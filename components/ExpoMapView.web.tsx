@@ -967,6 +967,8 @@ const ExpoMapView = forwardRef<MapHandle, MapViewProps>(function ExpoMapView(pro
   const [error, setError] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
   const [mapEpoch, setMapEpoch] = useState(0);
+  const overlaySigRef = useRef("");
+  const overlayEpochRef = useRef(-1);
 
   useImperativeHandle(ref, () => ({
     animateToRegion: (region: Region) => {
@@ -1165,6 +1167,21 @@ const ExpoMapView = forwardRef<MapHandle, MapViewProps>(function ExpoMapView(pro
     const markers = collectMarkerProps(props.children);
     const polygons = collectPolygons(props.children);
     const heat = collectHeatmap(props.children);
+    const overlaySig = [
+      ...markers.map(
+        (m) =>
+          `${m.meta.kind}:${m.coordinate.latitude.toFixed(5)}:${m.coordinate.longitude.toFixed(5)}:${m.meta.color}`,
+      ),
+      ...polygons.map((p) => `p:${p.coordinates.length}`),
+      ...((heat?.points ?? []).map(
+        (p) => `h:${p.latitude.toFixed(5)}:${p.longitude.toFixed(5)}:${p.weight ?? 1}`,
+      )),
+    ].join("|");
+    if (overlaySigRef.current === overlaySig && overlayEpochRef.current === mapEpoch) {
+      return;
+    }
+    overlaySigRef.current = overlaySig;
+    overlayEpochRef.current = mapEpoch;
     const alertCount = markers.filter((m) => m.meta.kind === "alert").length;
     const simplify = alertCount >= PULSE_SIMPLIFY_AT;
     const heatPoints = aggregateHeatPoints(
