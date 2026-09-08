@@ -41,7 +41,6 @@ module.exports = {
   },
   android: {
     package: "com.paragonlabs.alerty",
-    newArchEnabled: false,
     adaptiveIcon: {
       foregroundImage: "./assets/adaptive-icon.png",
       backgroundColor: "#F6F2EA",
