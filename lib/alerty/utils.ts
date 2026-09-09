@@ -39,6 +39,10 @@ export const isCreatedAtInWindow = (createdAt: string, filter: TimeFilter) => {
 export const isAlertInWindow = (alert: AlertItem, filter: TimeFilter) =>
   isCreatedAtInWindow(alert.createdAt, filter);
 
+/** Videos: mínimo 24h para que el reel no quede vacío con el filtro corto del mapa. */
+export const videoTimeFilter = (feedFilter: TimeFilter): TimeFilter =>
+  feedFilter === "7d" ? "7d" : "24h";
+
 /** Comunidad: fecha del medio o primera ingesta en Pulso (fetched_at no se pisa en resync). */
 export const isCommunityInWindow = (post: CommunityPost, filter: TimeFilter) =>
   isCreatedAtInWindow(post.createdAt, filter) || isCreatedAtInWindow(post.fetchedAt, filter);

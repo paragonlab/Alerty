@@ -89,8 +89,11 @@ export const getLevelProgress = (score: number) => {
 
 export const TIME_FILTERS = ["1h", "6h", "24h", "7d"] as const;
 
-/** Radio del inbox Avisos y del badge de no leídas (mismo criterio que SOS cercano). */
+/** Radio del inbox Avisos y del badge de no leídas. */
 export const AVISOS_RADIUS_KM = 5;
+
+/** Radio del SOS: círculo en mapa + aviso a quienes están en la zona. */
+export const SOS_RADIUS_KM = 2;
 
 /** Etiqueta corta de ventana para UI (Feed / Mapa). */
 export const TIME_FILTER_WINDOW_LABEL: Record<(typeof TIME_FILTERS)[number], string> = {

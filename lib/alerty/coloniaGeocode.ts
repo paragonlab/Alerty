@@ -57,6 +57,12 @@ export const CULIACAN_PLACES: CuliacanPlace[] = [
   { name: "Los Ángeles", lat: 24.788, lng: -107.378, aliases: ["Los Angeles"] },
   { name: "Isla Musala", lat: 24.818, lng: -107.392, aliases: ["Musala"] },
   { name: "El Diez", lat: 24.732, lng: -107.448 },
+  {
+    name: "Jesús María",
+    lat: 24.9205,
+    lng: -107.445,
+    aliases: ["Jesus Maria", "sindicatura de Jesús María", "sindicatura de Jesus Maria"],
+  },
 ];
 
 const CITY_CENTER = { lat: 24.8091, lng: -107.394 };
@@ -72,7 +78,7 @@ type TextColoniaHit = {
 };
 
 const EVENT_CONTEXT =
-  /\b(ocurri[oó]\s+en|se\s+registr[oó]|reportan|reportan?\s+en|alerta\s+en|balacera\s+en|accidente\s+en|bloqueo\s+en|en\s+la\s+colonia|en\s+colonia|col\.\s*|colonia)\b/i;
+  /\b(ocurri[oó]\s+en|se\s+registr[oó]|reportan|reportan?\s+en|alerta\s+en|balacera\s+en|accidente\s+en|bloqueo\s+en|enfrentamiento\s+en|atacan?\s+en|en\s+la\s+colonia|en\s+colonia|col\.\s*|colonia)\b/i;
 
 const COLONIA_PHRASE =
   /\b(?:en\s+la\s+)?(?:colonia|col\.?)\s+([A-Za-zÁÉÍÓÚÜÑáéíóúüñ0-9][A-Za-zÁÉÍÓÚÜÑáéíóúüñ0-9\s\-']{1,40})/gi;
@@ -440,7 +446,7 @@ export function resolveCommunityGeo(opts: {
   };
 }
 
-/** Mapa: solo coords persistidas. Noticias sin colonia clara no se inventan en el centro. */
+/** Mapa: coords persistidas, o colonia/Culiacán resuelta del texto (RSS suele llegar sin lat). */
 export function resolveCommunityMapPoint(post: {
   lat: number | null;
   lng: number | null;
@@ -462,7 +468,20 @@ export function resolveCommunityMapPoint(post: {
       approximate: isCityApproxLabel(post.placeLabel),
     };
   }
-  return null;
+  const geo = resolveCommunityGeo({
+    text: post.text,
+    publisherPlaceLabel: post.placeLabel,
+    fallbackLabel: post.placeLabel ?? CITY_APPROX_LABEL,
+    allowCityApprox: true,
+    requireCuliacanMention: true,
+  });
+  if (!geo.mapEligible || geo.lat == null || geo.lng == null) return null;
+  return {
+    lat: geo.lat,
+    lng: geo.lng,
+    placeLabel: geo.placeLabel,
+    approximate: geo.confidence !== "high",
+  };
 }
 
 /** Autocomplete de colonias mientras el usuario escribe. */

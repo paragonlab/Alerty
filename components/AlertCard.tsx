@@ -1,4 +1,5 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Video, ResizeMode } from "expo-av";
 import { Ionicons } from "@expo/vector-icons";
 import { CATEGORY_ICONS, CATEGORY_LABELS, REPUTATION_LEVELS } from "../lib/alerty/constants";
 import { formatRelativeTime, getAlertAgeMinutes, getIntensityColor } from "../lib/alerty/utils";
@@ -34,6 +35,7 @@ export function AlertCard({ alert, onPress, onPressVideo }: AlertCardProps) {
   const primaryText = alert.title ?? alert.description ?? "Sin descripción";
   const secondaryText = alert.title && alert.description ? alert.description : null;
   const hasVideo = alert.media.some((m) => m.type === "video");
+  const video = alert.media.find((m) => m.type === "video");
   const hasAudio = alert.media.some((m) => m.type === "audio");
 
   return (
@@ -119,17 +121,31 @@ export function AlertCard({ alert, onPress, onPressVideo }: AlertCardProps) {
         </View>
       </View>
 
-      {hasVideo && (
-        <Pressable style={styles.videoThumb} onPress={onPressVideo ?? onPress}>
+      {video ? (
+        <Pressable
+          style={styles.videoThumb}
+          onPress={onPressVideo ?? onPress}
+          accessibilityLabel="Ver video de esta alerta"
+        >
+          <View style={StyleSheet.absoluteFill} pointerEvents="none">
+            <Video
+              source={{ uri: video.url }}
+              style={StyleSheet.absoluteFill}
+              resizeMode={ResizeMode.COVER}
+              shouldPlay={false}
+              isMuted
+            />
+            <View style={styles.videoThumbScrim} />
+          </View>
           <View style={styles.videoThumbPlay}>
-            <Ionicons name="play" size={16} color="#fff" />
+            <Ionicons name="play" size={22} color="#fff" />
           </View>
           <View style={styles.videoThumbBadge}>
-            <Ionicons name="film" size={8} color="#FF6B3A" />
-            <Text style={styles.videoThumbBadgeText}>VIDEO</Text>
+            <Ionicons name="film" size={11} color="#fff" />
+            <Text style={styles.videoThumbBadgeText}>Ver video</Text>
           </View>
         </Pressable>
-      )}
+      ) : null}
     </Pressable>
   );
 }
@@ -297,36 +313,45 @@ const createStyles = (theme: any) => StyleSheet.create({
     fontFamily: theme.fonts.body,
   },
   videoThumb: {
-    width: 78,
+    width: 132,
+    minWidth: 132,
+    minHeight: 168,
     backgroundColor: "#16110E",
     borderLeftWidth: 1,
     borderLeftColor: theme.colors.border,
     alignItems: "center",
     justifyContent: "center",
+    overflow: "hidden",
+  },
+  videoThumbScrim: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.28)",
   },
   videoThumbPlay: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: "rgba(255,107,58,0.9)",
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: "rgba(255,107,58,0.95)",
     alignItems: "center",
     justifyContent: "center",
+    zIndex: 2,
   },
   videoThumbBadge: {
     position: "absolute",
-    bottom: 8,
+    bottom: 10,
     flexDirection: "row",
     alignItems: "center",
-    gap: 3,
-    backgroundColor: "rgba(0,0,0,0.55)",
+    gap: 5,
+    backgroundColor: "rgba(0,0,0,0.72)",
     borderRadius: theme.radius.pill,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    zIndex: 2,
   },
   videoThumbBadgeText: {
-    color: "#FF6B3A",
-    fontSize: 8,
+    color: "#fff",
+    fontSize: 11,
     fontFamily: theme.fonts.heading,
-    letterSpacing: 0.6,
+    letterSpacing: 0.2,
   },
 });

@@ -55,5 +55,20 @@ export const darkHighVisibility = {
   fonts: lightTheme.fonts,
 };
 
+/** Estilo Google Maps / Android para modo nocturno. */
+export const DARK_MAP_STYLE = [
+  { elementType: "geometry", stylers: [{ color: "#0b0b0b" }] },
+  { elementType: "labels.text.fill", stylers: [{ color: "#9a9a9a" }] },
+  { elementType: "labels.text.stroke", stylers: [{ color: "#0b0b0b" }] },
+  { featureType: "administrative", elementType: "geometry", stylers: [{ color: "#2a2a2a" }] },
+  { featureType: "poi", stylers: [{ visibility: "off" }] },
+  { featureType: "poi.park", elementType: "geometry", stylers: [{ color: "#112018" }] },
+  { featureType: "road", elementType: "geometry", stylers: [{ color: "#1c1c1c" }] },
+  { featureType: "road", elementType: "geometry.stroke", stylers: [{ color: "#2a2a2a" }] },
+  { featureType: "road.highway", elementType: "geometry", stylers: [{ color: "#3a2210" }] },
+  { featureType: "transit", stylers: [{ visibility: "off" }] },
+  { featureType: "water", elementType: "geometry", stylers: [{ color: "#0a1624" }] },
+];
+
 // Default export for backward compatibility
 export const theme = lightTheme;

@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import type {
   AlertCategory,
   AlertItem,
@@ -71,6 +72,8 @@ type VoteType = "upvote" | "downvote";
 type AlertyState = {
   alerts: AlertItem[];
   communityPosts: CommunityPost[];
+  alertsLoaded: boolean;
+  communityLoaded: boolean;
   timeFilter: TimeFilter;
   activeCategories: AlertCategory[];
   lowConnection: boolean;
@@ -154,6 +157,15 @@ const NEWS_SYNC_MIN_MS = 2 * 60 * 1000;
 let lastNewsSyncAt = 0;
 let newsSyncInflight: Promise<void> | null = null;
 
+const FEED_CACHE_KEY = "alerty.feed.v1";
+
+const persistFeedCache = (alerts: AlertItem[], communityPosts: CommunityPost[]) => {
+  void AsyncStorage.setItem(
+    FEED_CACHE_KEY,
+    JSON.stringify({ alerts, communityPosts }),
+  ).catch(() => {});
+};
+
 const communityActivityAt = (post: CommunityPost) =>
   Math.max(new Date(post.createdAt).getTime(), new Date(post.fetchedAt).getTime());
 
@@ -210,7 +222,9 @@ const persistTrustScore = (userId: string, score: number) => {
 export const useAlertyStore = create<AlertyState>((set, get) => ({
   alerts: [],
   communityPosts: [],
-  timeFilter: "6h",
+  alertsLoaded: false,
+  communityLoaded: false,
+  timeFilter: "24h",
   activeCategories: [...ALERT_CATEGORIES],
   lowConnection: false,
   pushEnabled: true,
@@ -648,6 +662,7 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
   loadCommunityPosts: async (opts) => {
     if (!isSupabaseConfigured || !supabase) {
       if (get().communityPosts.length === 0) set({ communityPosts: [] });
+      set({ communityLoaded: true });
       return;
     }
     const client = supabase;
@@ -674,17 +689,19 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
 
       if (rssRes.error && otherRes.error) {
         if (get().communityPosts.length === 0) set({ communityPosts: [] });
+        set({ communityLoaded: true });
         return;
       }
 
-      set({
-        communityPosts: mergeCommunityRows(rssRes.data, otherRes.data).filter(
-          (post) => !isOtherSinaloaCityStory(post.text),
-        ),
-      });
+      const communityPosts = mergeCommunityRows(rssRes.data, otherRes.data).filter(
+        (post) => !isOtherSinaloaCityStory(post.text),
+      );
+      set({ communityPosts, communityLoaded: true });
+      persistFeedCache(get().alerts, communityPosts);
     } catch (err) {
       console.warn("loadCommunityPosts failed", err);
       if (get().communityPosts.length === 0) set({ communityPosts: [] });
+      set({ communityLoaded: true });
     }
 
     if (!opts?.refreshNews) return;
@@ -750,7 +767,10 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
     return { error: null };
   },
   loadAlertsFromSupabase: async () => {
-    if (!isSupabaseConfigured || !supabase) return;
+    if (!isSupabaseConfigured || !supabase) {
+      set({ alertsLoaded: true });
+      return;
+    }
 
     try {
     const { data } = await supabase
@@ -765,7 +785,8 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
       .limit(100);
 
     if (!data || data.length === 0) {
-      set({ alerts: [] });
+      set({ alerts: [], alertsLoaded: true });
+      persistFeedCache([], get().communityPosts);
       return;
     }
 
@@ -808,7 +829,7 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
         };
       });
 
-    set({ alerts: toItems(new Map()) });
+    set({ alerts: toItems(new Map()), alertsLoaded: true });
     get().recomputeVerifiedStatus();
 
     const alertIds = data.map((row: any) => row.id);
@@ -826,6 +847,7 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
     });
     set({ alerts: toItems(voteCounts) });
     get().recomputeVerifiedStatus();
+    persistFeedCache(get().alerts, get().communityPosts);
 
     const user = userRes.data?.user;
     if (!user) return;
@@ -847,6 +869,7 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
     }
     } catch (err) {
       console.warn("loadAlertsFromSupabase failed", err);
+      set({ alertsLoaded: true });
     }
   },
   toggleFollowAlert: async (id) => {
@@ -1063,3 +1086,22 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
     return REPUTATION_LEVELS[level].range;
   },
 }));
+
+void AsyncStorage.getItem(FEED_CACHE_KEY)
+  .then((raw) => {
+    if (!raw) return;
+    const state = useAlertyStore.getState();
+    if (state.alertsLoaded && state.communityLoaded) return;
+    const parsed = JSON.parse(raw) as {
+      alerts?: AlertItem[];
+      communityPosts?: CommunityPost[];
+    };
+    useAlertyStore.setState({
+      alerts: state.alertsLoaded || state.alerts.length > 0 ? state.alerts : parsed.alerts ?? [],
+      communityPosts:
+        state.communityLoaded || state.communityPosts.length > 0
+          ? state.communityPosts
+          : parsed.communityPosts ?? [],
+    });
+  })
+  .catch(() => {});

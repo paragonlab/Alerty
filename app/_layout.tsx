@@ -12,6 +12,7 @@ import { useAlertyStore } from "../lib/alerty/store";
 import { consumeAuthNext, setAuthNext } from "../lib/alerty/session";
 import { authCodeFromUrl, exchangeAuthCodeOnce } from "../lib/alerty/oauth";
 import { isDemoEnabled } from "../lib/alerty/mock";
+import { SOS_RADIUS_KM } from "../lib/alerty/constants";
 import { calculateDistance } from "../lib/alerty/utils";
 import {
   syncPushRegistration,
@@ -33,7 +34,7 @@ export default function RootLayout() {
   const rootNavigationState = useRootNavigationState();
   const [isReady, setIsReady] = useState(false);
   const [hasSession, setHasSession] = useState(false);
-  const [fontsLoaded] = useFonts({
+  useFonts({
     SpaceGrotesk_400Regular,
     SpaceGrotesk_500Medium,
     SpaceGrotesk_700Bold,
@@ -118,11 +119,11 @@ export default function RootLayout() {
                 latest.lng
               );
 
-              if (dist <= 5) {
+              if (dist <= SOS_RADIUS_KM) {
                 void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
                 Alert.alert(
                   "EMERGENCIA SOS CERCANA",
-                  `Se ha reportado una emergencia crítica a ${dist.toFixed(1)}km de tu ubicación.`,
+                  `Se ha reportado una emergencia crítica a ${dist < 1 ? `${Math.round(dist * 1000)} m` : `${dist.toFixed(1)} km`} de tu ubicación.`,
                   [
                     { text: "Ver en mapa", onPress: () => router.push("/(tabs)") },
                     { text: "Entendido", style: "cancel" }
@@ -205,10 +206,6 @@ export default function RootLayout() {
       router.replace((consumeAuthNext() ?? "/(tabs)") as any);
     }
   }, [hasSession, isReady, pathname, rootNavigationState?.key, router, segments]);
-
-  if (!fontsLoaded) {
-    return null;
-  }
 
   return (
     <SafeAreaProvider>

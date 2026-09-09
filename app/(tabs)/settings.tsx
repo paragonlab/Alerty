@@ -447,7 +447,7 @@ export default function SettingsScreen() {
             <View style={{ flex: 1 }}>
               <Text style={styles.settingLabel}>Mapa de Calor</Text>
               <Text style={styles.helperText}>
-                Manchas de riesgo con reportes y noticias. En iPhone se ve como círculos; en Android y web como calor.
+                Manchas de Pulso: más rojas y grandes si el pulso es reciente o crítico. En iPhone se ve como círculos; en Android y web como calor.
               </Text>
             </View>
             <Switch
