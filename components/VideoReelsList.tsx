@@ -5,7 +5,6 @@ import {
   Dimensions,
   FlatList,
   Pressable,
-  Share,
   StyleSheet,
   Text,
   View,
@@ -25,6 +24,7 @@ import {
   getIntensityColor,
 } from "../lib/alerty/utils";
 import { Sounds } from "../lib/sounds";
+import { shareAlertPulse } from "../lib/alerty/share";
 import type { AlertItem } from "../lib/alerty/types";
 
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
@@ -231,7 +231,7 @@ function ConfirmSheet({
         <View style={styles.sheetVote}>
           <Pressable style={styles.denyBtn} onPress={doDeny}>
             <Ionicons name="close" size={13} color="white" />
-            <Text style={styles.denyBtnText}>FALSA</Text>
+            <Text style={styles.denyBtnText}>Es falsa</Text>
           </Pressable>
           <Pressable
             style={[styles.confirmBtn, !selected && styles.confirmBtnOff]}
@@ -240,7 +240,7 @@ function ConfirmSheet({
           >
             <Ionicons name="checkmark" size={13} color={selected ? "#0A0A0A" : "white"} />
             <Text style={[styles.confirmBtnText, !selected && { color: "rgba(255,255,255,0.5)" }]}>
-              ES REAL
+              Es real
             </Text>
           </Pressable>
         </View>
@@ -267,7 +267,6 @@ export function VideoReelCard({
   const [isMuted, setIsMuted] = useState(true);
   const [isPaused, setIsPaused] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
-  const [avoided, setAvoided] = useState(false);
   const [contributing, setContributing] = useState(false);
   const barPulse = useRef(new Animated.Value(1)).current;
   const aportarPulse = useRef(new Animated.Value(0.9)).current;
@@ -406,26 +405,27 @@ export function VideoReelCard({
             <Text style={[styles.ageChipText, { color: urgencyColor }]}>Hace {ageMin} min</Text>
           </View>
         )}
-        <View style={styles.viewersChip}>
-          <Ionicons name="eye-outline" size={11} color="rgba(255,255,255,0.6)" />
-          <Text style={styles.viewersText}>{(confirmCount + 38).toLocaleString()}</Text>
-        </View>
         <View style={{ flex: 1 }} />
-        <Pressable style={styles.topIconBtn} onPress={() => setIsMuted((m) => !m)}>
+        <Pressable
+          style={styles.listaBtn}
+          onPress={() => setIsMuted((m) => !m)}
+          accessibilityLabel={isMuted ? "Activar audio" : "Silenciar audio"}
+        >
           <Ionicons
             name={isMuted ? "volume-mute" : "volume-high"}
-            size={17}
-            color="rgba(255,255,255,0.85)"
+            size={14}
+            color="rgba(255,255,255,0.9)"
           />
+          <Text style={styles.listaBtnText}>{isMuted ? "Sin audio" : "Con audio"}</Text>
         </Pressable>
         {onClose && (
           <Pressable
             style={styles.listaBtn}
             onPress={onClose}
-            accessibilityLabel="Volver a lista"
+            accessibilityLabel="Volver a la lista de pulsos"
           >
             <Ionicons name="list" size={14} color="rgba(255,255,255,0.9)" />
-            <Text style={styles.listaBtnText}>Lista</Text>
+            <Text style={styles.listaBtnText}>Ver lista</Text>
           </Pressable>
         )}
       </View>
@@ -525,9 +525,8 @@ export function VideoReelCard({
         </View>
       </View>
 
-      {/* RIGHT ACTIONS */}
+      {/* RIGHT ACTIONS — cada uno hace una cosa distinta, no están encadenados */}
       <View style={styles.actionsCol} pointerEvents="box-none">
-        {/* Es real */}
         <View style={styles.actionItem}>
           <Pressable
             style={[styles.confirmActionBtn, myVote === "upvote" && styles.confirmActionBtnDone]}
@@ -538,6 +537,7 @@ export function VideoReelCard({
               setShowConfirm(true);
             }}
             disabled={voted}
+            accessibilityLabel={`Marcar como real. ${confirmCount} confirmaciones`}
           >
             <Ionicons
               name={myVote === "upvote" ? "shield-checkmark" : "shield-checkmark-outline"}
@@ -545,10 +545,10 @@ export function VideoReelCard({
               color={myVote === "upvote" ? "#66FF8C" : "white"}
             />
           </Pressable>
-          <Text style={styles.actionLabel}>{confirmCount}</Text>
+          <Text style={styles.actionLabel}>Es real</Text>
+          <Text style={styles.actionCount}>{confirmCount}</Text>
         </View>
 
-        {/* Falsa */}
         <View style={styles.actionItem}>
           <Pressable
             style={styles.actionIconBtn}
@@ -559,6 +559,7 @@ export function VideoReelCard({
               void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
             }}
             disabled={voted}
+            accessibilityLabel="Marcar como falsa"
           >
             <Ionicons
               name={myVote === "downvote" ? "close-circle" : "close-circle-outline"}
@@ -566,48 +567,28 @@ export function VideoReelCard({
               color={myVote === "downvote" ? "#EF4444" : "rgba(255,255,255,0.85)"}
             />
           </Pressable>
-          <Text style={styles.actionLabel}>Falsa</Text>
+          <Text style={styles.actionLabel}>Es falsa</Text>
         </View>
 
-        {/* Evitar zona */}
-        <View style={styles.actionItem}>
-          <Pressable
-            style={styles.actionIconBtn}
-            onPress={() => {
-              void Sounds.tap();
-              setAvoided((v) => !v);
-              void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-            }}
-          >
-            <Ionicons
-              name={avoided ? "git-branch" : "git-branch-outline"}
-              size={28}
-              color={avoided ? "#818CF8" : "rgba(255,255,255,0.85)"}
-            />
-          </Pressable>
-          <Text style={[styles.actionLabel, avoided && { color: "#818CF8" }]}>
-            {avoided ? "Evitando" : "Evitar"}
-          </Text>
-        </View>
-
-        {/* Compartir */}
         <View style={styles.actionItem}>
           <Pressable
             style={styles.actionIconBtn}
             onPress={() => {
               void Sounds.tap();
               void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              void Share.share({
-                message: `Alerta en Pulso: ${alert.title ?? CATEGORY_LABELS[alert.category]} · ${alert.neighborhood ?? "Culiacán"}`,
-              }).catch(() => {});
+              void shareAlertPulse({
+                title: alert.title ?? CATEGORY_LABELS[alert.category],
+                neighborhood: alert.neighborhood,
+                alertId: alert.id,
+              });
             }}
+            accessibilityLabel="Compartir esta alerta"
           >
             <Ionicons name="share-social-outline" size={28} color="rgba(255,255,255,0.85)" />
           </Pressable>
-          <Text style={styles.actionLabel}>Compartir</Text>
+          <Text style={styles.actionLabel}>Compartir alerta</Text>
         </View>
 
-        {/* Aportar video */}
         <View style={styles.actionItem}>
           <View style={{ alignItems: "center", justifyContent: "center" }}>
             {isNear && (
@@ -620,6 +601,7 @@ export function VideoReelCard({
               style={styles.aportarBtn}
               onPress={handleAportar}
               disabled={contributing}
+              accessibilityLabel="Grabar un video de este evento"
             >
               <LinearGradient
                 colors={["#FF6B3A", "#E84F1F"]}
@@ -631,7 +613,7 @@ export function VideoReelCard({
             </Pressable>
           </View>
           <Text style={[styles.actionLabel, { color: isNear ? "#FFB088" : "rgba(255,255,255,0.82)" }]}>
-            {contributing ? "Enviando..." : "Aportar"}
+            {contributing ? "Enviando…" : "Grabar video"}
           </Text>
         </View>
       </View>
@@ -644,7 +626,7 @@ export function VideoReelCard({
           </View>
           <View style={{ flex: 1 }}>
             <Text style={styles.bottomCTATitle}>Estás a {distText} del evento.</Text>
-            <Text style={styles.bottomCTASub}>Aporta video y sube reputación</Text>
+            <Text style={styles.bottomCTASub}>Graba un video y sube reputación</Text>
           </View>
         </View>
       )}
@@ -653,7 +635,7 @@ export function VideoReelCard({
       {!isNear && (
         <View style={styles.swipeHint} pointerEvents="none">
           <Ionicons name="chevron-up" size={13} color="rgba(255,255,255,0.3)" />
-          <Text style={styles.swipeHintText}>Sig. evento</Text>
+          <Text style={styles.swipeHintText}>Siguiente video</Text>
         </View>
       )}
 
@@ -1160,12 +1142,19 @@ const styles = StyleSheet.create({
   },
   actionLabel: {
     color: "rgba(255,255,255,0.82)",
-    fontSize: 10,
-    fontFamily: "SpaceGrotesk_500Medium",
+    fontSize: 11,
+    fontFamily: "SpaceGrotesk_700Bold",
     textAlign: "center",
+    maxWidth: 72,
     textShadowColor: "rgba(0,0,0,0.55)",
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 3,
+  },
+  actionCount: {
+    color: "rgba(255,255,255,0.55)",
+    fontSize: 10,
+    fontFamily: "SpaceGrotesk_500Medium",
+    marginTop: -2,
   },
 
   // bottom cta

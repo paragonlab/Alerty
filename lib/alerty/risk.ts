@@ -75,6 +75,20 @@ export const toCommunityHeatPoint = (post: {
 export const buildHeatPoints = (points: WeightedPoint[]) =>
   points.map((p) => ({ latitude: p.lat, longitude: p.lng, weight: p.weight }));
 
+type HeatColors = { mapYellow: string; mapOrange: string; mapRed: string };
+
+/** Color, radio (m) y opacidad del calor: más reciente/crítico = más rojo y grande. */
+export const heatAppearance = (weight: number, colors: HeatColors) => {
+  const w = Number.isFinite(weight) && weight > 0 ? weight : 1;
+  const color = w >= 4 ? colors.mapRed : w >= 2 ? colors.mapOrange : colors.mapYellow;
+  const radiusM = Math.round(Math.min(420, 140 + w * 48));
+  const opacity = Math.min(0.4, 0.16 + 0.06 * Math.sqrt(w));
+  const alpha = Math.round(opacity * 255)
+    .toString(16)
+    .padStart(2, "0");
+  return { color, radiusM, opacity, fillColor: `${color}${alpha}` };
+};
+
 export type RiskLevel = "tranquila" | "moderada" | "alta" | "critica";
 
 export const levelFromScore = (score: number): RiskLevel => {

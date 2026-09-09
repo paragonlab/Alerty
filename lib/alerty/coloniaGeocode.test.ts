@@ -6,6 +6,7 @@ import {
   extractColoniasFromText,
   resolveTextColonia,
   resolveCommunityGeo,
+  resolveCommunityMapPoint,
   resolveDestinationQuery,
   suggestDestinationPlaces,
   CULIACAN_PLACES,
@@ -128,6 +129,23 @@ function run() {
   const gua = suggestDestinationPlaces("gua").map((p) => p.name);
   assert(gua.includes("Guadalupe"), "suggest Guadalupe");
   assert(suggestDestinationPlaces("").length === 0, "empty suggest");
+
+  assert(
+    CULIACAN_PLACES.some((p) => p.name === "Jesús María"),
+    "gazetteer includes Jesús María",
+  );
+  const jesus = resolveTextColonia(
+    "Enfrentamiento en Jesús María, Culiacán deja personas detenidas.",
+  );
+  assert(jesus?.place.name === "Jesús María", `Jesús María from news text, got ${jesus?.place.name}`);
+  const newsPin = resolveCommunityMapPoint({
+    lat: null,
+    lng: null,
+    text: "Operación de la Marina y la FGR en Culiacán inhabilitó un complejo clandestino.",
+    source: "rss",
+    placeLabel: "Culiacán (noticia)",
+  });
+  assert(newsPin && Number.isFinite(newsPin.lat), "RSS mentioning Culiacán gets a map pin");
 
   console.log("coloniaGeocode tests: OK");
 }

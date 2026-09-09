@@ -11,7 +11,8 @@ import React, {
 import { StyleSheet, Text, View } from "react-native";
 import type { AlertCategory } from "../lib/alerty/types";
 import { CATEGORY_ICONS } from "../lib/alerty/constants";
-import { riskColor, type GridCell } from "../lib/alerty/risk";
+import { heatAppearance, riskColor, type GridCell } from "../lib/alerty/risk";
+import { DARK_MAP_STYLE } from "../lib/theme";
 
 const API_KEY = process.env.EXPO_PUBLIC_GOOGLE_MAPS_KEY ?? "";
 
@@ -180,11 +181,20 @@ function loadLeaflet(): Promise<void> {
   return leafletLoad;
 }
 
-const GRID_THEME = {
+const LIGHT_TILES = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
+
+const GRID_THEME_LIGHT = {
   success: "#1F9D6E",
   mapYellow: "#E5C548",
   mapOrange: "#E9792F",
   mapRed: "#D9342B",
+};
+
+const GRID_THEME_DARK = {
+  success: "#00FF41",
+  mapYellow: "#FFFF00",
+  mapOrange: "#FF8C00",
+  mapRed: "#FF0000",
 };
 
 function ensurePulseStyles() {
@@ -473,6 +483,12 @@ function ensurePulseStyles() {
   background: #1a1a1a;
   font-family: inherit;
 }
+.pulso-map-dark.leaflet-container {
+  background: #0b0b0b;
+}
+.pulso-map-dark .leaflet-tile-pane img {
+  filter: invert(1) hue-rotate(180deg) saturate(0.35) brightness(0.95);
+}
 `;
 }
 
@@ -630,7 +646,7 @@ function splitCssColor(color?: string): { color: string; opacity?: number } {
 }
 
 function aggregateHeatPoints(points: HeatmapPoint[]): HeatmapPoint[] {
-  const bucket = 0.01;
+  const bucket = 0.0028;
   const cells = new Map<string, { lat: number; lng: number; weight: number }>();
   for (const p of points) {
     const lat = Math.round(p.latitude / bucket) * bucket;
@@ -660,7 +676,11 @@ function collectHeatmap(node: React.ReactNode): HeatmapProps | null {
   return found;
 }
 
-function collectPolygons(node: React.ReactNode, out: PolygonProps[] = []): PolygonProps[] {
+function collectPolygons(
+  node: React.ReactNode,
+  out: PolygonProps[] = [],
+  gridTheme = GRID_THEME_LIGHT,
+): PolygonProps[] {
   Children.forEach(node, (child) => {
     if (!isValidElement(child)) return;
     const props = child.props as PolygonProps & { children?: React.ReactNode; cells?: GridCell[] };
@@ -671,7 +691,7 @@ function collectPolygons(node: React.ReactNode, out: PolygonProps[] = []): Polyg
     if (Array.isArray(props.cells)) {
       for (const cell of props.cells) {
         if (!Array.isArray(cell.coordinates) || cell.coordinates.length < 3) continue;
-        const color = riskColor(cell.level, GRID_THEME);
+        const color = riskColor(cell.level, gridTheme);
         out.push({
           coordinates: cell.coordinates,
           fillColor: `${color}55`,
@@ -682,7 +702,27 @@ function collectPolygons(node: React.ReactNode, out: PolygonProps[] = []): Polyg
       return;
     }
     if (props.children != null) {
-      collectPolygons(props.children, out);
+      collectPolygons(props.children, out, gridTheme);
+    }
+  });
+  return out;
+}
+
+function collectCircles(node: React.ReactNode, out: CircleProps[] = []): CircleProps[] {
+  Children.forEach(node, (child) => {
+    if (!isValidElement(child)) return;
+    const props = child.props as CircleProps & { children?: React.ReactNode; points?: unknown };
+    if (
+      props.center &&
+      typeof props.center.latitude === "number" &&
+      typeof props.radius === "number" &&
+      !Array.isArray(props.points)
+    ) {
+      out.push(props);
+      return;
+    }
+    if (props.children != null) {
+      collectCircles(props.children, out);
     }
   });
   return out;
@@ -911,20 +951,17 @@ function createHtmlOverlay(
   return overlay;
 }
 
-const DARK_STYLES = [
-  { elementType: "geometry", stylers: [{ color: "#1d1d1d" }] },
-  { elementType: "labels.text.fill", stylers: [{ color: "#8a8a8a" }] },
-  { elementType: "labels.text.stroke", stylers: [{ color: "#1d1d1d" }] },
-  { featureType: "road", elementType: "geometry", stylers: [{ color: "#2c2c2c" }] },
-  { featureType: "water", elementType: "geometry", stylers: [{ color: "#0e1626" }] },
-  { featureType: "poi", stylers: [{ visibility: "off" }] },
-];
+function applyLeafletNight(map: any, dark: boolean) {
+  const container = map?.getContainer?.();
+  if (container) container.classList.toggle("pulso-map-dark", dark);
+}
 
 type MapViewProps = {
   children?: React.ReactNode;
   style?: unknown;
   initialRegion?: Region;
   userInterfaceStyle?: "dark" | "light";
+  customMapStyle?: unknown;
   onPress?: (e: { nativeEvent: { coordinate: { latitude: number; longitude: number } } }) => void;
   onLongPress?: (e: { nativeEvent: { coordinate: { latitude: number; longitude: number } } }) => void;
   showsUserLocation?: boolean;
@@ -949,6 +986,7 @@ const ExpoMapView = forwardRef<MapHandle, MapViewProps>(function ExpoMapView(pro
   const heatCirclesRef = useRef<any[]>([]);
   const polygonsRef = useRef<any[]>([]);
   const leafletGroupRef = useRef<any>(null);
+  const tileLayerRef = useRef<any>(null);
   const longPressTimer = useRef<number | null>(null);
   const mapDraggedRef = useRef(false);
   const longPressFiredRef = useRef(false);
@@ -1000,10 +1038,11 @@ const ExpoMapView = forwardRef<MapHandle, MapViewProps>(function ExpoMapView(pro
         hostRef.current.innerHTML = "";
         const L = (window as any).L;
         const map = L.map(hostRef.current, { zoomControl: true, attributionControl: true });
-        L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        tileLayerRef.current = L.tileLayer(LIGHT_TILES, {
           attribution: "&copy; OpenStreetMap",
           maxZoom: 19,
         }).addTo(map);
+        applyLeafletNight(map, props.userInterfaceStyle === "dark");
         map.setView([region.latitude, region.longitude], regionToZoom(region.latitudeDelta));
         mapRef.current = map;
         engineRef.current = "leaflet";
@@ -1041,7 +1080,12 @@ const ExpoMapView = forwardRef<MapHandle, MapViewProps>(function ExpoMapView(pro
           });
         });
 
-        const triggerResize = () => map.invalidateSize();
+        const triggerResize = () => {
+          map.invalidateSize({ animate: false });
+          if (!mapDraggedRef.current) {
+            map.setView([region.latitude, region.longitude], regionToZoom(region.latitudeDelta));
+          }
+        };
         requestAnimationFrame(triggerResize);
         if (typeof ResizeObserver !== "undefined" && hostRef.current) {
           resizeObserver = new ResizeObserver(() => triggerResize());
@@ -1063,7 +1107,7 @@ const ExpoMapView = forwardRef<MapHandle, MapViewProps>(function ExpoMapView(pro
           zoomControl: true,
           gestureHandling: "greedy",
           clickableIcons: false,
-          styles: props.userInterfaceStyle === "dark" ? DARK_STYLES : [],
+          styles: props.userInterfaceStyle === "dark" ? DARK_MAP_STYLE : [],
         });
         mapRef.current = map;
         engineRef.current = "google";
@@ -1146,7 +1190,7 @@ const ExpoMapView = forwardRef<MapHandle, MapViewProps>(function ExpoMapView(pro
         mapRef.current?.remove?.();
       }
     };
-    // Map instance is created once; region/theme updates aren't remounted on purpose.
+    // Map instance is created once; theme tiles swap in the effect below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -1154,16 +1198,41 @@ const ExpoMapView = forwardRef<MapHandle, MapViewProps>(function ExpoMapView(pro
     const map = mapRef.current;
     const engine = engineRef.current;
     if (!map || !ready || !engine) return;
+    const dark = props.userInterfaceStyle === "dark";
+    if (engine === "leaflet") {
+      applyLeafletNight(map, dark);
+      return;
+    }
+    map.setOptions?.({ styles: dark ? DARK_MAP_STYLE : [] });
+  }, [props.userInterfaceStyle, ready, mapEpoch]);
 
+  useEffect(() => {
+    const map = mapRef.current;
+    const engine = engineRef.current;
+    if (!map || !ready || !engine) return;
+
+    const isDark = props.userInterfaceStyle === "dark";
+    const gridTheme = isDark ? GRID_THEME_DARK : GRID_THEME_LIGHT;
+    const heatColors = {
+      mapYellow: isDark ? GRID_THEME_DARK.mapYellow : GRID_THEME_LIGHT.mapYellow,
+      mapOrange: isDark ? GRID_THEME_DARK.mapOrange : GRID_THEME_LIGHT.mapOrange,
+      mapRed: isDark ? GRID_THEME_DARK.mapRed : GRID_THEME_LIGHT.mapRed,
+    };
     const markers = collectMarkerProps(props.children);
-    const polygons = collectPolygons(props.children);
+    const polygons = collectPolygons(props.children, [], gridTheme);
+    const circles = collectCircles(props.children);
     const heat = collectHeatmap(props.children);
     const overlaySig = [
+      isDark ? "dark" : "light",
       ...markers.map(
         (m) =>
           `${m.meta.kind}:${m.coordinate.latitude.toFixed(5)}:${m.coordinate.longitude.toFixed(5)}:${m.meta.color}`,
       ),
       ...polygons.map((p) => `p:${p.coordinates.length}`),
+      ...circles.map(
+        (c) =>
+          `c:${c.center.latitude.toFixed(5)}:${c.center.longitude.toFixed(5)}:${c.radius}:${c.fillColor ?? ""}`,
+      ),
       ...((heat?.points ?? []).map(
         (p) => `h:${p.latitude.toFixed(5)}:${p.longitude.toFixed(5)}:${p.weight ?? 1}`,
       )),
@@ -1171,6 +1240,7 @@ const ExpoMapView = forwardRef<MapHandle, MapViewProps>(function ExpoMapView(pro
     if (overlaySigRef.current === overlaySig && overlayEpochRef.current === mapEpoch) {
       return;
     }
+    if (engine === "leaflet" && !(window as any).L) return;
     overlaySigRef.current = overlaySig;
     overlayEpochRef.current = mapEpoch;
 
@@ -1191,18 +1261,43 @@ const ExpoMapView = forwardRef<MapHandle, MapViewProps>(function ExpoMapView(pro
 
     if (engine === "leaflet") {
       const L = (window as any).L;
-      if (!L) return;
       const group = L.layerGroup().addTo(map);
       leafletGroupRef.current = group;
 
       heatPoints.forEach((p) => {
         const weight = typeof p.weight === "number" && p.weight > 0 ? p.weight : 1;
+        const look = heatAppearance(weight, heatColors);
+        group.addLayer(
+          L.circle([p.latitude, p.longitude], {
+            radius: look.radiusM,
+            fillColor: look.color,
+            fillOpacity: look.opacity * 0.72,
+            stroke: false,
+            interactive: false,
+          }),
+        );
         group.addLayer(
           L.circleMarker([p.latitude, p.longitude], {
-            radius: Math.min(14, 7 + 2 * Math.sqrt(weight)),
-            fillColor: "#E84F1F",
-            fillOpacity: Math.min(0.16, 0.07 + 0.02 * Math.sqrt(weight)),
+            radius: Math.min(14, 6 + 2.5 * Math.sqrt(weight)),
+            fillColor: look.color,
+            fillOpacity: look.opacity,
             stroke: false,
+            interactive: false,
+          }),
+        );
+      });
+
+      circles.forEach((c) => {
+        const fill = splitCssColor(c.fillColor);
+        const stroke = splitCssColor(c.strokeColor);
+        group.addLayer(
+          L.circle([c.center.latitude, c.center.longitude], {
+            radius: c.radius,
+            fillColor: fill.color,
+            fillOpacity: fill.opacity ?? 0.16,
+            color: stroke.color,
+            opacity: stroke.opacity ?? 0.85,
+            weight: c.strokeWidth ?? 2,
             interactive: false,
           }),
         );
@@ -1282,16 +1377,34 @@ const ExpoMapView = forwardRef<MapHandle, MapViewProps>(function ExpoMapView(pro
 
     heatPoints.forEach((p) => {
       const weight = typeof p.weight === "number" && p.weight > 0 ? p.weight : 1;
+      const look = heatAppearance(weight, heatColors);
       const circle = new g.maps.Circle({
         center: { lat: p.latitude, lng: p.longitude },
-        radius: Math.max(160, 200 * Math.sqrt(weight)),
-        fillColor: "#E84F1F",
-        fillOpacity: Math.min(0.2, 0.08 + 0.03 * weight),
+        radius: look.radiusM,
+        fillColor: look.color,
+        fillOpacity: look.opacity,
         strokeWeight: 0,
         clickable: false,
         map,
       });
       heatCirclesRef.current.push(circle);
+    });
+
+    circles.forEach((c) => {
+      const fill = splitCssColor(c.fillColor);
+      const stroke = splitCssColor(c.strokeColor);
+      const shape = new g.maps.Circle({
+        center: { lat: c.center.latitude, lng: c.center.longitude },
+        radius: c.radius,
+        fillColor: fill.color,
+        fillOpacity: fill.opacity ?? 0.16,
+        strokeColor: stroke.color,
+        strokeOpacity: stroke.opacity ?? 0.85,
+        strokeWeight: c.strokeWidth ?? 2,
+        clickable: false,
+        map,
+      });
+      heatCirclesRef.current.push(shape);
     });
   }, [props.children, ready, mapEpoch]);
 

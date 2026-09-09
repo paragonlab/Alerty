@@ -1,7 +1,8 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Alert,
   Animated,
+  Modal,
   Pressable,
   StyleSheet,
   Text,
@@ -13,6 +14,7 @@ import * as Haptics from "expo-haptics";
 import * as Location from "expo-location";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { SOS_RADIUS_KM } from "../lib/alerty/constants";
 import { useAlertyStore } from "../lib/alerty/store";
 import { useAlertyTheme } from "../lib/useAlertyTheme";
 import { Sounds } from "../lib/sounds";
@@ -60,6 +62,10 @@ function SOSCenterBtn({
   const wave2Anim = useRef(new Animated.Value(0)).current;
   const wave3Anim = useRef(new Animated.Value(0)).current;
   const diodeAnim = useRef(new Animated.Value(1)).current;
+  const holdAnim  = useRef(new Animated.Value(0)).current;
+  const holdingRef = useRef(false);
+  const firedRef = useRef(false);
+  const holdLoop = useRef<Animated.CompositeAnimation | null>(null);
 
   useEffect(() => {
     const loops: Animated.CompositeAnimation[] = [
@@ -119,9 +125,46 @@ function SOSCenterBtn({
   const w1 = waveStyle(wave1Anim);
   const w2 = waveStyle(wave2Anim);
   const w3 = waveStyle(wave3Anim);
+  const holdScale = holdAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 1.55] });
+  const holdRed = holdAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 0.72] });
+  const holdAura = holdAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 1.7] });
+
+  const stopHoldAnim = () => {
+    holdLoop.current?.stop();
+    holdLoop.current = null;
+  };
+
+  const handlePressIn = () => {
+    holdingRef.current = true;
+    firedRef.current = false;
+    holdAnim.stopAnimation();
+    holdAnim.setValue(0);
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    const anim = Animated.timing(holdAnim, { toValue: 1, duration: 2000, useNativeDriver: true });
+    holdLoop.current = anim;
+    anim.start(({ finished }) => {
+      if (!finished || !holdingRef.current || firedRef.current) return;
+      firedRef.current = true;
+      holdingRef.current = false;
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      onLongPress();
+      Animated.spring(holdAnim, { toValue: 0, friction: 7, useNativeDriver: true }).start();
+    });
+  };
+
+  const handlePressOut = () => {
+    const wasHolding = holdingRef.current;
+    holdingRef.current = false;
+    stopHoldAnim();
+    if (firedRef.current) return;
+    holdAnim.stopAnimation((value) => {
+      if (wasHolding && value < 0.12) onPress();
+      Animated.spring(holdAnim, { toValue: 0, friction: 7, useNativeDriver: true }).start();
+    });
+  };
 
   return (
-    <View style={{ width: outerSize, height: outerSize, alignItems: "center", justifyContent: "center" }}>
+    <Animated.View style={{ width: outerSize, height: outerSize, alignItems: "center", justifyContent: "center", transform: [{ scale: holdScale }] }}>
       {/* Layer 1 — aura (atmosphere) */}
       <Animated.View
         pointerEvents="none"
@@ -129,7 +172,7 @@ function SOSCenterBtn({
           position: "absolute", width: outerSize, height: outerSize,
           borderRadius: outerSize / 2,
           backgroundColor: "rgba(255,26,26,0.35)",
-          opacity: auraOpacity, transform: [{ scale: auraScale }],
+          opacity: auraOpacity, transform: [{ scale: Animated.multiply(auraScale, holdAura) }],
         }}
       />
       {/* Layer 2 — glow */}
@@ -173,10 +216,10 @@ function SOSCenterBtn({
       <View style={{ borderRadius: coreSize / 2 + 3, padding: 3, backgroundColor: socketColor }}>
         {/* Core */}
         <Pressable
+          accessibilityLabel="Mantén presionado para SOS a 2 km"
           style={{ width: coreSize, height: coreSize, borderRadius: coreSize / 2, overflow: "hidden", alignItems: "center", justifyContent: "center" }}
-          onPress={onPress}
-          onLongPress={onLongPress}
-          delayLongPress={2000}
+          onPressIn={handlePressIn}
+          onPressOut={handlePressOut}
         >
           {/* Sphere gradient */}
           <LinearGradient
@@ -185,6 +228,10 @@ function SOSCenterBtn({
             start={{ x: 0.35, y: 0.28 }}
             end={{ x: 1, y: 1 }}
             style={StyleSheet.absoluteFill}
+          />
+          <Animated.View
+            pointerEvents="none"
+            style={[StyleSheet.absoluteFill, { backgroundColor: "#6A0000", opacity: holdRed }]}
           />
           {/* Top specular highlight */}
           <LinearGradient
@@ -227,7 +274,7 @@ function SOSCenterBtn({
           <Ionicons name="alert-circle" size={iconSize} color="white" style={{ zIndex: 2 }} />
         </Pressable>
       </View>
-    </View>
+    </Animated.View>
   );
 }
 
@@ -278,86 +325,99 @@ export function AlertyTabBar({ state, navigation }: TabBarProps) {
   const isDark = themeMode === "darkHighVisibility";
   const activeRoute = state.routes[state.index];
   const isReels = feedViewMode === "reels" && activeRoute?.name === "feed";
+  const [sosConfirmOpen, setSosConfirmOpen] = useState(false);
+  const [sosSending, setSosSending] = useState(false);
 
   const activeColor   = isDark ? "#FF4500" : theme.colors.accent;
   const inactiveColor = isDark ? "rgba(255,255,255,0.45)" : theme.colors.textMuted;
   const socketColor   = isDark ? "#050505" : (theme.colors.background as string);
 
-  // ── SOS handler ──────────────────────────────────────────────────────────
-  const handleSOS = async () => {
+  const requestSosConfirm = async () => {
     if (!(await requireSession())) return;
+    setSosConfirmOpen(true);
+  };
 
-    const triggerSOS = async () => {
-      void Sounds.sos();
-      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== "granted") {
-        Alert.alert("Permiso denegado", "Necesitamos tu ubicación para enviar el SOS.");
+  // ── SOS: solo envía si confirman que es real ────────────────────────────
+  const sendSOS = async () => {
+    if (sosSending) return;
+    setSosSending(true);
+
+    void Sounds.sos();
+    await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+    const { status } = await Location.requestForegroundPermissionsAsync();
+    if (status !== "granted") {
+      setSosSending(false);
+      Alert.alert("Permiso denegado", "Necesitamos tu ubicación para enviar el SOS.");
+      return;
+    }
+    const loc = await Location.getCurrentPositionAsync({});
+    const { latitude, longitude } = loc.coords;
+    const title = "EMERGENCIA SOS";
+    const description = `Alerta especial a ${SOS_RADIUS_KM} km a la redonda`;
+
+    if (supabase && isSupabaseConfigured) {
+      const { data: ud } = await supabase.auth.getUser();
+      if (!ud.user?.id) {
+        setSosSending(false);
+        Alert.alert("No se pudo enviar el SOS", "Inicia sesión e intenta de nuevo.");
         return;
       }
-      const loc = await Location.getCurrentPositionAsync({});
-      const { latitude, longitude } = loc.coords;
-
-      if (supabase && isSupabaseConfigured) {
-        const { data: ud } = await supabase.auth.getUser();
-        if (!ud.user?.id) {
-          Alert.alert("No se pudo enviar el SOS", "Inicia sesión e intenta de nuevo.");
-          return;
-        }
-        const { data, error } = await supabase
-          .from("alerts")
-          .insert({
-            user_id: ud.user.id,
-            category: "sos",
-            lat: latitude,
-            lng: longitude,
-            status: "active",
-            title: "EMERGENCIA SOS",
-          })
-          .select("id,created_at")
-          .single();
-        if (error || !data) {
-          Alert.alert("No se pudo enviar el SOS", "Intenta de nuevo. Si sigue fallando, llama a emergencias.");
-          return;
-        }
-        addAlert({
-          id: data.id,
+      const { data, error } = await supabase
+        .from("alerts")
+        .insert({
+          user_id: ud.user.id,
           category: "sos",
           lat: latitude,
           lng: longitude,
-          createdAt: data.created_at,
           status: "active",
-          media: [],
-          upvotes: 0,
-          downvotes: 0,
-          user: currentUser,
-          title: "EMERGENCIA SOS",
-        } as any);
-      } else {
-        addAlert({
-          id: `sos-${Date.now()}`,
-          category: "sos",
-          lat: latitude,
-          lng: longitude,
-          createdAt: new Date().toISOString(),
-          status: "active",
-          media: [],
-          upvotes: 0,
-          downvotes: 0,
-          user: currentUser,
-          title: "EMERGENCIA SOS",
-        } as any);
+          title,
+          description,
+        })
+        .select("id,created_at")
+        .single();
+      if (error || !data) {
+        setSosSending(false);
+        Alert.alert("No se pudo enviar el SOS", "Intenta de nuevo. Si sigue fallando, llama a emergencias.");
+        return;
       }
-      Alert.alert("Alerta SOS enviada", "Tu ubicación ha sido compartida como emergencia crítica.");
-    };
-
+      addAlert({
+        id: data.id,
+        category: "sos",
+        lat: latitude,
+        lng: longitude,
+        createdAt: data.created_at,
+        status: "active",
+        media: [],
+        upvotes: 0,
+        downvotes: 0,
+        user: currentUser,
+        title,
+        description,
+      } as any);
+      void supabase.functions
+        .invoke("notify-on-alert", { body: { type: "alert", alertId: data.id } })
+        .catch(() => {});
+    } else {
+      addAlert({
+        id: `sos-${Date.now()}`,
+        category: "sos",
+        lat: latitude,
+        lng: longitude,
+        createdAt: new Date().toISOString(),
+        status: "active",
+        media: [],
+        upvotes: 0,
+        downvotes: 0,
+        user: currentUser,
+        title,
+        description,
+      } as any);
+    }
+    setSosSending(false);
+    setSosConfirmOpen(false);
     Alert.alert(
-      "BOTÓN DE EMERGENCIA (SOS)",
-      "Esto alertará a usuarios cercanos de una emergencia real. ¿Es una emergencia legítima?",
-      [
-        { text: "Cancelar", style: "cancel" },
-        { text: "ENVIAR SOS", style: "destructive", onPress: () => { void triggerSOS(); } },
-      ],
+      "Alerta SOS enviada",
+      `Avisamos a todos a ${SOS_RADIUS_KM} km a la redonda. Tu ubicación quedó como emergencia crítica.`,
     );
   };
 
@@ -390,7 +450,8 @@ export function AlertyTabBar({ state, navigation }: TabBarProps) {
     : ["rgba(246,242,234,0.97)", "rgba(246,242,234,0.88)", "rgba(246,242,234,0)"];
 
   return (
-    <View style={{ height: containerH }}>
+    <>
+    <View style={{ height: containerH, overflow: "visible" }}>
       {/* gradient background */}
       <LinearGradient
         colors={bgColors}
@@ -446,10 +507,54 @@ export function AlertyTabBar({ state, navigation }: TabBarProps) {
           size="large"
           socketColor={socketColor}
           onPress={() => { void goReport(); }}
-          onLongPress={() => { void handleSOS(); }}
+          onLongPress={() => { void requestSosConfirm(); }}
         />
       </View>
     </View>
+
+    <Modal
+      visible={sosConfirmOpen}
+      transparent
+      animationType="fade"
+      onRequestClose={() => {
+        if (!sosSending) setSosConfirmOpen(false);
+      }}
+    >
+      <View style={styles.sosBackdrop}>
+        <View style={[styles.sosCard, { backgroundColor: isDark ? "#121212" : "#FFFFFF", borderColor: isDark ? "#333" : theme.colors.border }]}>
+          <View style={styles.sosIconWrap}>
+            <Ionicons name="warning" size={28} color="#FF1A1A" />
+          </View>
+          <Text style={[styles.sosTitle, { color: isDark ? "#FFFFFF" : theme.colors.text }]}>
+            ¿Estás seguro?
+          </Text>
+          <Text style={[styles.sosBody, { color: isDark ? "#CCCCCC" : theme.colors.textMuted }]}>
+            Esto no es un juego. Si es una emergencia real, se envía a {SOS_RADIUS_KM} km a la redonda y se notifica a todos. Si no es real, cancela.
+          </Text>
+          <Pressable
+            style={[styles.sosSendBtn, sosSending && { opacity: 0.55 }]}
+            disabled={sosSending}
+            onPress={() => { void sendSOS(); }}
+            accessibilityLabel="Confirmar SOS real"
+          >
+            <Text style={styles.sosSendText}>
+              {sosSending ? "Enviando…" : "Sí, es real · Enviar SOS"}
+            </Text>
+          </Pressable>
+          <Pressable
+            disabled={sosSending}
+            onPress={() => setSosConfirmOpen(false)}
+            style={styles.sosCancelBtn}
+            accessibilityLabel="Cancelar SOS"
+          >
+            <Text style={[styles.sosCancelText, { color: isDark ? "#999999" : theme.colors.textMuted }]}>
+              Cancelar
+            </Text>
+          </Pressable>
+        </View>
+      </View>
+    </Modal>
+    </>
   );
 }
 
@@ -488,5 +593,64 @@ const styles = StyleSheet.create({
   sosCenter: {
     position: "absolute", left: 0, right: 0,
     alignItems: "center",
+    zIndex: 20,
+  },
+  sosBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.62)",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 28,
+  },
+  sosCard: {
+    width: "100%",
+    maxWidth: 360,
+    borderRadius: 22,
+    borderWidth: 1.5,
+    paddingHorizontal: 22,
+    paddingTop: 22,
+    paddingBottom: 16,
+    alignItems: "center",
+    gap: 10,
+  },
+  sosIconWrap: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: "rgba(255,26,26,0.14)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  sosTitle: {
+    fontSize: 20,
+    fontFamily: "SpaceGrotesk_700Bold",
+    textAlign: "center",
+  },
+  sosBody: {
+    fontSize: 14,
+    lineHeight: 20,
+    fontFamily: "SpaceGrotesk_500Medium",
+    textAlign: "center",
+  },
+  sosSendBtn: {
+    marginTop: 6,
+    width: "100%",
+    borderRadius: 999,
+    backgroundColor: "#FF1A1A",
+    paddingVertical: 13,
+    alignItems: "center",
+  },
+  sosSendText: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontFamily: "SpaceGrotesk_700Bold",
+  },
+  sosCancelBtn: {
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+  },
+  sosCancelText: {
+    fontSize: 13,
+    fontFamily: "SpaceGrotesk_500Medium",
   },
 });

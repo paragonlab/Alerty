@@ -141,8 +141,11 @@ Deno.serve(async (req) => {
         const userId = (row as { user_id: string }).user_id;
         byUser.set(userId, {
           to: (row as { token: string }).token,
-          title: `${label} reportada`,
-          body: alert.title ?? `Se reportó ${label.toLowerCase()} en tu zona.`,
+          title: alert.category === "sos" ? "SOS · 2 km a la redonda" : `${label} reportada`,
+          body:
+            alert.category === "sos"
+              ? "Emergencia crítica cerca. Abre Pulso."
+              : alert.title ?? `Se reportó ${label.toLowerCase()} en tu zona.`,
           sound: "default",
           priority: "high",
           channelId: "default",

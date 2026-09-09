@@ -17,6 +17,7 @@ import {
   RISK_RADIUS_KM,
   buildHeatPoints,
   buildRiskGridFromPoints,
+  heatAppearance,
   riskColor,
   scoreAtPoints,
   toAlertHeatPoint,
@@ -41,8 +42,9 @@ import { GlowMarker } from "../../components/GlowMarker";
 import { CommunityMarker } from "../../components/CommunityMarker";
 import { CommunityPostPreview } from "../../components/CommunityPostPreview";
 import { SOSButton } from "../../components/SOSButton";
-import { CATEGORY_LABELS, CULIACAN_CENTER, TIME_FILTER_PILL_LABEL, TIME_FILTERS } from "../../lib/alerty/constants";
+import { CATEGORY_LABELS, CULIACAN_CENTER, SOS_RADIUS_KM, TIME_FILTER_PILL_LABEL, TIME_FILTERS } from "../../lib/alerty/constants";
 import { useAlertyTheme } from "../../lib/useAlertyTheme";
+import { DARK_MAP_STYLE } from "../../lib/theme";
 import { useAlertyStore } from "../../lib/alerty/store";
 import { supabase } from "../../lib/supabase";
 import type { AlertCategory, CommunityPost } from "../../lib/alerty/types";
@@ -93,6 +95,8 @@ export default function MapScreen() {
     addAlert,
     themeMode,
     sponsoredZones,
+    alertsLoaded,
+    communityLoaded,
   } = useAlertyStore();
 
   const theme = useAlertyTheme();
@@ -409,39 +413,50 @@ export default function MapScreen() {
             rotateEnabled={false}
             provider={Platform.OS === "android" ? PROVIDER_GOOGLE : undefined}
             userInterfaceStyle={isDark ? "dark" : "light"}
+            customMapStyle={isDark ? DARK_MAP_STYLE : []}
             onPress={handleMapPick}
             onLongPress={handleMapPick}
           >
             {showHeatmap && heatmapPoints.length > 0 && Platform.OS !== "ios" && (
               <Heatmap
-                points={heatmapPoints}
-                radius={48}
-                opacity={0.68}
+                points={heatmapPoints.map((point) => ({
+                  ...point,
+                  weight: Math.max(1, (typeof point.weight === "number" ? point.weight : 1) * 2.4),
+                }))}
+                radius={36}
+                opacity={0.62}
                 gradient={{
                   colors: [theme.colors.mapYellow, theme.colors.mapOrange, theme.colors.mapRed],
-                  startPoints: [0.2, 0.5, 0.8],
+                  startPoints: [0.18, 0.48, 0.82],
                   colorMapSize: 256
                 }}
               />
             )}
             {showHeatmap && heatmapPoints.length > 0 && Platform.OS === "ios" && heatmapPoints.map((point, index) => {
               const weight = typeof point.weight === "number" ? point.weight : 1;
-              const fill =
-                weight >= 3
-                  ? `${theme.colors.mapRed}55`
-                  : weight >= 1.5
-                    ? `${theme.colors.mapOrange}44`
-                    : `${theme.colors.mapYellow}33`;
+              const look = heatAppearance(weight, theme.colors);
               return (
                 <Circle
                   key={`heat-${index}`}
                   center={{ latitude: point.latitude, longitude: point.longitude }}
-                  radius={Math.max(90, Math.min(280, 80 + weight * 50))}
-                  fillColor={fill}
+                  radius={look.radiusM}
+                  fillColor={look.fillColor}
                   strokeWidth={0}
                 />
               );
             })}
+            {filteredAlerts
+              .filter((alert) => alert.category === "sos")
+              .map((alert) => (
+                <Circle
+                  key={`sos-r-${alert.id}`}
+                  center={{ latitude: alert.lat, longitude: alert.lng }}
+                  radius={SOS_RADIUS_KM * 1000}
+                  fillColor={isDark ? "rgba(255,0,0,0.16)" : "rgba(217,52,43,0.14)"}
+                  strokeColor={isDark ? "#FF0000" : theme.colors.mapRed}
+                  strokeWidth={2}
+                />
+              ))}
             {showGrid && <RiskGrid cells={riskGrid} />}
             {filteredAlerts.map((alert) => (
               <Marker
@@ -798,7 +813,10 @@ export default function MapScreen() {
         </View>
 
         {/* Empty state overlay (también en web: un mapa vacío se ve “roto”) */}
-        {filteredAlerts.length === 0 && mapCommunity.length === 0 && (
+        {alertsLoaded &&
+          communityLoaded &&
+          filteredAlerts.length === 0 &&
+          mapCommunity.length === 0 && (
           <View style={styles.emptyOverlay} pointerEvents="none">
             <Ionicons name="shield-outline" size={28} color={theme.colors.textMuted} />
             <Text style={styles.emptyText}>Sin pulsos en esta área</Text>

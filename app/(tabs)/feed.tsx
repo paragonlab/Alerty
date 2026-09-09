@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
 import {
+  ActivityIndicator,
   FlatList,
   Pressable,
   StyleSheet,
@@ -22,6 +23,7 @@ import {
   isAlertInWindow,
   isCommunityInWindow,
   shouldSuppressAlert,
+  videoTimeFilter,
 } from "../../lib/alerty/utils";
 import type { AlertItem, CommunityPost } from "../../lib/alerty/types";
 
@@ -42,6 +44,8 @@ export default function FeedScreen() {
     openReels,
     reelsInitialAlertId,
     realtimeStarted,
+    alertsLoaded,
+    communityLoaded,
   } = useAlertyStore();
   const theme = useAlertyTheme();
   const styles = createStyles(theme);
@@ -73,8 +77,16 @@ export default function FeedScreen() {
   );
 
   const videoAlerts = useMemo(
-    () => baseFilteredAlerts.filter((a) => a.media.some((m) => m.type === "video")),
-    [baseFilteredAlerts],
+    () =>
+      alerts.filter(
+        (alert) =>
+          alert.status === "active" &&
+          activeCategories.includes(alert.category) &&
+          isAlertInWindow(alert, videoTimeFilter(timeFilter)) &&
+          !shouldSuppressAlert(alert) &&
+          alert.media.some((m) => m.type === "video"),
+      ),
+    [alerts, activeCategories, timeFilter],
   );
 
   // Lista para los Pulsos. Garantiza que el video tocado esté incluido aunque
@@ -169,7 +181,13 @@ export default function FeedScreen() {
     </View>
   );
 
-  const ListEmpty = (
+  const feedSettled = alertsLoaded && communityLoaded;
+  const ListEmpty = !feedSettled ? (
+    <View style={styles.emptyState}>
+      <ActivityIndicator color={theme.colors.accent} />
+      <Text style={styles.emptySubtitle}>Cargando pulsos…</Text>
+    </View>
+  ) : (
     <View style={styles.emptyState}>
       <Ionicons name="shield-outline" size={42} color={theme.colors.border} />
       <Text style={styles.emptyTitle}>Nadie ha reportado aún en esta ventana</Text>
@@ -206,7 +224,8 @@ export default function FeedScreen() {
               <Ionicons name="videocam-off-outline" size={52} color="rgba(255,255,255,0.2)" />
               <Text style={styles.emptyReelsTitle}>Sin videos en este período</Text>
               <Text style={styles.emptyReelsSubtitle}>
-                Cambia el filtro de tiempo o publica una alerta con video.
+                No hay videos en las últimas {videoTimeFilter(timeFilter) === "7d" ? "7 días" : "24 horas"}.
+                Publica una alerta con video o revisa más tarde.
               </Text>
             </View>
           </SafeAreaView>
