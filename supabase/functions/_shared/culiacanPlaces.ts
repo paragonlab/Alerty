@@ -37,6 +37,13 @@ export const CULIACAN_PLACES: CuliacanPlace[] = [
   { name: "6 de Enero", lat: 24.7863, lng: -107.3972, aliases: ["6 de enero"] },
   { name: "Loma de Rodriguera", lat: 24.8574, lng: -107.4161 },
   { name: "Boulevares", lat: 24.8189, lng: -107.4109 },
+  // Centroid ≈ Citibanamex Lomas Del Blvd (Av. Manuel J. Clouthier 3010, CP 80110); SW of Centro.
+  {
+    name: "Lomas del Bulevar",
+    lat: 24.7898,
+    lng: -107.4253,
+    aliases: ["Lomas del Boulevard", "Lomas del Blvd", "Lomas del Bulevard"],
+  },
   { name: "Devísadero", lat: 24.79, lng: -107.39, aliases: ["Devisadero"] },
   { name: "Jardin", lat: 24.802, lng: -107.39, aliases: ["Jardín"] },
   { name: "Miguel Hidalgo", lat: 24.792, lng: -107.412, aliases: ["Hidalgo"] },
@@ -110,21 +117,31 @@ function placeNames(place: CuliacanPlace): string[] {
   return [place.name, ...(place.aliases ?? [])];
 }
 
-function findPlaceByNameFragment(fragment: string): CuliacanPlace | null {
-  const frag = normalize(fragment)
+/** Strip articles so "Lomas del Bulevar" matches gazetteer "Lomas del Bulevar" after normalize. */
+function stripArticles(s: string): string {
+  return s
     .replace(/\b(de|del|la|las|los|el)\b/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function findPlaceByNameFragment(fragment: string): CuliacanPlace | null {
+  const frag = stripArticles(normalize(fragment));
   if (frag.length < 3) return null;
 
   let exact: CuliacanPlace | null = null;
   let best: { place: CuliacanPlace; len: number } | null = null;
   for (const place of CULIACAN_PLACES) {
     for (const n of placeNames(place)) {
-      const nn = normalize(n);
+      const nn = stripArticles(normalize(n));
+      if (!nn) continue;
       if (frag === nn) {
-        if (!exact || nn.length > normalize(exact.name).length) exact = place;
+        if (!exact || nn.length > stripArticles(normalize(exact.name)).length) exact = place;
       } else if (frag.includes(nn) || nn.includes(frag)) {
+        // Avoid "bulevar" ↔ "Boulevares" / short substring traps: require meaningful overlap.
+        const shorter = frag.length <= nn.length ? frag : nn;
+        const longer = frag.length <= nn.length ? nn : frag;
+        if (shorter.length < 5 && shorter !== longer) continue;
         const len = nn.length;
         if (!best || len > best.len) best = { place, len };
       }

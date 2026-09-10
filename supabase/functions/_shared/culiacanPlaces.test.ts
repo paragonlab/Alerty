@@ -110,3 +110,30 @@ Deno.test("ambiguous colonias stay off the map even with city approx", () => {
   assertEquals(geo.mapEligible, false);
   assertEquals(geo.lat, null);
 });
+
+Deno.test("NMás sentence: colonia Lomas del Bulevar → text_colonia (not Boulevares)", () => {
+  const hit = resolveTextColonia("balacera en la colonia Lomas del Bulevar");
+  assertEquals(hit?.place.name, "Lomas del Bulevar");
+  assertEquals(hit?.confidence, "high");
+  assertEquals(hit?.ambiguous, false);
+
+  const geo = resolveCommunityGeo({
+    text: "balacera en la colonia Lomas del Bulevar",
+    placeBboxCenter: { lat: 24.81, lng: -107.39 },
+    publisherPlaceLabel: "Culiacán, Sinaloa",
+    fallbackLabel: "Culiacán (X)",
+  });
+  assertEquals(geo.geoSource, "text_colonia");
+  assertEquals(geo.placeLabel, "Lomas del Bulevar");
+  assertEquals(geo.lat, 24.7898);
+  assertEquals(geo.lng, -107.4253);
+  assertEquals(geo.mapEligible, true);
+});
+
+Deno.test("Lomas del Boulevard spelling alias", () => {
+  const hit = resolveTextColonia(
+    "Reportan enfrentamiento en la colonia Lomas del Boulevard, Culiacán.",
+  );
+  assertEquals(hit?.place.name, "Lomas del Bulevar");
+  assertEquals(hit?.confidence, "high");
+});

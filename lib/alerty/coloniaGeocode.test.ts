@@ -138,14 +138,70 @@ function run() {
     "Enfrentamiento en Jesús María, Culiacán deja personas detenidas.",
   );
   assert(jesus?.place.name === "Jesús María", `Jesús María from news text, got ${jesus?.place.name}`);
-  const newsPin = resolveCommunityMapPoint({
+
+  assert(
+    CULIACAN_PLACES.some((p) => p.name === "Lomas del Bulevar"),
+    "gazetteer includes Lomas del Bulevar",
+  );
+  const nmasLomas = resolveTextColonia("balacera en la colonia Lomas del Bulevar");
+  assert(nmasLomas && !nmasLomas.ambiguous, "NMás Lomas del Bulevar resolves");
+  assert(nmasLomas!.place.name === "Lomas del Bulevar", `got ${nmasLomas!.place.name}`);
+  assert(nmasLomas!.confidence === "high", "colonia Lomas del Bulevar is high confidence");
+  assert(nmasLomas!.place.name !== "Boulevares", "must not confuse with Boulevares");
+
+  const lomasHits = extractColoniasFromText("balacera en la colonia Lomas del Bulevar");
+  assert(lomasHits[0]?.place.name === "Lomas del Bulevar", "extract top hit is Lomas del Bulevar");
+  assert(
+    !lomasHits.some((h) => h.place.name === "Boulevares"),
+    "Boulevares must not appear for Lomas del Bulevar text",
+  );
+
+  const boulevardVariant = resolveTextColonia(
+    "Reportan enfrentamiento en la colonia Lomas del Boulevard, Culiacán.",
+  );
+  assert(
+    boulevardVariant?.place.name === "Lomas del Bulevar",
+    `Boulevard spelling, got ${boulevardVariant?.place.name}`,
+  );
+
+  const lomasOverCityBbox = resolveCommunityGeo({
+    text: "balacera en la colonia Lomas del Bulevar",
+    placeBboxCenter: { lat: 24.81, lng: -107.39 },
+    publisherPlaceLabel: "Culiacán, Sinaloa",
+    fallbackLabel: "Culiacán (X)",
+  });
+  assert(lomasOverCityBbox.geoSource === "text_colonia", "city place_bbox yields to Lomas text");
+  assert(lomasOverCityBbox.placeLabel === "Lomas del Bulevar", lomasOverCityBbox.placeLabel);
+  assert(lomasOverCityBbox.lat === 24.7898, "Lomas centroid lat");
+  assert(lomasOverCityBbox.lng === -107.4253, "Lomas centroid lng");
+
+  const lomasMapPoint = resolveCommunityMapPoint({
+    lat: 24.81,
+    lng: -107.39,
+    text: "balacera en la colonia Lomas del Bulevar",
+    placeLabel: "Culiacán (aproximado)",
+    geoSource: "place_bbox",
+  });
+  assert(lomasMapPoint?.placeLabel === "Lomas del Bulevar", "map upgrades stale city pin via text");
+  assert(lomasMapPoint?.lat === 24.7898, "map pin at Lomas");
+
+  const cityOnlyNoPin = resolveCommunityMapPoint({
     lat: null,
     lng: null,
     text: "Operación de la Marina y la FGR en Culiacán inhabilitó un complejo clandestino.",
     source: "rss",
     placeLabel: "Culiacán (noticia)",
   });
-  assert(newsPin && Number.isFinite(newsPin.lat), "RSS mentioning Culiacán gets a map pin");
+  assert(cityOnlyNoPin === null, "RSS city-only stays Feed-only (no Centro pin)");
+
+  const staleCityPin = resolveCommunityMapPoint({
+    lat: 24.8091,
+    lng: -107.394,
+    text: "Reportan balacera en Culiacán esta tarde.",
+    placeLabel: "Culiacán (aproximado)",
+    geoSource: "place_bbox",
+  });
+  assert(staleCityPin === null, "city-approx coords do not become Centro map pins");
 
   console.log("coloniaGeocode tests: OK");
 }
