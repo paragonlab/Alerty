@@ -41,11 +41,13 @@ function isVideoUrl(url: string): boolean {
 
 type CommunityPostPreviewProps = {
   post: CommunityPost;
+  /** Notas que cubren el mismo hecho; el pin representa a todas. */
+  sourceCount?: number;
   onClose: () => void;
 };
 
 /** Preview in-app del post (texto + media). Abrir externo es secundario. */
-export function CommunityPostPreview({ post, onClose }: CommunityPostPreviewProps) {
+export function CommunityPostPreview({ post, sourceCount = 1, onClose }: CommunityPostPreviewProps) {
   const theme = useAlertyTheme();
   const styles = createStyles(theme);
   const [mediaFailed, setMediaFailed] = useState(false);
@@ -177,6 +179,12 @@ export function CommunityPostPreview({ post, onClose }: CommunityPostPreviewProp
           <View style={styles.dot} />
           <Text style={styles.metaText}>{formatRelativeTime(post.createdAt)}</Text>
         </View>
+
+        {sourceCount > 1 ? (
+          <Text style={styles.sourceHint}>
+            Un mismo hecho reportado por {sourceCount} fuentes · el mapa lo cuenta una vez.
+          </Text>
+        ) : null}
 
         {post.placeNameSource &&
         post.geocodedFromText &&

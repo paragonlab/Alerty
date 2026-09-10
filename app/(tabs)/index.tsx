@@ -64,6 +64,9 @@ import {
   shouldSuppressAlert,
 } from "../../lib/alerty/utils";
 
+/** Ventana para considerar que varias notas cubren el mismo hecho. */
+const COMMUNITY_CLUSTER_MS = 3 * 60 * 60 * 1000;
+
 export default function MapScreen() {
   const router = useRouter();
   const mapRef = useRef<MapView | null>(null);
@@ -84,6 +87,7 @@ export default function MapScreen() {
     lng: number;
   } | null>(null);
   const [selectedCommunity, setSelectedCommunity] = useState<CommunityPost | null>(null);
+  const [selectedSources, setSelectedSources] = useState(1);
   const [timeMenuOpen, setTimeMenuOpen] = useState(false);
   const [pinTracks, setPinTracks] = useState(true);
   const isWeb = Platform.OS === "web";
@@ -147,6 +151,41 @@ export default function MapScreen() {
     [filteredCommunity],
   );
 
+  // Un hecho lo cubren varios medios y cada nota cae en la misma coordenada de
+  // colonia: 12 posts de 11 medios sobre Chapultepec eran 12 pines y 12 veces el
+  // peso de calor para un solo evento. Se agrupan por cercanía y tiempo, y el
+  // grupo vale un pin y un punto de calor. El Feed conserva todas las fuentes.
+  const communityClusters = useMemo(() => {
+    const clusters: {
+      post: (typeof mapCommunity)[number];
+      sources: number;
+      key: string;
+      lastAt: number;
+    }[] = [];
+
+    const byTime = [...mapCommunity].sort(
+      (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+    );
+
+    for (const post of byTime) {
+      const at = new Date(post.createdAt).getTime();
+      // ~110 m: los pines de gazetteer caen idénticos, las coords reales cercanas juntan.
+      const key = `${post.lat.toFixed(3)},${post.lng.toFixed(3)}`;
+      const open = clusters.find(
+        (c) => c.key === key && at - c.lastAt <= COMMUNITY_CLUSTER_MS,
+      );
+      if (!open) {
+        clusters.push({ post, sources: 1, key, lastAt: at });
+        continue;
+      }
+      open.sources += 1;
+      open.lastAt = at;
+      open.post = post; // el más reciente representa al grupo
+    }
+
+    return clusters;
+  }, [mapCommunity]);
+
   // Culiacán sin colonia en el texto: no se puede pinchar sin inventar el lugar,
   // pero el usuario sí debe saber que existen. Van al Feed, contados aquí.
   // Solo lo que el sync clasificó como incidente: sin categoría entra clima,
@@ -169,13 +208,13 @@ export default function MapScreen() {
       }),
       // Pin aproximado = centro de la ciudad, que cae dentro de Centro. Se ve en el
       // mapa pero no pesa en calor/veredicto para no fabricar riesgo en Centro.
-      ...mapCommunity.flatMap((post) => {
+      ...communityClusters.flatMap(({ post }) => {
         if (post.approximate) return [];
         const point = toCommunityHeatPoint(post);
         return point ? [point] : [];
       }),
     ],
-    [filteredAlerts, mapCommunity],
+    [filteredAlerts, communityClusters],
   );
 
   const heatmapPoints = useMemo(() => buildHeatPoints(heatSources), [heatSources]);
@@ -323,11 +362,13 @@ export default function MapScreen() {
         id: alert.id,
         dist: calculateDistance(lat, lng, alert.lat, alert.lng),
       }));
-    const posts = mapCommunity
-      .filter((post) => post.categoryGuess === category)
-      .map((post) => ({
+    // Desde los clusters: el calor de la celda lo aporta el grupo, no cada nota.
+    const posts = communityClusters
+      .filter(({ post }) => post.categoryGuess === category)
+      .map(({ post, sources }) => ({
         kind: "community" as const,
         post,
+        sources,
         dist: calculateDistance(lat, lng, post.lat, post.lng),
       }));
     const ranked = [...alerts, ...posts].sort((a, b) => a.dist - b.dist);
@@ -340,6 +381,7 @@ export default function MapScreen() {
     }
     setRiskResult(null);
     setSelectedCommunity(best.post);
+    setSelectedSources(best.sources);
   };
 
   const goToDestination = (lat: number, lng: number, label: string) => {
@@ -543,8 +585,8 @@ export default function MapScreen() {
               </Marker>
             ))}
 
-            {/* Posts de comunidad desde X — pin estático, no GlowMarker; solo con geo usable */}
-            {mapCommunity.map((post) => (
+            {/* Posts de comunidad desde X — pin estático, no GlowMarker; un pin por hecho */}
+            {communityClusters.map(({ post, sources }) => (
               <Marker
                 key={`x-${post.id}`}
                 coordinate={{ latitude: post.lat, longitude: post.lng }}
@@ -553,6 +595,7 @@ export default function MapScreen() {
                   void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                   setRiskResult(null);
                   setSelectedCommunity(post);
+                  setSelectedSources(sources);
                 }}
               >
                 <CommunityMarker
@@ -886,7 +929,11 @@ export default function MapScreen() {
         {selectedCommunity ? (
           <CommunityPostPreview
             post={selectedCommunity}
-            onClose={() => setSelectedCommunity(null)}
+            sourceCount={selectedSources}
+            onClose={() => {
+              setSelectedCommunity(null);
+              setSelectedSources(1);
+            }}
           />
         ) : null}
       </View>
