@@ -7,7 +7,7 @@
 **What it does:** Mapa en vivo de Culiacán. El calor y los pines muestran dónde hay peligro. Los pulsos mezclan reportes ciudadanos, X y RSS de noticieros. Compartes el veredicto de tu zona por WhatsApp.
 **Product category:** App de seguridad ciudadana / mapa de alertas
 **Product type:** App móvil Expo + web (Vercel) + Supabase
-**Business model:** Gratis (mapa, calor, pulsos). Pulso Plus: zonas seguras para familia, insignia, sin anuncios.
+**Business model:** Gratis (mapa, calor, pulsos, SOS). Círculo $39/mes: más zonas vigiladas. Aliado $499/mes: pin útil en el mapa. Noticieros: link e insignia del medio, gratis.
 
 ## Target Audience
 **Target companies:** N/A (B2C)
