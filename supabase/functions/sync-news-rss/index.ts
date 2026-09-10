@@ -201,8 +201,12 @@ Deno.serve(async (req) => {
         if (isOtherCityStory(blob)) continue;
         if (!EVENT_HINT.test(blob) && !mentionsCuliacan(blob)) continue;
 
+        // Geocodificar sobre el mismo extracto que se guarda: el cuerpo completo
+        // termina en una lista de sitios incidentales ("un auto incendiado en la
+        // colonia X, un robo en la colonia Y") que no es dónde ocurrió la nota.
+        const excerpt = item.description.slice(0, 800) || item.title;
         const geo = resolveCommunityGeo({
-          text: item.description,
+          text: excerpt,
           title: item.title,
           publisherPlaceLabel: null,
           fallbackLabel: "Culiacán (noticia)",
@@ -215,7 +219,7 @@ Deno.serve(async (req) => {
           external_id: externalId,
           author_handle: feed.handle,
           author_name: feed.name,
-          text: item.description.slice(0, 800) || item.title,
+          text: excerpt,
           url: item.link,
           media_url: item.mediaUrl,
           author_avatar_url: feed.logoUrl ?? null,
