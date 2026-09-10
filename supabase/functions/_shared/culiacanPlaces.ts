@@ -56,6 +56,36 @@ export const CULIACAN_PLACES: CuliacanPlace[] = [
   { name: "Los Ángeles", lat: 24.788, lng: -107.378, aliases: ["Los Angeles"] },
   { name: "Isla Musala", lat: 24.818, lng: -107.392, aliases: ["Musala"] },
   { name: "El Diez", lat: 24.732, lng: -107.448 },
+  // Altas desde menciones reales en community_posts; coords de OpenStreetMap
+  // (límite administrativo de la colonia), validadas dentro de Culiacán.
+  { name: "Prados del Sur", lat: 24.7526, lng: -107.3799 },
+  {
+    // Los medios la escriben de cuatro formas distintas; OSM la registra con "Boulevard".
+    // No confundir con Boulevares ni con el bulevar de Lomas de San Isidro.
+    name: "Lomas del Boulevard",
+    lat: 24.7882,
+    lng: -107.4263,
+    aliases: [
+      "Lomas del Bulevar",
+      "Lomas de Boulevard",
+      "Lomas de Bulevar",
+      "Lomas Boulevard",
+      "Lomas Bulevar",
+    ],
+  },
+  {
+    // La colonia, no la avenida homónima: están a ~5 km una de otra.
+    name: "Gustavo Díaz Ordaz",
+    lat: 24.7702,
+    lng: -107.4213,
+    aliases: ["Gustavo Diaz Ordaz", "Díaz Ordaz", "Diaz Ordaz"],
+  },
+  { name: "Rafael Buelna", lat: 24.7883, lng: -107.3779 },
+  { name: "Renato Vega", lat: 24.7804, lng: -107.3487, aliases: ["Renato Vega Amador"] },
+  { name: "Felipe Ángeles", lat: 24.7616, lng: -107.4161, aliases: ["Felipe Angeles"] },
+  { name: "Amado Nervo", lat: 24.7713, lng: -107.3918 },
+  { name: "Los Mezcales", lat: 24.8578, lng: -107.395, aliases: ["Mezcales"] },
+  { name: "Alturas del Sur", lat: 24.7632, lng: -107.3521 },
   {
     name: "Jesús María",
     lat: 24.9205,

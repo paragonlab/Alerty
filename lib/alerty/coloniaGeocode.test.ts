@@ -167,6 +167,42 @@ function run() {
   });
   assert(storedApprox === null, "stored city-approx pin is dropped, no backfill needed");
 
+  // Los medios escriben esta colonia de cuatro formas; todas son el mismo lugar.
+  for (const variant of [
+    "Reportan disparos en la colonia Lomas de Boulevard, Culiacán",
+    "Balacera en la colonia Lomas del Bulevar, en Culiacán, Sinaloa",
+    "Los hechos se registraron en la colonia Lomas del Boulevard, Culiacán",
+  ]) {
+    const hit = resolveTextColonia(variant);
+    assert(
+      hit?.place.name === "Lomas del Boulevard",
+      `Lomas del Boulevard from "${variant.slice(0, 40)}", got ${hit?.place.name}`,
+    );
+  }
+
+  // Vecinas que se le parecen y no deben absorberla.
+  assert(
+    resolveTextColonia("Reportan bloqueo en la colonia Boulevares, Culiacán")?.place.name ===
+      "Boulevares",
+    "Boulevares stays Boulevares",
+  );
+  assert(
+    resolveTextColonia("Enfrentamiento en Lomas de San Isidro, Culiacán")?.place.name ===
+      "Lomas de San Isidro",
+    "Lomas de San Isidro stays itself",
+  );
+
+  // La colonia Díaz Ordaz, no la avenida homónima a ~5 km.
+  const diaz = resolveTextColonia("Robo de vehículo en la colonia Gustavo Díaz Ordaz, Culiacán");
+  assert(diaz?.place.name === "Gustavo Díaz Ordaz", `Díaz Ordaz, got ${diaz?.place.name}`);
+  assert(
+    Math.abs(diaz!.place.lat - 24.7702) < 0.001 && Math.abs(diaz!.place.lng + 107.4213) < 0.001,
+    "Díaz Ordaz uses the colonia coordinate, not the avenue",
+  );
+
+  const prados = resolveTextColonia("Ataque armado en la colonia Prados del Sur, Culiacán");
+  assert(prados?.place.name === "Prados del Sur", `Prados del Sur, got ${prados?.place.name}`);
+
   console.log("coloniaGeocode tests: OK");
 }
 
