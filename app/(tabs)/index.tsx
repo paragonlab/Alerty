@@ -25,6 +25,7 @@ import {
   type RiskAssessment,
 } from "../../lib/alerty/risk";
 import {
+  isOtherSinaloaCityStory,
   nearestCuliacanPlace,
   resolveCommunityMapPoint,
   resolveDestinationQuery,
@@ -139,6 +140,20 @@ export default function MapScreen() {
       }),
     [filteredCommunity],
   );
+
+  // Culiacán sin colonia en el texto: no se puede pinchar sin inventar el lugar,
+  // pero el usuario sí debe saber que existen. Van al Feed, contados aquí.
+  // Solo lo que el sync clasificó como incidente: sin categoría entra clima,
+  // obra pública y notas de agenda, que no son "lo que está pasando".
+  const unlocatedCount = useMemo(() => {
+    const pinned = new Set(mapCommunity.map((post) => post.id));
+    return filteredCommunity.filter(
+      (post) =>
+        Boolean(post.categoryGuess) &&
+        !pinned.has(post.id) &&
+        !isOtherSinaloaCityStory(post.text),
+    ).length;
+  }, [filteredCommunity, mapCommunity]);
 
   const heatSources = useMemo(
     () => [
@@ -715,6 +730,25 @@ export default function MapScreen() {
               ) : null}
             </View>
 
+            {!riskResult && unlocatedCount > 0 ? (
+              <Pressable
+                style={styles.cityStrip}
+                onPress={() => {
+                  void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  router.navigate("/(tabs)/feed");
+                }}
+                accessibilityLabel={`Ver ${unlocatedCount} en el Feed`}
+              >
+                <Ionicons name="newspaper-outline" size={13} color={theme.colors.textMuted} />
+                <Text style={styles.cityStripText} numberOfLines={1}>
+                  {unlocatedCount === 1
+                    ? "1 reporte en Culiacán sin ubicación confirmada"
+                    : `${unlocatedCount} reportes en Culiacán sin ubicación confirmada`}
+                </Text>
+                <Text style={styles.cityStripCta}>Ver</Text>
+              </Pressable>
+            ) : null}
+
             {riskResult ? (
               <View style={styles.destMeta}>
                 {riskResult.assessment.count === 0 ? (
@@ -823,7 +857,11 @@ export default function MapScreen() {
           mapCommunity.length === 0 && (
           <View style={styles.emptyOverlay} pointerEvents="none">
             <Ionicons name="shield-outline" size={28} color={theme.colors.textMuted} />
-            <Text style={styles.emptyText}>Sin pulsos en esta área</Text>
+            <Text style={styles.emptyText}>
+              {unlocatedCount > 0
+                ? "Nada ubicado en el mapa · revisa el Feed"
+                : "Sin pulsos en esta área"}
+            </Text>
           </View>
         )}
 
@@ -951,6 +989,28 @@ const createStyles = (theme: any, themeMode: string) => StyleSheet.create({
     fontSize: 11,
     fontFamily: theme.fonts.body,
     color: theme.colors.textMuted,
+  },
+  cityStrip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: theme.radius.pill,
+    backgroundColor: themeMode === "light" ? "rgba(255,255,255,0.72)" : "rgba(255,255,255,0.06)",
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+  },
+  cityStripText: {
+    flex: 1,
+    fontSize: 11,
+    fontFamily: theme.fonts.body,
+    color: theme.colors.textMuted,
+  },
+  cityStripCta: {
+    fontSize: 11,
+    fontFamily: theme.fonts.heading,
+    color: theme.colors.accent,
   },
   destChips: {
     flexDirection: "row",
