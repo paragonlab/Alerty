@@ -35,7 +35,11 @@ import { shareZonePulse } from "../../lib/alerty/share";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import * as Location from "expo-location";
-import { getCurrentCoords } from "../../lib/alerty/geolocation";
+import {
+  getCurrentCoords,
+  LocationRequestError,
+  type LocationRequestCode,
+} from "../../lib/alerty/geolocation";
 import * as Haptics from "expo-haptics";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
@@ -66,6 +70,8 @@ export default function MapScreen() {
   const searchInputRef = useRef<TextInput>(null);
   const [locating, setLocating] = useState(false);
   const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [locationChecked, setLocationChecked] = useState(false);
+  const [locationError, setLocationError] = useState<LocationRequestCode | null>(null);
   const [showGrid, setShowGrid] = useState(false);
   const [searchText, setSearchText] = useState("");
   const [searchFocused, setSearchFocused] = useState(false);
@@ -260,7 +266,11 @@ export default function MapScreen() {
         const coords = await getCurrentCoords();
         setUserLocation(coords);
         useAlertyStore.getState().setUserCoords(coords);
-      } catch {}
+      } catch (e) {
+        setLocationError(e instanceof LocationRequestError ? e.code : "unavailable");
+      } finally {
+        setLocationChecked(true);
+      }
     })();
   }, []);
 
@@ -275,6 +285,7 @@ export default function MapScreen() {
       setLocating(true);
       const coords = await getCurrentCoords();
       setUserLocation(coords);
+      setLocationError(null);
       useAlertyStore.getState().setUserCoords(coords);
       mapRef.current?.animateToRegion({
         latitude: coords.latitude,
@@ -283,7 +294,9 @@ export default function MapScreen() {
         longitudeDelta: 0.04,
       });
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    } catch {
+    } catch (e) {
+      // Alert es no-op en react-native-web: el motivo también va a la barra de zona.
+      setLocationError(e instanceof LocationRequestError ? e.code : "unavailable");
       Alert.alert(
         "Ubicación",
         isWeb
@@ -396,6 +409,10 @@ export default function MapScreen() {
     setShowGrid(!showGrid);
   };
 
+  // Sin ubicación el veredicto se calcularía en el centro de la ciudad y se leería
+  // como "tu zona". Mejor pedir el permiso que responder por una colonia ajena.
+  const needsLocation = locationChecked && !userLocation;
+
   const headerStatusText = riskResult
     ? `${(riskResult.destination ? GO_DEST_LABEL : GO_OUT_LABEL)[riskResult.assessment.level]} · ${riskResult.label}`
     : nearbyAlert
@@ -404,7 +421,33 @@ export default function MapScreen() {
             ? `${Math.round(nearbyAlert.dist * 1000)} m`
             : `${nearbyAlert.dist.toFixed(1)} km`
         }`
-      : `${GO_OUT_LABEL[zoneAssessment.level]} · ${zonePlaceLabel}`;
+      : needsLocation
+        ? locationError === "denied"
+          ? isWeb
+            ? "Ubicación bloqueada · permítela en el navegador"
+            : "Ubicación bloqueada · actívala en ajustes"
+          : locationError
+            ? "No se pudo ubicarte · toca para reintentar"
+            : "Activa tu ubicación para ver tu zona"
+        : `${GO_OUT_LABEL[zoneAssessment.level]} · ${zonePlaceLabel}`;
+
+  const stripTone = riskResult
+    ? riskColor(riskResult.assessment.level, theme.colors)
+    : nearbyAlert
+      ? theme.colors.mapOrange
+      : needsLocation
+        ? theme.colors.textMuted
+        : riskColor(zoneAssessment.level, theme.colors);
+
+  const stripIcon = riskResult
+    ? riskResult.assessment.level === "tranquila"
+      ? "shield-checkmark"
+      : "warning"
+    : nearbyAlert
+      ? "warning"
+      : needsLocation
+        ? "locate"
+        : "shield-checkmark";
 
   const styles = createStyles(theme, themeMode);
 
@@ -601,7 +644,12 @@ export default function MapScreen() {
             <Pressable
               style={styles.zoneStrip}
               onPress={() => {
-                if (riskResult || !nearbyAlert) return;
+                if (riskResult) return;
+                if (needsLocation) {
+                  void handleCenterLocation();
+                  return;
+                }
+                if (!nearbyAlert) return;
                 void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
                 router.push(`/alert/${nearbyAlert.alert.id}`);
               }}
@@ -610,46 +658,16 @@ export default function MapScreen() {
                   ? `${(riskResult.destination ? GO_DEST_LABEL : GO_OUT_LABEL)[riskResult.assessment.level]} ${riskResult.label}`
                   : nearbyAlert
                     ? `Alerta cerca: ${CATEGORY_LABELS[nearbyAlert.alert.category]}`
-                    : `${GO_OUT_LABEL[zoneAssessment.level]} en ${zonePlaceLabel}`
+                    : needsLocation
+                      ? "Activa tu ubicación para ver tu zona"
+                      : `${GO_OUT_LABEL[zoneAssessment.level]} en ${zonePlaceLabel}`
               }
             >
-              <View
-                style={[
-                  styles.zoneDot,
-                  {
-                    backgroundColor: riskResult
-                      ? riskColor(riskResult.assessment.level, theme.colors)
-                      : nearbyAlert
-                        ? theme.colors.mapOrange
-                        : riskColor(zoneAssessment.level, theme.colors),
-                  },
-                ]}
-              >
-                <Ionicons
-                  name={
-                    riskResult
-                      ? riskResult.assessment.level === "tranquila"
-                        ? "shield-checkmark"
-                        : "warning"
-                      : nearbyAlert
-                        ? "warning"
-                        : "shield-checkmark"
-                  }
-                  size={11}
-                  color="#fff"
-                />
+              <View style={[styles.zoneDot, { backgroundColor: stripTone }]}>
+                <Ionicons name={stripIcon} size={11} color="#fff" />
               </View>
               <Text
-                style={[
-                  styles.zoneStripText,
-                  {
-                    color: riskResult
-                      ? riskColor(riskResult.assessment.level, theme.colors)
-                      : nearbyAlert
-                        ? theme.colors.mapOrange
-                        : riskColor(zoneAssessment.level, theme.colors),
-                  },
-                ]}
+                style={[styles.zoneStripText, { color: stripTone }]}
                 numberOfLines={1}
               >
                 {headerStatusText}
@@ -678,7 +696,7 @@ export default function MapScreen() {
                     <Ionicons name="close" size={16} color={theme.colors.textMuted} />
                   </Pressable>
                 </>
-              ) : nearbyAlert ? (
+              ) : nearbyAlert || needsLocation ? (
                 <Ionicons name="chevron-forward" size={14} color={theme.colors.textMuted} />
               ) : (
                 <Pressable
