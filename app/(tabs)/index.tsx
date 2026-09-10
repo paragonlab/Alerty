@@ -134,6 +134,7 @@ export default function MapScreen() {
           lat: point.lat,
           lng: point.lng,
           placeLabel: point.placeLabel,
+          approximate: point.approximate,
         }];
       }),
     [filteredCommunity],
@@ -145,7 +146,10 @@ export default function MapScreen() {
         const point = toAlertHeatPoint(alert);
         return point ? [point] : [];
       }),
+      // Pin aproximado = centro de la ciudad, que cae dentro de Centro. Se ve en el
+      // mapa pero no pesa en calor/veredicto para no fabricar riesgo en Centro.
       ...mapCommunity.flatMap((post) => {
+        if (post.approximate) return [];
         const point = toCommunityHeatPoint(post);
         return point ? [point] : [];
       }),
