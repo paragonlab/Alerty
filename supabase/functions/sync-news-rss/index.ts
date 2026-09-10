@@ -210,7 +210,6 @@ Deno.serve(async (req) => {
           title: item.title,
           publisherPlaceLabel: null,
           fallbackLabel: "Culiacán (noticia)",
-          allowCityApprox: true,
           requireCuliacanMention: true,
         });
         const externalId = item.link.slice(0, 240);
