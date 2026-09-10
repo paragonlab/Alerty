@@ -10,6 +10,7 @@ import {
   resolveDestinationQuery,
   suggestDestinationPlaces,
   CULIACAN_PLACES,
+  CITY_APPROX_LABEL,
 } from "./coloniaGeocode";
 
 function assert(cond: unknown, msg: string): asserts cond {
@@ -138,14 +139,33 @@ function run() {
     "Enfrentamiento en Jesús María, Culiacán deja personas detenidas.",
   );
   assert(jesus?.place.name === "Jesús María", `Jesús María from news text, got ${jesus?.place.name}`);
-  const newsPin = resolveCommunityMapPoint({
+  const newsNoColonia = resolveCommunityMapPoint({
     lat: null,
     lng: null,
     text: "Operación de la Marina y la FGR en Culiacán inhabilitó un complejo clandestino.",
     source: "rss",
     placeLabel: "Culiacán (noticia)",
   });
-  assert(newsPin && Number.isFinite(newsPin.lat), "RSS mentioning Culiacán gets a map pin");
+  assert(newsNoColonia === null, "RSS without a colonia stays off the map");
+
+  const newsColonia = resolveCommunityMapPoint({
+    lat: null,
+    lng: null,
+    text: "Reportan balacera en la colonia Las Quintas, en Culiacán.",
+    source: "rss",
+    placeLabel: "Culiacán (noticia)",
+  });
+  assert(newsColonia?.placeLabel === "Las Quintas", "RSS with a colonia pins on it");
+  assert(newsColonia?.approximate === false, "resolved colonia is not approximate");
+
+  const storedApprox = resolveCommunityMapPoint({
+    lat: 24.8105,
+    lng: -107.3928,
+    text: "Enfrentamiento en Culiacán.",
+    source: "rss",
+    placeLabel: CITY_APPROX_LABEL,
+  });
+  assert(storedApprox === null, "stored city-approx pin is dropped, no backfill needed");
 
   console.log("coloniaGeocode tests: OK");
 }

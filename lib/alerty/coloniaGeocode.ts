@@ -446,7 +446,11 @@ export function resolveCommunityGeo(opts: {
   };
 }
 
-/** Mapa: coords persistidas, o colonia/Culiacán resuelta del texto (RSS suele llegar sin lat). */
+/**
+ * Mapa: coords persistidas, o colonia resuelta del texto.
+ * Sin colonia clara no hay pin — el post vive en el Feed. Un pin de "ciudad
+ * aproximada" cae sobre Centro y se lee como un evento ubicado ahí.
+ */
 export function resolveCommunityMapPoint(post: {
   lat: number | null;
   lng: number | null;
@@ -461,18 +465,19 @@ export function resolveCommunityMapPoint(post: {
     Number.isFinite(post.lat) &&
     Number.isFinite(post.lng)
   ) {
+    // Filas RSS ya guardadas con pin de ciudad: no pinchar aunque traigan lat/lng.
+    if (isCityApproxLabel(post.placeLabel)) return null;
     return {
       lat: post.lat,
       lng: post.lng,
       placeLabel: post.placeLabel ?? CITY_APPROX_LABEL,
-      approximate: isCityApproxLabel(post.placeLabel),
+      approximate: false,
     };
   }
   const geo = resolveCommunityGeo({
     text: post.text,
     publisherPlaceLabel: post.placeLabel,
     fallbackLabel: post.placeLabel ?? CITY_APPROX_LABEL,
-    allowCityApprox: true,
     requireCuliacanMention: true,
   });
   if (!geo.mapEligible || geo.lat == null || geo.lng == null) return null;
