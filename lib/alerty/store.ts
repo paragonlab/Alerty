@@ -127,6 +127,7 @@ type AlertyState = {
     lng: number;
   }) => Promise<{ error: string | null }>;
   deleteWatchedZone: (id: string) => Promise<{ error: string | null }>;
+  flagAlert: (alertId: string, reason?: string) => Promise<{ error: string | null }>;
   feedViewMode: "list" | "reels";
   setFeedViewMode: (mode: "list" | "reels") => void;
   reelsInitialAlertId: string | null;
@@ -657,6 +658,26 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
     set((state) => ({
       watchedZones: state.watchedZones.filter((zone) => zone.id !== id),
     }));
+    return { error: null };
+  },
+  flagAlert: async (alertId, reason) => {
+    if (!isSupabaseConfigured || !supabase) {
+      return { error: "No hay conexión." };
+    }
+    const { currentUser } = get();
+    if (!currentUser.id || currentUser.id === "local-user") {
+      return { error: "Inicia sesión para reportar un pulso." };
+    }
+    const { error } = await supabase
+      .from("alert_flags")
+      .insert({ alert_id: alertId, user_id: currentUser.id, reason: reason ?? null });
+    // La llave primaria es (alert_id, user_id): repetir no es un fallo que mostrar.
+    if (error && !error.message.includes("duplicate key")) {
+      return { error: error.message };
+    }
+    // Se oculta de inmediato para quien denuncia. Para todos los demás hacen
+    // falta tres denunciantes distintos; de eso se encarga el trigger.
+    set((state) => ({ alerts: state.alerts.filter((a) => a.id !== alertId) }));
     return { error: null };
   },
   loadCommunityPosts: async (opts) => {

@@ -34,7 +34,7 @@ import type { AlertMedia, AlertUpdate } from "../../lib/alerty/types";
 export default function AlertDetailScreen() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { alerts, voteAlert, votedAlerts, followingAlertIds, toggleFollowAlert, addUpdateToAlert, getReportingRange, themeMode, openReels } = useAlertyStore();
+  const { alerts, voteAlert, votedAlerts, followingAlertIds, toggleFollowAlert, addUpdateToAlert, getReportingRange, themeMode, openReels, flagAlert } = useAlertyStore();
   const theme = useAlertyTheme();
   const isDark = themeMode === "darkHighVisibility";
   const styles = createStyles(theme, themeMode);
@@ -46,6 +46,7 @@ export default function AlertDetailScreen() {
   const [publishing, setPublishing] = useState(false);
   const [recording, setRecording] = useState<Audio.Recording | null>(null);
   const [isRecordingVoice, setIsRecordingVoice] = useState(false);
+  const [flagging, setFlagging] = useState(false);
 
   const alert = useMemo(() => alerts.find((item) => item.id === id), [alerts, id]);
   const isFollowing = useMemo(() => followingAlertIds.includes(id ?? ""), [followingAlertIds, id]);
@@ -131,6 +132,20 @@ export default function AlertDetailScreen() {
     } catch (error) {
       console.error(error);
     }
+  };
+
+  const handleFlag = async () => {
+    if (!(await requireSession(`/alert/${alert.id}`))) return;
+    setFlagging(true);
+    const { error } = await flagAlert(alert.id);
+    setFlagging(false);
+    if (error) {
+      Alert.alert("Reportar", error);
+      return;
+    }
+    // Deja de verlo quien reporta; para bajarlo del mapa hacen falta tres.
+    Alert.alert("Gracias", "Dejarás de ver este pulso. Lo revisamos con otros reportes.");
+    safeBack(router);
   };
 
   const handleAddUpdate = async () => {
@@ -540,6 +555,18 @@ export default function AlertDetailScreen() {
             ))}
           </View>
         </View>
+
+        <Pressable
+          style={styles.flagButton}
+          onPress={handleFlag}
+          disabled={flagging}
+          accessibilityLabel="Reportar este pulso como falso o incorrecto"
+        >
+          <Ionicons name="flag-outline" size={13} color={theme.colors.textMuted} />
+          <Text style={styles.flagText}>
+            {flagging ? "Enviando…" : "Reportar pulso falso o mal ubicado"}
+          </Text>
+        </Pressable>
       </ScrollView>
     </SafeAreaView>
   );
@@ -573,6 +600,19 @@ const createStyles = (theme: any, themeMode: string) => StyleSheet.create({
     backgroundColor: theme.colors.surface,
     alignItems: "center",
     justifyContent: "center",
+  },
+  flagButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 14,
+    marginTop: 8,
+  },
+  flagText: {
+    fontSize: 12,
+    fontFamily: theme.fonts.body,
+    color: theme.colors.textMuted,
   },
   shareButton: {
     width: 44,
