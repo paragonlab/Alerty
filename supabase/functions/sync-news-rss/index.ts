@@ -26,12 +26,11 @@ const DEFAULT_FEEDS: Array<{ name: string; handle: string; url: string; logoUrl?
     url: "https://lineadirectaportal.com/feed",
     logoUrl: "https://www.google.com/s2/favicons?domain=lineadirectaportal.com&sz=64",
   },
-  {
-    name: "Ríodoce",
-    handle: "@Riodoce",
-    url: "https://riodoce.mx/feed",
-    logoUrl: "https://www.google.com/s2/favicons?domain=riodoce.mx&sz=64",
-  },
+  // Ríodoce apagó su RSS a nivel de hosting: riodoce.mx/feed y toda ruta de feed
+  // responden 500 con "GridPane Security has disabled the RSS Feed". No es
+  // intermitente ni bloqueo por user-agent. Nunca entró una sola nota por aquí y
+  // el error fijo tapaba los fallos reales de los demás feeds. Sigue llegando
+  // por X como @Riodoce_mx. No volver a agregarlo sin comprobar que respondan.
   {
     name: "Noroeste",
     handle: "@Noroeste",
