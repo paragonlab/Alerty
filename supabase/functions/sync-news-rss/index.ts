@@ -230,7 +230,10 @@ Deno.serve(async (req) => {
           geocoded_from_text: geo.geocodedFromText,
           created_at: item.pubDate ? new Date(item.pubDate).toISOString() : new Date().toISOString(),
           fetched_at: new Date().toISOString(),
-          category_guess: guessCategory(blob),
+          // Mismo criterio que el geocode: clasificar sobre el titular y el extracto
+          // que se guardan. En el cuerpo completo, una columna de análisis menciona
+          // "balacera" en el último párrafo y entraba con severidad de tiroteo real.
+          category_guess: guessCategory(`${item.title} ${excerpt}`),
           is_demo: false,
           trust_tier: "news",
         });
