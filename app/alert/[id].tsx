@@ -383,7 +383,7 @@ export default function AlertDetailScreen() {
                     color={myVote === "downvote" ? theme.colors.danger : theme.colors.text}
                   />
                   <Text style={[styles.voteText, myVote === "downvote" && { color: theme.colors.danger }]}>
-                    Falsa · {alert.downvotes}
+                    No me consta · {alert.downvotes}
                   </Text>
                 </Pressable>
               </>
