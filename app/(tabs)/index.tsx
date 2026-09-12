@@ -31,6 +31,7 @@ import {
   resolveDestinationQuery,
   suggestDestinationPlaces,
 } from "../../lib/alerty/coloniaGeocode";
+import { summarizeWindow, TONE_LABEL } from "../../lib/alerty/daySummary";
 import { shareZonePulse } from "../../lib/alerty/share";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
@@ -185,6 +186,34 @@ export default function MapScreen() {
 
     return clusters;
   }, [mapCommunity]);
+
+  // Lo que sabemos de la ventana, esté ubicado o no. El mapa vacío no significa
+  // que no pase nada: significa que nada de eso tiene colonia confirmada.
+  const daySummary = useMemo(
+    () =>
+      summarizeWindow({
+        alerts: filteredAlerts,
+        communityEvents: [
+          ...communityClusters.map(({ post }) => ({
+            category: post.categoryGuess,
+            lat: post.lat,
+            lng: post.lng,
+          })),
+          // Los del Feed sin colonia: cuentan para el total, no para "cerca".
+          ...filteredCommunity
+            .filter(
+              (post) =>
+                Boolean(post.categoryGuess) &&
+                !communityClusters.some((c) => c.post.id === post.id) &&
+                !isOtherSinaloaCityStory(post.text),
+            )
+            .map((post) => ({ category: post.categoryGuess })),
+        ],
+        timeFilter,
+        userLocation,
+      }),
+    [filteredAlerts, communityClusters, filteredCommunity, timeFilter, userLocation],
+  );
 
   // Culiacán sin colonia en el texto: no se puede pinchar sin inventar el lugar,
   // pero el usuario sí debe saber que existen. Van al Feed, contados aquí.
@@ -918,11 +947,19 @@ export default function MapScreen() {
           mapCommunity.length === 0 && (
           <View style={styles.emptyOverlay} pointerEvents="none">
             <Ionicons name="shield-outline" size={28} color={theme.colors.textMuted} />
+            <Text style={styles.emptyTone}>{TONE_LABEL[daySummary.tone]}</Text>
             <Text style={styles.emptyText}>
-              {unlocatedCount > 0
-                ? "Nada ubicado en el mapa · revisa el Feed"
-                : "Sin pulsos en esta área"}
+              {daySummary.total === 0
+                ? `Sin reportes en ${daySummary.windowLabel}`
+                : daySummary.graves > 0
+                  ? `${daySummary.graves} ${daySummary.graves === 1 ? "hecho grave" : "hechos graves"} en ${daySummary.windowLabel}`
+                  : `${daySummary.total} ${daySummary.total === 1 ? "reporte" : "reportes"} en ${daySummary.windowLabel}`}
             </Text>
+            {unlocatedCount > 0 ? (
+              <Text style={styles.emptyHint}>
+                Ninguno con ubicación confirmada · están en el Feed
+              </Text>
+            ) : null}
           </View>
         )}
 
@@ -1305,9 +1342,20 @@ const createStyles = (theme: any, themeMode: string) => StyleSheet.create({
     borderWidth: 1,
     borderColor: theme.colors.border,
   },
+  emptyTone: {
+    color: theme.colors.text,
+    fontSize: 15,
+    fontFamily: theme.fonts.heading,
+  },
   emptyText: {
     color: theme.colors.textMuted,
     fontSize: 13,
     fontFamily: theme.fonts.body,
+  },
+  emptyHint: {
+    color: theme.colors.textMuted,
+    fontSize: 11,
+    fontFamily: theme.fonts.body,
+    opacity: 0.8,
   },
 });

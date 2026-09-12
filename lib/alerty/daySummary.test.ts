@@ -66,6 +66,22 @@ function run() {
   assert(conUbicacion.total === 2, "cuenta las dos en total");
   assert(conUbicacion.cerca === 1, `solo una dentro del radio, got ${conUbicacion.cerca}`);
 
+  // El caso del estado vacío: hay hechos, ninguno ubicado. No puede decir
+  // "día tranquilo" solo porque no supimos dónde ocurrieron.
+  const sinUbicar = summarizeWindow({
+    alerts: [],
+    communityEvents: [
+      { category: "balacera" },
+      { category: "balacera" },
+      { category: "enfrentamiento" },
+    ],
+    timeFilter: "24h",
+    userLocation: { latitude: 24.8, longitude: -107.39 },
+  });
+  assert(sinUbicar.total === 3, `cuenta los no ubicados, got ${sinUbicar.total}`);
+  assert(sinUbicar.tone === "tenso", `tres graves sin ubicar siguen siendo tensos, got ${sinUbicar.tone}`);
+  assert(sinUbicar.cerca === 0, "sin coords no cuentan como cerca");
+
   console.log("daySummary tests: OK");
 }
 

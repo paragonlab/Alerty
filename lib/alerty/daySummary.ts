@@ -45,8 +45,14 @@ export const TONE_LABEL: Record<DayTone, string> = {
 
 type SummaryPoint = {
   category?: AlertCategory | string | null;
-  lat: number;
-  lng: number;
+  /**
+   * Opcionales a propósito: un hecho sin colonia confirmada sigue siendo un
+   * hecho y cuenta para el total. Solo queda fuera de "cerca", que sí necesita
+   * coordenadas. Si se exigieran, el resumen diría "día tranquilo" justo cuando
+   * hay decenas de reportes que no pudimos ubicar — el peor momento para callar.
+   */
+  lat?: number | null;
+  lng?: number | null;
 };
 
 /**
@@ -84,14 +90,12 @@ export function summarizeWindow(opts: {
 
   let cerca: number | null = null;
   if (opts.userLocation) {
+    const aqui = opts.userLocation;
     cerca = points.filter(
       (p) =>
-        calculateDistance(
-          opts.userLocation!.latitude,
-          opts.userLocation!.longitude,
-          p.lat,
-          p.lng,
-        ) <= RISK_RADIUS_KM,
+        typeof p.lat === "number" &&
+        typeof p.lng === "number" &&
+        calculateDistance(aqui.latitude, aqui.longitude, p.lat, p.lng) <= RISK_RADIUS_KM,
     ).length;
   }
 
