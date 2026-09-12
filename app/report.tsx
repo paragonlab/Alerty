@@ -542,9 +542,9 @@ export default function ReportScreen() {
       } as any);
 
       const alertId = inserted.id;
-      void supabase.functions
-        .invoke("notify-on-alert", { body: { type: "alert", alertId } })
-        .catch(() => {});
+      // El aviso lo dispara el trigger alerts_notify. No se invoca desde aquí:
+      // duplicaría el push, y sobre todo dejaría el aviso a merced de que este
+      // teléfono siga con señal justo después de reportar.
       if (media.length > 0) {
         void (async () => {
           const uploaded = await uploadMediaBatch(media);

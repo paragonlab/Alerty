@@ -394,9 +394,8 @@ export function AlertyTabBar({ state, navigation }: TabBarProps) {
         title,
         description,
       } as any);
-      void supabase.functions
-        .invoke("notify-on-alert", { body: { type: "alert", alertId: data.id } })
-        .catch(() => {});
+      // El SOS lo avisa el trigger alerts_notify, no este teléfono: en una
+      // emergencia es justo cuando puede quedarse sin señal o cerrarse.
     } else {
       addAlert({
         id: `sos-${Date.now()}`,

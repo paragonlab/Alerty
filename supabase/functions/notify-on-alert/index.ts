@@ -1,5 +1,6 @@
 // Envía push notifications cuando se crea una alerta o una actualización.
-// Invocada desde el cliente: supabase.functions.invoke("notify-on-alert", { body })
+// Invocada por el trigger alerts_notify (service_role) y también desde el
+// cliente para las actualizaciones de hilo.
 //   body = { type: "alert", alertId }    -> críticas: push a todos
 //   body = { type: "update", updateId }  -> push a los seguidores de la alerta
 //
@@ -93,20 +94,29 @@ Deno.serve(async (req) => {
   const authHeader = req.headers.get("authorization");
   if (!authHeader) return new Response("Unauthorized", { status: 401, headers: corsHeaders });
 
-  // Verifica identidad del invocador
-  const userClient = createClient(
-    Deno.env.get("SUPABASE_URL")!,
-    Deno.env.get("SUPABASE_ANON_KEY")!,
-    { global: { headers: { Authorization: authHeader } } },
-  );
-  const { data: { user }, error: userErr } = await userClient.auth.getUser();
-  if (userErr || !user) return new Response("Unauthorized", { status: 401, headers: corsHeaders });
+  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+
+  // El trigger alerts_notify invoca con un secreto propio, no con service_role:
+  // este camino solo necesita mandar avisos, no poder todo en la base.
+  //
+  // Hace falta porque si el aviso sale solo del cliente, un teléfono sin señal
+  // o en segundo plano deja la alerta guardada y a nadie avisado — justo cuando
+  // más importa. El secreto vive en Vault y nunca sale del servidor.
+  const hookSecret = Deno.env.get("NOTIFY_HOOK_SECRET");
+  const fromServer = Boolean(hookSecret) && req.headers.get("x-pulso-hook") === hookSecret;
+
+  if (!fromServer) {
+    const userClient = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_ANON_KEY")!,
+      { global: { headers: { Authorization: authHeader } } },
+    );
+    const { data: { user }, error: userErr } = await userClient.auth.getUser();
+    if (userErr || !user) return new Response("Unauthorized", { status: 401, headers: corsHeaders });
+  }
 
   // Service role para leer destinatarios saltando RLS
-  const admin = createClient(
-    Deno.env.get("SUPABASE_URL")!,
-    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-  );
+  const admin = createClient(Deno.env.get("SUPABASE_URL")!, serviceKey);
 
   let body: { type?: string; alertId?: string; updateId?: string };
   try {
