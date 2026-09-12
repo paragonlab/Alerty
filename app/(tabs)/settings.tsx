@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -20,7 +20,12 @@ import { useAlertyStore } from "../../lib/alerty/store";
 import { useAlertyTheme } from "../../lib/useAlertyTheme";
 import { requireSession } from "../../lib/alerty/session";
 import { supabase } from "../../lib/supabase";
-import { syncPushRegistration, removePushTokens } from "../../lib/notifications";
+import {
+  syncPushRegistration,
+  removePushTokens,
+  PUSH_STATUS_HINT,
+  type PushStatus,
+} from "../../lib/notifications";
 import { useRouter } from "expo-router";
 
 export default function SettingsScreen() {
@@ -46,6 +51,15 @@ export default function SettingsScreen() {
   const theme = useAlertyTheme();
   const styles = createStyles(theme);
   const router = useRouter();
+
+  // null = aún no comprobado. El interruptor solo dice qué quiere el usuario;
+  // esto dice si el aviso de verdad va a llegar.
+  const [pushStatus, setPushStatus] = useState<PushStatus | null>(null);
+
+  useEffect(() => {
+    if (!pushEnabled) return;
+    void syncPushRegistration().then(setPushStatus);
+  }, [pushEnabled]);
 
   const [editingUsername, setEditingUsername] = useState(false);
   const [usernameInput, setUsernameInput] = useState("");
@@ -76,7 +90,11 @@ export default function SettingsScreen() {
 
   const handleTogglePush = (value: boolean) => {
     setPushEnabled(value);
-    if (value) void syncPushRegistration();
+    if (!value) {
+      setPushStatus(null);
+      return;
+    }
+    void syncPushRegistration().then(setPushStatus);
   };
 
   const handleStartEditUsername = () => {
@@ -426,7 +444,16 @@ export default function SettingsScreen() {
           <View style={styles.settingRow}>
             <View style={{ flex: 1 }}>
               <Text style={styles.settingLabel}>Push críticas</Text>
-              <Text style={styles.helperText}>Avisos inmediatos si ocurre algo a menos de 2 km.</Text>
+              <Text
+                style={[
+                  styles.helperText,
+                  pushEnabled && pushStatus && pushStatus !== "ok" && { color: theme.colors.danger },
+                ]}
+              >
+                {pushEnabled && pushStatus && pushStatus !== "ok"
+                  ? `No vas a recibir avisos. ${PUSH_STATUS_HINT[pushStatus]}`
+                  : "Avisos inmediatos si ocurre algo a menos de 2 km."}
+              </Text>
             </View>
             <Switch
               value={pushEnabled}

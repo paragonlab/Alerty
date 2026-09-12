@@ -39,9 +39,26 @@ function getProjectId(): string | undefined {
   );
 }
 
-export async function registerForPushNotificationsAsync(): Promise<string | null> {
+/**
+ * Por qué no hay token. Devolverlo importa: el interruptor de Ajustes es una
+ * preferencia local y arranca encendido, así que sin esto la app dice "Push
+ * críticas · activado" mientras no existe ningún token. El usuario cree que le
+ * avisarán de una balacera a 2 km y no va a pasar.
+ */
+export type PushStatus =
+  | "ok"
+  /** Sin módulo nativo: web o Expo Go. No es un fallo del usuario. */
+  | "unsupported"
+  | "denied"
+  /** Falta el projectId de EAS: error de configuración, no del usuario. */
+  | "misconfigured"
+  | "error";
+
+export async function registerForPushNotificationsAsync(): Promise<
+  { token: string; status: "ok" } | { token: null; status: Exclude<PushStatus, "ok"> }
+> {
   const N = getNotifications();
-  if (!N) return null;
+  if (!N) return { token: null, status: "unsupported" };
   try {
     if (Platform.OS === "android") {
       await N.setNotificationChannelAsync("default", {
@@ -58,16 +75,16 @@ export async function registerForPushNotificationsAsync(): Promise<string | null
       const { status } = await N.requestPermissionsAsync();
       finalStatus = status;
     }
-    if (finalStatus !== "granted") return null;
+    if (finalStatus !== "granted") return { token: null, status: "denied" };
 
     const projectId = getProjectId();
-    if (!projectId) return null;
+    if (!projectId) return { token: null, status: "misconfigured" };
 
     const tokenData = await N.getExpoPushTokenAsync({ projectId });
-    return tokenData.data;
+    return { token: tokenData.data, status: "ok" };
   } catch (e) {
     console.warn("registerForPushNotifications failed", e);
-    return null;
+    return { token: null, status: "error" };
   }
 }
 
@@ -101,10 +118,20 @@ export async function removePushTokens(): Promise<void> {
   }
 }
 
-export async function syncPushRegistration(): Promise<void> {
-  const token = await registerForPushNotificationsAsync();
-  if (token) await savePushToken(token);
+export async function syncPushRegistration(): Promise<PushStatus> {
+  const result = await registerForPushNotificationsAsync();
+  if (result.status !== "ok") return result.status;
+  await savePushToken(result.token);
+  return "ok";
 }
+
+/** Qué decirle al usuario cuando el interruptor está encendido pero no hay token. */
+export const PUSH_STATUS_HINT: Record<Exclude<PushStatus, "ok">, string> = {
+  unsupported: "En el navegador no hay avisos push. Instala la app para recibirlos.",
+  denied: "Permiso de notificaciones denegado: actívalo en los ajustes del teléfono.",
+  misconfigured: "No se pudo configurar el aviso en este dispositivo.",
+  error: "No se pudo activar el aviso. Vuelve a intentar.",
+};
 
 export function addNotificationTapListener(
   onAlertId: (alertId: string) => void,
