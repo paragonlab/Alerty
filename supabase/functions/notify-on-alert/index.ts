@@ -72,19 +72,51 @@ function json(payload: unknown, status = 200) {
   });
 }
 
-async function sendExpoPush(messages: PushMessage[]) {
+/**
+ * "ok" = Expo aceptó el aviso (ticket), no que el teléfono lo mostró. Antes la
+ * respuesta de Expo se descartaba y la function decía "sent" aunque Expo o
+ * Firebase/Apple lo rechazaran: si un SOS no llegaba, no había forma de saber
+ * si fue el token, las credenciales de FCM o APNs.
+ */
+type PushSummary = { ok: number; failed: number; errors: Record<string, number> };
+
+async function sendExpoPush(messages: PushMessage[]): Promise<PushSummary> {
+  const summary: PushSummary = { ok: 0, failed: 0, errors: {} };
+  const fail = (code: string, n = 1) => {
+    summary.failed += n;
+    summary.errors[code] = (summary.errors[code] ?? 0) + n;
+  };
   for (let i = 0; i < messages.length; i += 100) {
     const chunk = messages.slice(i, i + 100);
     try {
-      await fetch(EXPO_PUSH_URL, {
+      const res = await fetch(EXPO_PUSH_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: "application/json" },
         body: JSON.stringify(chunk),
       });
+      const payload = await res.json().catch(() => null);
+      const tickets: Array<{ status: string; message?: string; details?: { error?: string } }> =
+        Array.isArray(payload?.data) ? payload.data : [];
+      if (!res.ok || tickets.length !== chunk.length) {
+        fail(`HTTP_${res.status}`, chunk.length);
+        console.error("Expo rechazó el lote", res.status, JSON.stringify(payload?.errors ?? payload).slice(0, 500));
+        continue;
+      }
+      for (const t of tickets) {
+        if (t.status === "ok") {
+          summary.ok += 1;
+          continue;
+        }
+        const code = t.details?.error ?? "Unknown";
+        fail(code);
+        console.error("Expo ticket con error", code, t.message ?? "");
+      }
     } catch (e) {
+      fail("NetworkError", chunk.length);
       console.error("Expo push send failed", e);
     }
   }
+  return summary;
 }
 
 Deno.serve(async (req) => {
@@ -257,7 +289,9 @@ Deno.serve(async (req) => {
     return json({ error: "Bad request" }, 400);
   }
 
-  if (messages.length > 0) await sendExpoPush(messages);
+  const delivery = messages.length > 0
+    ? await sendExpoPush(messages)
+    : { ok: 0, failed: 0, errors: {} };
 
-  return json({ sent: messages.length });
+  return json({ sent: messages.length, ...delivery });
 });
