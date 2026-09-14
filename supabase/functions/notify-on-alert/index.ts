@@ -78,7 +78,48 @@ function json(payload: unknown, status = 200) {
  * Firebase/Apple lo rechazaran: si un SOS no llegaba, no había forma de saber
  * si fue el token, las credenciales de FCM o APNs.
  */
-type PushSummary = { ok: number; failed: number; errors: Record<string, number> };
+type PushSummary = {
+  ok: number;
+  failed: number;
+  errors: Record<string, number>;
+  receiptErrors?: Record<string, number>;
+};
+
+const EXPO_RECEIPTS_URL = "https://exp.host/--/api/v2/push/getReceipts";
+
+// El ticket solo dice que Expo recibió el aviso; si Apple o Firebase lo
+// rechazan (p. ej. credenciales de APNs), eso solo aparece en el receipt.
+async function collectReceiptErrors(
+  ids: string[],
+  headers: Record<string, string>,
+): Promise<Record<string, number>> {
+  const errors: Record<string, number> = {};
+  if (ids.length === 0) return errors;
+  await new Promise((r) => setTimeout(r, 5000));
+  try {
+    const res = await fetch(EXPO_RECEIPTS_URL, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ ids }),
+    });
+    const payload = await res.json().catch(() => null);
+    const receipts: Record<string, { status: string; message?: string; details?: { error?: string } }> =
+      payload?.data ?? {};
+    for (const id of ids) {
+      const r = receipts[id];
+      if (!r) {
+        errors.Pending = (errors.Pending ?? 0) + 1;
+      } else if (r.status !== "ok") {
+        const code = r.details?.error ?? "Unknown";
+        errors[code] = (errors[code] ?? 0) + 1;
+        console.error("Expo receipt con error", code, r.message ?? "");
+      }
+    }
+  } catch (e) {
+    console.error("Expo receipts failed", e);
+  }
+  return errors;
+}
 
 async function sendExpoPush(messages: PushMessage[]): Promise<PushSummary> {
   const summary: PushSummary = { ok: 0, failed: 0, errors: {} };
@@ -89,20 +130,22 @@ async function sendExpoPush(messages: PushMessage[]): Promise<PushSummary> {
     summary.failed += n;
     summary.errors[code] = (summary.errors[code] ?? 0) + n;
   };
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    Accept: "application/json",
+    ...(expoToken ? { Authorization: `Bearer ${expoToken}` } : {}),
+  };
+  const ticketIds: string[] = [];
   for (let i = 0; i < messages.length; i += 100) {
     const chunk = messages.slice(i, i + 100);
     try {
       const res = await fetch(EXPO_PUSH_URL, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-          ...(expoToken ? { Authorization: `Bearer ${expoToken}` } : {}),
-        },
+        headers,
         body: JSON.stringify(chunk),
       });
       const payload = await res.json().catch(() => null);
-      const tickets: Array<{ status: string; message?: string; details?: { error?: string } }> =
+      const tickets: Array<{ status: string; id?: string; message?: string; details?: { error?: string } }> =
         Array.isArray(payload?.data) ? payload.data : [];
       if (!res.ok || tickets.length !== chunk.length) {
         fail(`HTTP_${res.status}`, chunk.length);
@@ -112,6 +155,7 @@ async function sendExpoPush(messages: PushMessage[]): Promise<PushSummary> {
       for (const t of tickets) {
         if (t.status === "ok") {
           summary.ok += 1;
+          if (t.id) ticketIds.push(t.id);
           continue;
         }
         const code = t.details?.error ?? "Unknown";
@@ -123,6 +167,7 @@ async function sendExpoPush(messages: PushMessage[]): Promise<PushSummary> {
       console.error("Expo push send failed", e);
     }
   }
+  summary.receiptErrors = await collectReceiptErrors(ticketIds, headers);
   return summary;
 }
 
