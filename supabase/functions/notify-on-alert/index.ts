@@ -82,6 +82,9 @@ type PushSummary = { ok: number; failed: number; errors: Record<string, number> 
 
 async function sendExpoPush(messages: PushMessage[]): Promise<PushSummary> {
   const summary: PushSummary = { ok: 0, failed: 0, errors: {} };
+  // El proyecto de Expo tiene activada la seguridad reforzada de push: sin este
+  // token Expo responde 403 "Insufficient permissions" y no entrega nada.
+  const expoToken = Deno.env.get("EXPO_ACCESS_TOKEN");
   const fail = (code: string, n = 1) => {
     summary.failed += n;
     summary.errors[code] = (summary.errors[code] ?? 0) + n;
@@ -91,7 +94,11 @@ async function sendExpoPush(messages: PushMessage[]): Promise<PushSummary> {
     try {
       const res = await fetch(EXPO_PUSH_URL, {
         method: "POST",
-        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+          ...(expoToken ? { Authorization: `Bearer ${expoToken}` } : {}),
+        },
         body: JSON.stringify(chunk),
       });
       const payload = await res.json().catch(() => null);
