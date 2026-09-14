@@ -21,10 +21,10 @@ export default function PrivacyScreen() {
       </View>
       <ScrollView contentContainerStyle={styles.body}>
         <Text style={styles.title}>Política de privacidad</Text>
-        <Text style={styles.meta}>Última actualización: 7 de septiembre de 2026</Text>
+        <Text style={styles.meta}>Última actualización: 14 de septiembre de 2026</Text>
         <Text style={styles.p}>
           Pulso (la app también aparece como Alerty) es un mapa de alertas ciudadanas para
-          Culiacán, operado por Gustavo Montoya (“nosotros”). Esta política describe qué
+          Culiacán, operado por Paragon Labs (“nosotros”). Esta política describe qué
           datos recabamos, para qué los usamos y con quién los compartimos.
         </Text>
 
@@ -80,7 +80,7 @@ export default function PrivacyScreen() {
           que borres la cuenta. En Ajustes puedes eliminar tu cuenta: se borran tu perfil,
           zonas de Círculo y votos. Los pulsos que ya publicaste quedan anónimos en el
           mapa. En México también puedes solicitar acceso, rectificación, cancelación u
-          oposición al correo de la ficha de App Store.
+          oposición escribiendo a hola@paragonlabs.mx.
         </Text>
 
         <Text style={styles.h}>5. Menores</Text>
@@ -91,9 +91,11 @@ export default function PrivacyScreen() {
 
         <Text style={styles.h}>6. Contacto</Text>
         <Text style={styles.p}>
-          Gustavo Montoya. Correo de contacto: el publicado en la ficha de App Store.
+          Paragon Labs. Correo de contacto: hola@paragonlabs.mx
         </Text>
-        <Text style={styles.p}>Sitio: https://alerty-two.vercel.app</Text>
+        <Text style={styles.p}>
+          Sitios: www.pulso-ciudadano.com · www.paragonlabs.mx
+        </Text>
       </ScrollView>
     </SafeAreaView>
   );
