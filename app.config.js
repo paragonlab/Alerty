@@ -41,6 +41,9 @@ module.exports = {
   },
   android: {
     package: "com.paragonlabs.alerty",
+    // FCM es el único canal de push en Android. Config pública del proyecto
+    // pulso-417d2: va dentro del APK de todos modos, no es un secreto.
+    googleServicesFile: "./google-services.json",
     adaptiveIcon: {
       foregroundImage: "./assets/adaptive-icon.png",
       backgroundColor: "#F6F2EA",

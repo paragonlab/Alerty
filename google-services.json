@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "235450397372",
+    "project_id": "pulso-417d2",
+    "storage_bucket": "pulso-417d2.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:235450397372:android:bdbc1e60965c02db5a96b9",
+        "android_client_info": {
+          "package_name": "com.paragonlabs.alerty"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB9rOmPDSBVS2CUfHkhnntYITGUALZCibk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
