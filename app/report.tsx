@@ -35,6 +35,12 @@ import { calculateDistance } from "../lib/alerty/utils";
 import { APP_SHARE_URL } from "../lib/alerty/share";
 import { requireSession } from "../lib/alerty/session";
 import { safeBack } from "../lib/alerty/nav";
+import {
+  getCurrentCoords,
+  LocationRequestError,
+  requestCoordsWithFix,
+  webLocationHelp,
+} from "../lib/alerty/geolocation";
 
 // Categories shown in the type grid (exclude SOS – that's the long-press)
 const GRID_CATS = ALERT_CATEGORIES.filter((c) => c !== "sos");
@@ -309,23 +315,19 @@ export default function ReportScreen() {
     }
   }
 
-  async function getLocation() {
+  // withFix: desde "Reintentar"; en el teléfono lleva a Ajustes si el permiso
+  // quedó bloqueado o el GPS está apagado. En web explica cómo desbloquearla,
+  // porque el navegador ya no vuelve a preguntar.
+  async function getLocation(withFix = false) {
     setLocationError(null);
     setLocationLoading(true);
     try {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== "granted") {
-        setLocationError("Activa el permiso de ubicación. Sin GPS no se publica.");
-        setLocationLoading(false);
-        return;
-      }
-      const current = await Promise.race([
-        Location.getCurrentPositionAsync({}),
+      const coords = await Promise.race([
+        withFix ? requestCoordsWithFix() : getCurrentCoords(),
         new Promise<never>((_, reject) => {
-          setTimeout(() => reject(new Error("timeout")), 15_000);
+          setTimeout(() => reject(new LocationRequestError("timeout")), 15_000);
         }),
       ]);
-      const coords = { latitude: current.coords.latitude, longitude: current.coords.longitude };
       setUserLocation(coords);
       setUserCoords(coords);
       try {
@@ -334,8 +336,19 @@ export default function ReportScreen() {
           setLocationLabel(place.district ?? place.subregion ?? place.city ?? "Mi ubicación");
         }
       } catch {}
-    } catch {
-      setLocationError("No pudimos leer tu GPS. Enciéndelo e intenta de nuevo.");
+    } catch (e) {
+      const code = e instanceof LocationRequestError ? e.code : "unavailable";
+      setLocationError(
+        code === "denied"
+          ? Platform.OS === "web"
+            ? `Tu navegador bloqueó la ubicación. ${webLocationHelp()}`
+            : "Activa el permiso de ubicación. Sin GPS no se publica."
+          : code === "blocked"
+            ? "Pulso no tiene permiso de ubicación. Actívalo en Ajustes y vuelve."
+            : code === "services_off"
+              ? "La ubicación del teléfono está apagada. Enciéndela y vuelve a intentar."
+              : "No pudimos leer tu GPS. Revisa tu señal e intenta de nuevo.",
+      );
     }
     setLocationLoading(false);
   }
@@ -1031,7 +1044,7 @@ export default function ReportScreen() {
             "Para publicar un pulso necesitamos tu GPS real. No usamos una ciudad por defecto."}
         </Text>
         {!locationLoading ? (
-          <Pressable style={S.locSkipBtn} onPress={() => { void getLocation(); }}>
+          <Pressable style={S.locSkipBtn} onPress={() => { void getLocation(true); }}>
             <Text style={S.locSkipText}>Reintentar GPS</Text>
           </Pressable>
         ) : null}

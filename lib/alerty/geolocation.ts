@@ -20,6 +20,25 @@ export class LocationRequestError extends Error {
   }
 }
 
+/**
+ * Cómo desbloquear la ubicación en web. Cuando el navegador la bloqueó ya no
+ * vuelve a preguntar, y cada uno la cambia en un lugar distinto: Safari de
+ * iPhone no tiene candado, se hace desde el menú aA.
+ */
+export function webLocationHelp(): string {
+  const ua = typeof navigator === "undefined" ? "" : navigator.userAgent;
+  const iOS =
+    /iPhone|iPad|iPod/i.test(ua) ||
+    (/Macintosh/i.test(ua) && typeof navigator !== "undefined" && navigator.maxTouchPoints > 1);
+  if (iOS) {
+    return "En iPhone: toca «aA» en la barra de Safari → Configuración del sitio web → Ubicación → Permitir. Si no aparece, ve a Ajustes → Privacidad y seguridad → Localización → Sitios web de Safari → Mientras se usa la app.";
+  }
+  if (/Android/i.test(ua)) {
+    return "En Android: toca el ícono junto a la dirección → Permisos → Ubicación → Permitir. Revisa también que la ubicación del teléfono esté encendida.";
+  }
+  return "Permítela en el candado de la barra de direcciones.";
+}
+
 export function getCurrentCoords(): Promise<UserCoords> {
   if (Platform.OS === "web") return getWebCoords();
   return getNativeCoords();

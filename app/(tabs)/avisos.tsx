@@ -7,6 +7,7 @@ import {
   getCurrentCoords,
   LocationRequestError,
   requestCoordsWithFix,
+  webLocationHelp,
   type LocationRequestCode,
 } from "../../lib/alerty/geolocation";
 import { useAlertyStore } from "../../lib/alerty/store";
@@ -40,7 +41,7 @@ const LOCATION_COPY: Record<LocationCopyKey, { title: string; hint: string; cta:
   },
   web_blocked: {
     title: "Tu navegador bloqueó la ubicación",
-    hint: "Permítela en el candado de la barra de direcciones y toca Reintentar. El navegador ya no vuelve a preguntar solo.",
+    hint: `${webLocationHelp()} Luego toca Reintentar: el navegador ya no vuelve a preguntar solo.`,
     cta: "Reintentar",
   },
   blocked: {
