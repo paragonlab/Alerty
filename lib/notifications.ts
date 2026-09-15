@@ -102,17 +102,39 @@ export async function savePushToken(token: string): Promise<void> {
       },
       { onConflict: "token" },
     );
+    deviceToken = token;
   } catch (e) {
     console.warn("savePushToken failed", e);
   }
 }
 
-export async function removePushTokens(): Promise<void> {
+let deviceToken: string | null = null;
+
+/**
+ * Al cerrar sesión solo se borra el token de ESTE teléfono: borrar por user_id
+ * dejaba sin avisos a los otros teléfonos con la misma cuenta. `allDevices`
+ * es para eliminar la cuenta.
+ */
+export async function removePushTokens(
+  { allDevices = false }: { allDevices?: boolean } = {},
+): Promise<void> {
   if (!isSupabaseConfigured || !supabase) return;
   try {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
-    await supabase.from("push_tokens").delete().eq("user_id", user.id);
+    if (allDevices) {
+      await supabase.from("push_tokens").delete().eq("user_id", user.id);
+      return;
+    }
+    let token = deviceToken;
+    const N = getNotifications();
+    const projectId = getProjectId();
+    if (!token && N && projectId) {
+      token = (await N.getExpoPushTokenAsync({ projectId })).data;
+    }
+    if (!token) return;
+    await supabase.from("push_tokens").delete().eq("user_id", user.id).eq("token", token);
+    deviceToken = null;
   } catch (e) {
     console.warn("removePushTokens failed", e);
   }

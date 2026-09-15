@@ -136,7 +136,7 @@ export default function SettingsScreen() {
         Alert.alert("No se pudo eliminar", "Intenta de nuevo en unos segundos.");
         return;
       }
-      await removePushTokens();
+      await removePushTokens({ allDevices: true });
       await supabase.auth.signOut();
       resetGuest();
       Alert.alert("Cuenta eliminada", "Tus datos de cuenta ya no están en Pulso.");
