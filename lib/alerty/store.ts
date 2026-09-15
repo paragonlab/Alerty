@@ -105,6 +105,8 @@ type AlertyState = {
   setLowConnection: (value: boolean) => void;
   setPushEnabled: (value: boolean) => void;
   loadAlertsFromSupabase: () => Promise<void>;
+  /** Trae una alerta que no está en la lista (p. ej. al abrir una notificación). */
+  fetchAlertById: (id: string) => Promise<boolean>;
   loadCommunityPosts: (opts?: { refreshNews?: boolean }) => Promise<void>;
   toggleFollowAlert: (id: string) => void;
   addUpdateToAlert: (alertId: string, content: string, media?: AlertMedia[]) => Promise<void>;
@@ -234,6 +236,51 @@ const mapUserFromRow = (row: any, fallbackId?: string): AlertUser => {
     ),
   };
 };
+
+const ALERT_SELECT = `
+  id,category,lat,lng,title,description,created_at,status,parent_alert_id,
+  users!alerts_user_id_fkey(id,username,avatar_url,is_verified,is_premium,trust_score,followers_count,reporter_stats(confirmations_received)),
+  media(id,media_url,media_type,update_id),
+  alert_updates(id,content,created_at,user_id,users(id,username,avatar_url,is_verified,is_premium))
+`;
+
+const mapAlertRow = (
+  row: any,
+  counts: { up: number; down: number } = { up: 0, down: 0 },
+): AlertItem => ({
+  id: row.id,
+  category: row.category,
+  lat: row.lat,
+  lng: row.lng,
+  title: row.title ?? undefined,
+  description: row.description ?? undefined,
+  createdAt: row.created_at,
+  status: row.status ?? "active",
+  neighborhood: undefined,
+  parentAlertId: row.parent_alert_id ?? undefined,
+  upvotes: counts.up,
+  downvotes: counts.down,
+  media: (row.media ?? []).map((media: any) => ({
+    id: media.id,
+    url: media.media_url,
+    type: media.media_type,
+  })),
+  updates: (row.alert_updates ?? [])
+    .map((upd: any) => ({
+      id: upd.id,
+      content: upd.content,
+      createdAt: upd.created_at,
+      user: mapUserFromRow(upd.users, upd.user_id),
+      media: (row.media ?? [])
+        .filter((m: any) => m.update_id === upd.id)
+        .map((m: any) => ({ id: m.id, url: m.media_url, type: m.media_type })),
+    }))
+    .sort(
+      (a: AlertUpdate, b: AlertUpdate) =>
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+    ),
+  user: mapUserFromRow(row.users),
+});
 
 const persistTrustScore = (userId: string, score: number) => {
   if (!isSupabaseConfigured || !supabase || userId === "local-user" || !isDbId(userId)) return;
@@ -856,6 +903,36 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
     }));
     return { error: null };
   },
+  fetchAlertById: async (id) => {
+    if (!isSupabaseConfigured || !supabase || !isDbId(id)) return false;
+    try {
+      const { data: row } = await supabase
+        .from("alerts")
+        .select(ALERT_SELECT)
+        .eq("id", id)
+        .maybeSingle();
+      if (!row) return false;
+      const { data: votes } = await supabase
+        .from("verifications")
+        .select("vote_type")
+        .eq("alert_id", id);
+      const counts = { up: 0, down: 0 };
+      votes?.forEach((v: any) => {
+        if (v.vote_type === "upvote") counts.up++;
+        else counts.down++;
+      });
+      const item = mapAlertRow(row, counts);
+      set((state) => ({
+        alerts: state.alerts.some((a) => a.id === id)
+          ? state.alerts.map((a) => (a.id === id ? item : a))
+          : [item, ...state.alerts],
+      }));
+      return true;
+    } catch (err) {
+      console.warn("fetchAlertById failed", err);
+      return false;
+    }
+  },
   loadAlertsFromSupabase: async () => {
     if (!isSupabaseConfigured || !supabase) {
       set({ alertsLoaded: true });
@@ -865,12 +942,7 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
     try {
     const { data } = await supabase
       .from("alerts")
-      .select(`
-        id,category,lat,lng,title,description,created_at,status,parent_alert_id,
-        users(id,username,avatar_url,is_verified,is_premium,trust_score,followers_count,reporter_stats(confirmations_received)),
-        media(id,media_url,media_type,update_id),
-        alert_updates(id,content,created_at,user_id,users(id,username,avatar_url,is_verified,is_premium))
-      `)
+      .select(ALERT_SELECT)
       .order("created_at", { ascending: false })
       .limit(100);
 
@@ -881,43 +953,7 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
     }
 
     const toItems = (voteCounts: Map<string, { up: number; down: number }>): AlertItem[] =>
-      data.map((row: any) => {
-        const counts = voteCounts.get(row.id) ?? { up: 0, down: 0 };
-        return {
-          id: row.id,
-          category: row.category,
-          lat: row.lat,
-          lng: row.lng,
-          title: row.title ?? undefined,
-          description: row.description ?? undefined,
-          createdAt: row.created_at,
-          status: row.status ?? "active",
-          neighborhood: undefined,
-          parentAlertId: row.parent_alert_id ?? undefined,
-          upvotes: counts.up,
-          downvotes: counts.down,
-          media: (row.media ?? []).map((media: any) => ({
-            id: media.id,
-            url: media.media_url,
-            type: media.media_type,
-          })),
-          updates: (row.alert_updates ?? [])
-            .map((upd: any) => ({
-              id: upd.id,
-              content: upd.content,
-              createdAt: upd.created_at,
-              user: mapUserFromRow(upd.users, upd.user_id),
-              media: (row.media ?? [])
-                .filter((m: any) => m.update_id === upd.id)
-                .map((m: any) => ({ id: m.id, url: m.media_url, type: m.media_type })),
-            }))
-            .sort(
-              (a: AlertUpdate, b: AlertUpdate) =>
-                new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-            ),
-          user: mapUserFromRow(row.users),
-        };
-      });
+      data.map((row: any) => mapAlertRow(row, voteCounts.get(row.id)));
 
     set({ alerts: toItems(new Map()), alertsLoaded: true });
     get().recomputeVerifiedStatus();

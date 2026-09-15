@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -34,7 +34,7 @@ import type { AlertMedia, AlertUpdate } from "../../lib/alerty/types";
 export default function AlertDetailScreen() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { alerts, voteAlert, votedAlerts, followingAlertIds, toggleFollowAlert, addUpdateToAlert, getReportingRange, themeMode, openReels, flagAlert } = useAlertyStore();
+  const { alerts, voteAlert, votedAlerts, followingAlertIds, toggleFollowAlert, addUpdateToAlert, getReportingRange, themeMode, openReels, flagAlert, fetchAlertById } = useAlertyStore();
   const theme = useAlertyTheme();
   const isDark = themeMode === "darkHighVisibility";
   const styles = createStyles(theme, themeMode);
@@ -49,6 +49,21 @@ export default function AlertDetailScreen() {
   const [flagging, setFlagging] = useState(false);
 
   const alert = useMemo(() => alerts.find((item) => item.id === id), [alerts, id]);
+
+  // Al abrir desde una notificación la lista puede no estar al día (la app
+  // venía de segundo plano o recién abre): se pide esta alerta directo.
+  const [lookup, setLookup] = useState<"idle" | "loading" | "missing">("idle");
+  useEffect(() => {
+    if (alert || !id) return;
+    let active = true;
+    setLookup("loading");
+    void fetchAlertById(id).then((found) => {
+      if (active) setLookup(found ? "idle" : "missing");
+    });
+    return () => {
+      active = false;
+    };
+  }, [alert, id, fetchAlertById]);
   const isFollowing = useMemo(() => followingAlertIds.includes(id ?? ""), [followingAlertIds, id]);
 
   function AudioPlayer({ uri }: { uri: string }) {
@@ -118,7 +133,16 @@ export default function AlertDetailScreen() {
           <View style={styles.headerSpacer} />
         </View>
         <View style={styles.emptyState}>
-          <Text style={styles.emptyText}>Alerta no encontrada.</Text>
+          {lookup === "missing" ? (
+            <Text style={styles.emptyText}>
+              Esta alerta ya no está disponible: pudo haberse ocultado por reportes o borrado.
+            </Text>
+          ) : (
+            <>
+              <ActivityIndicator color={theme.colors.textMuted} />
+              <Text style={styles.emptyText}>Cargando alerta…</Text>
+            </>
+          )}
         </View>
       </SafeAreaView>
     );
