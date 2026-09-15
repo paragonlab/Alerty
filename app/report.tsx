@@ -340,6 +340,27 @@ export default function ReportScreen() {
     setLocationLoading(false);
   }
 
+  // Atajo desde "Nuevo pulso": abre la cámara directo en video, sin pasar por
+  // la pantalla de evidencia.
+  async function recordVideoNow() {
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    if (status !== "granted") {
+      Alert.alert("Permiso", "Necesitamos la cámara para grabar el video.");
+      return;
+    }
+    const result = await ImagePicker.launchCameraAsync({
+      mediaTypes: "videos",
+      quality: 0.85,
+      videoMaxDuration: 30,
+    });
+    if (result.canceled) return;
+    setMedia((prev) => [
+      ...prev,
+      ...result.assets.map((a) => ({ id: `cap-${Date.now()}`, url: a.uri, type: "video" as const })),
+    ]);
+  }
+
   async function handleGallery() {
     if (Platform.OS === "web") return;
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -716,7 +737,7 @@ export default function ReportScreen() {
         </View>
 
         <Pressable style={S.skipBtn} onPress={() => setStep(2)}>
-          <Text style={S.skipBtnText}>Continuar sin evidencia · más rápido</Text>
+          <Text style={S.skipBtnText}>Continuar sin evidencia</Text>
           <Ionicons name="arrow-forward" size={12} color="rgba(255,255,255,0.45)" />
         </Pressable>
       </>
@@ -725,6 +746,8 @@ export default function ReportScreen() {
 
   function renderStep2() {
     const previewMedia = media[0];
+    // En categorías de riesgo no se insiste en grabar: primero ponerse a salvo.
+    const risky = category !== null && DANGER_CATEGORIES.includes(category);
     return (
       <>
         {/* Evidence row */}
@@ -754,12 +777,38 @@ export default function ReportScreen() {
             <Ionicons name="phone-portrait-outline" size={18} color="rgba(255,255,255,0.35)" />
             <Text style={S.evidenceSub}>Evidencia con foto/video: usa la app móvil</Text>
           </View>
+        ) : risky ? (
+          <View style={S.safeCard}>
+            <Ionicons name="shield-outline" size={18} color="#FF8A65" />
+            <View style={{ flex: 1 }}>
+              <Text style={S.safeCardTitle}>Ponte a salvo primero</Text>
+              <Text style={S.evidenceSub}>Graba solo si no te arriesgas. Tu pulso sirve igual sin video.</Text>
+            </View>
+            <Pressable onPress={() => setStep(1)} hitSlop={8} accessibilityLabel="Agregar evidencia">
+              <Text style={S.safeCardLink}>Agregar</Text>
+            </Pressable>
+          </View>
         ) : (
-          <Pressable style={[S.evidenceRow, { justifyContent: "center", gap: 8 }]} onPress={() => setStep(1)}>
-            <Ionicons name="camera-outline" size={18} color="rgba(255,255,255,0.35)" />
-            <Text style={S.evidenceSub}>Opcional: toca para agregar evidencia</Text>
+          <Pressable
+            style={S.videoCta}
+            onPress={() => void recordVideoNow()}
+            accessibilityLabel="Grabar un video de 10 segundos"
+          >
+            <View style={S.videoCtaIcon}>
+              <Ionicons name="videocam" size={20} color="#fff" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={S.videoCtaTitle}>Graba un video de 10 s</Text>
+              <Text style={S.videoCtaSub}>Con video tu pulso se confirma más rápido y sale en Videos.</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.7)" />
           </Pressable>
         )}
+        {media.length === 0 && Platform.OS !== "web" && !risky ? (
+          <Pressable onPress={() => setStep(1)} hitSlop={6} style={S.altEvidence}>
+            <Text style={S.skipBtnText}>O agrega foto o audio</Text>
+          </Pressable>
+        ) : null}
 
         {/* Category label */}
         <Text style={S.sheetLabel}>¿Qué está pasando?</Text>
@@ -818,7 +867,7 @@ export default function ReportScreen() {
         <View style={S.reachHint}>
           <Ionicons name="map-outline" size={16} color="#6BE0FF" />
           <Text style={S.reachHintText}>
-            Se publica en el mapa de {locationLabel}. Foto o video son opcionales.
+            Se publica en el mapa de {locationLabel}.{risky ? " Foto o video son opcionales." : ""}
           </Text>
         </View>
       </>
@@ -1345,6 +1394,32 @@ const S = StyleSheet.create({
     borderWidth: 1, borderStyle: "dashed", borderColor: "rgba(255,255,255,0.18)",
     alignItems: "center", justifyContent: "center",
   },
+
+  videoCta: {
+    flexDirection: "row", alignItems: "center", gap: 10,
+    padding: 12, borderRadius: 14,
+    backgroundColor: "rgba(255,69,0,0.14)",
+    borderWidth: 1, borderColor: "rgba(255,69,0,0.45)",
+  },
+  videoCtaIcon: {
+    width: 40, height: 40, borderRadius: 12,
+    alignItems: "center", justifyContent: "center",
+    backgroundColor: "#FF4500",
+  },
+  videoCtaTitle: { fontSize: 14, color: "#fff", fontFamily: "SpaceGrotesk_700Bold" },
+  videoCtaSub: {
+    fontSize: 11.5, color: "rgba(255,255,255,0.7)", marginTop: 2, lineHeight: 16,
+    fontFamily: "SpaceGrotesk_500Medium",
+  },
+  altEvidence: { alignSelf: "center", marginTop: -4 },
+  safeCard: {
+    flexDirection: "row", alignItems: "center", gap: 10,
+    padding: 12, borderRadius: 14,
+    backgroundColor: "rgba(255,138,101,0.10)",
+    borderWidth: 1, borderColor: "rgba(255,138,101,0.35)",
+  },
+  safeCardTitle: { fontSize: 13, color: "#FFB199", fontFamily: "SpaceGrotesk_700Bold" },
+  safeCardLink: { fontSize: 12, color: "rgba(255,255,255,0.7)", fontFamily: "SpaceGrotesk_700Bold" },
 
   // Label
   sheetLabel: {
