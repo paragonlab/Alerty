@@ -1,3 +1,4 @@
+import { Platform } from "react-native";
 import * as FileSystem from "expo-file-system/legacy";
 import { decode } from "base64-arraybuffer";
 import { isSupabaseConfigured, supabase } from "./supabase";
@@ -17,6 +18,20 @@ const CONTENT_TYPE: Record<AlertMedia["type"], string> = {
   audio: "audio/mp4",
 };
 
+// En web la extensión sale del tipo real: Safari de iPhone graba .mov.
+const EXT_BY_MIME: Record<string, string> = {
+  "video/quicktime": "mov",
+  "video/webm": "webm",
+  "video/mp4": "mp4",
+  "image/png": "png",
+  "image/jpeg": "jpg",
+  "image/heic": "heic",
+};
+
+function randomPath(ext: string) {
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}.${ext}`;
+}
+
 // Sube un archivo local al Storage y devuelve su URL pública.
 export async function uploadMedia(
   localUri: string,
@@ -24,11 +39,21 @@ export async function uploadMedia(
 ): Promise<string | null> {
   if (!isSupabaseConfigured || !supabase) return null;
   try {
-    const base64 = await FileSystem.readAsStringAsync(localUri, { encoding: "base64" });
-    const path = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}.${EXT[type]}`;
-    const { error } = await supabase.storage
-      .from(BUCKET)
-      .upload(path, decode(base64), { contentType: CONTENT_TYPE[type] });
+    let path: string;
+    let error: unknown;
+    if (Platform.OS === "web") {
+      // En el navegador el archivo es un blob: URL; FileSystem no existe aquí.
+      const blob = await (await fetch(localUri)).blob();
+      const contentType = blob.type || CONTENT_TYPE[type];
+      path = randomPath(EXT_BY_MIME[contentType] ?? EXT[type]);
+      ({ error } = await supabase.storage.from(BUCKET).upload(path, blob, { contentType }));
+    } else {
+      const base64 = await FileSystem.readAsStringAsync(localUri, { encoding: "base64" });
+      path = randomPath(EXT[type]);
+      ({ error } = await supabase.storage
+        .from(BUCKET)
+        .upload(path, decode(base64), { contentType: CONTENT_TYPE[type] }));
+    }
     if (error) {
       console.warn("uploadMedia failed", error);
       return null;

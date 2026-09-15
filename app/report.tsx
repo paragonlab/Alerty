@@ -368,6 +368,14 @@ export default function ReportScreen() {
       videoMaxDuration: 30,
     });
     if (result.canceled) return;
+    const tooBig = result.assets.find((a) => (a.fileSize ?? 0) > 45 * 1024 * 1024);
+    if (tooBig) {
+      notifyUser(
+        "Video muy pesado",
+        `Pesa ${Math.round((tooBig.fileSize ?? 0) / 1048576)} MB. Graba uno de 10 a 15 segundos.`,
+      );
+      return;
+    }
     setMedia((prev) => [
       ...prev,
       ...result.assets.map((a) => ({ id: `cap-${Date.now()}`, url: a.uri, type: "video" as const })),
@@ -784,11 +792,6 @@ export default function ReportScreen() {
                 <Ionicons name="add" size={16} color="rgba(255,255,255,0.6)" />
               </Pressable>
             )}
-          </View>
-        ) : Platform.OS === "web" ? (
-          <View style={[S.evidenceRow, { justifyContent: "center", gap: 8 }]}>
-            <Ionicons name="phone-portrait-outline" size={18} color="rgba(255,255,255,0.35)" />
-            <Text style={S.evidenceSub}>Evidencia con foto/video: usa la app móvil</Text>
           </View>
         ) : risky ? (
           <View style={S.safeCard}>
