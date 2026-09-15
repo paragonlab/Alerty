@@ -95,6 +95,27 @@ export const AVISOS_RADIUS_KM = 5;
 /** Radio del SOS: círculo en mapa + aviso a quienes están en la zona. */
 export const SOS_RADIUS_KM = 2;
 
+/**
+ * Categorías donde grabar pone en riesgo a quien graba. Aquí la app no pide
+ * video ni promete reputación por él: primero ponerse a salvo. Mismo criterio
+ * que las críticas de notify-on-alert.
+ */
+export const DANGER_CATEGORIES: readonly string[] = [
+  "sos",
+  "balacera",
+  "narcobloqueo",
+  "enfrentamiento",
+  "detonaciones",
+  "incendio",
+];
+
+/** Confirmaciones recibidas para mostrar "Reportero confiable". */
+export const RELIABLE_REPORTER_MIN_CONFIRMATIONS = 10;
+
+/** Al final de la lista de Pulsos y de los videos. */
+export const INFO_DISCLAIMER =
+  "Pulso es una fuente informativa, no una verdad absoluta. Confirma con otras fuentes antes de actuar. Si ves algo que falta, publica un pulso; si algo está mal, confírmalo o desmiéntelo.";
+
 /** Etiqueta corta de ventana para UI (Feed / Mapa). */
 export const TIME_FILTER_WINDOW_LABEL: Record<(typeof TIME_FILTERS)[number], string> = {
   "1h": "última hora",

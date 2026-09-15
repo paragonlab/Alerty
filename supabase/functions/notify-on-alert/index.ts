@@ -171,6 +171,15 @@ async function sendExpoPush(messages: PushMessage[]): Promise<PushSummary> {
   return summary;
 }
 
+/** Quien ocultó la categoría no recibe el aviso; el SOS llega siempre. */
+function hidesCategory(row: unknown, category: string): boolean {
+  if (category === "sos") return false;
+  type U = { hidden_categories?: string[] | null };
+  const users = (row as { users?: U | U[] }).users;
+  const hidden = (Array.isArray(users) ? users[0] : users)?.hidden_categories ?? [];
+  return hidden.includes(category);
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return new Response("Method not allowed", { status: 405, headers: corsHeaders });
@@ -202,7 +211,7 @@ Deno.serve(async (req) => {
   // Service role para leer destinatarios saltando RLS
   const admin = createClient(Deno.env.get("SUPABASE_URL")!, serviceKey);
 
-  let body: { type?: string; alertId?: string; updateId?: string };
+  let body: { type?: string; alertId?: string; updateId?: string; confirmations?: number };
   try {
     body = await req.json();
   } catch {
@@ -226,12 +235,13 @@ Deno.serve(async (req) => {
     if (CRITICAL_CATEGORIES.includes(alert.category)) {
       let query = admin
         .from("push_tokens")
-        .select("token, user_id, users!inner(push_enabled)")
+        .select("token, user_id, users!inner(push_enabled, hidden_categories)")
         .eq("users.push_enabled", true);
       if (alert.user_id) query = query.neq("user_id", alert.user_id);
       const { data: rows } = await query;
 
       for (const row of rows ?? []) {
+        if (hidesCategory(row, alert.category)) continue;
         const userId = (row as { user_id: string }).user_id;
         byUser.set(userId, {
           to: (row as { token: string }).token,
@@ -271,11 +281,12 @@ Deno.serve(async (req) => {
       if (nearByUser.size > 0) {
         const { data: rows } = await admin
           .from("push_tokens")
-          .select("token, user_id, users!inner(push_enabled)")
+          .select("token, user_id, users!inner(push_enabled, hidden_categories)")
           .in("user_id", [...nearByUser.keys()])
           .eq("users.push_enabled", true);
 
         for (const row of rows ?? []) {
+          if (hidesCategory(row, alert.category)) continue;
           const userId = (row as { user_id: string }).user_id;
           const zoneLabel = nearByUser.get(userId);
           if (!zoneLabel) continue;
@@ -336,6 +347,54 @@ Deno.serve(async (req) => {
           data: { alertId: update.alert_id },
         });
       }
+    }
+  } else if (body.type === "impact" && body.alertId) {
+    // Aviso al autor cuando su pulso llega a un hito de confirmaciones. Solo lo
+    // dispara el trigger verifications_impact: desde un teléfono serviría para
+    // mandarle avisos falsos a cualquiera.
+    if (!fromServer) return json({ error: "Forbidden" }, 403);
+
+    const { data: alert } = await admin
+      .from("alerts")
+      .select("id,category,user_id")
+      .eq("id", body.alertId)
+      .single();
+    if (!alert?.user_id) return json({ sent: 0 });
+
+    const { count: views } = await admin
+      .from("alert_views")
+      .select("alert_id", { count: "exact", head: true })
+      .eq("alert_id", alert.id)
+      .neq("viewer_id", alert.user_id);
+
+    const { data: rows } = await admin
+      .from("push_tokens")
+      .select("token, users!inner(push_enabled)")
+      .eq("user_id", alert.user_id)
+      .eq("users.push_enabled", true);
+
+    const confirmations = Math.max(1, Number(body.confirmations ?? 1));
+    const who = confirmations === 1 ? "1 vecino" : `${confirmations} vecinos`;
+    const verb = confirmations === 1 ? "confirmó" : "confirmaron";
+    const label = (CATEGORY_LABELS[alert.category] ?? alert.category).toLowerCase();
+    // En categorías de riesgo no se habla de vistas: no queremos premiar
+    // grabar una balacera de cerca.
+    const risky = CRITICAL_CATEGORIES.includes(alert.category);
+    const title = risky ? "Gracias por avisar" : "Tu pulso está ayudando";
+    const text = risky
+      ? `${who} ${verb} tu reporte de ${label}.`
+      : `${who} lo ${verb}${(views ?? 0) > 0 ? ` · lo vieron ${views}` : ""}.`;
+
+    for (const row of rows ?? []) {
+      messages.push({
+        to: (row as { token: string }).token,
+        title,
+        body: text,
+        sound: "default",
+        priority: "high",
+        channelId: "default",
+        data: { alertId: alert.id },
+      });
     }
   } else {
     return json({ error: "Bad request" }, 400);

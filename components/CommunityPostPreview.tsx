@@ -16,6 +16,7 @@ import { isCityApproxLabel } from "../lib/alerty/coloniaGeocode";
 import type { CommunityPost } from "../lib/alerty/types";
 import { communitySourceLabel, isNewsPost } from "../lib/alerty/communityLabel";
 import { useAlertyTheme } from "../lib/useAlertyTheme";
+import { CommunityVoteBar } from "./CommunityVoteBar";
 
 const X_ACCENT = "#1D9BF0";
 const NEWS_ACCENT = "#0D9488";
@@ -205,6 +206,8 @@ export function CommunityPostPreview({ post, sourceCount = 1, onClose }: Communi
               : "Fuente: X / Comunidad — no es alerta ciudadana de Pulso."}
           </Text>
         )}
+
+        {!post.isDemo ? <CommunityVoteBar postId={post.id} /> : null}
 
         <View style={styles.actions}>
           <Pressable

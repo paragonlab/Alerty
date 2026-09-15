@@ -1,9 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, FlatList, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { getCurrentCoords } from "../../lib/alerty/geolocation";
+import {
+  getCurrentCoords,
+  LocationRequestError,
+  requestCoordsWithFix,
+  type LocationRequestCode,
+} from "../../lib/alerty/geolocation";
 import { useAlertyStore } from "../../lib/alerty/store";
 import { useAlertyTheme } from "../../lib/useAlertyTheme";
 import { AVISOS_RADIUS_KM, CATEGORY_ICONS, CATEGORY_LABELS } from "../../lib/alerty/constants";
@@ -16,11 +21,57 @@ function formatDistance(km: number | null) {
   return `${km.toFixed(1)} km`;
 }
 
+type LocationCopyKey = "ask" | "web_blocked" | "blocked" | "services_off" | "failed";
+
+function locationCopyKey(code: LocationRequestCode | null): LocationCopyKey {
+  if (code === "denied") return Platform.OS === "web" ? "web_blocked" : "ask";
+  if (code === "blocked" || code === "services_off") return code;
+  if (code === "timeout" || code === "unavailable") return "failed";
+  return "ask";
+}
+
+// En web el navegador ya no vuelve a preguntar si la bloquearon; en el teléfono,
+// si se negó para siempre o el GPS está apagado, se arregla en Ajustes.
+const LOCATION_COPY: Record<LocationCopyKey, { title: string; hint: string; cta: string }> = {
+  ask: {
+    title: "Activa la ubicación para ver avisos de tu zona",
+    hint: `Las alertas que sigues aparecen igual. El resto solo si están a ${AVISOS_RADIUS_KM} km.`,
+    cta: "Activar ubicación",
+  },
+  web_blocked: {
+    title: "Tu navegador bloqueó la ubicación",
+    hint: "Permítela en el candado de la barra de direcciones y toca Reintentar. El navegador ya no vuelve a preguntar solo.",
+    cta: "Reintentar",
+  },
+  blocked: {
+    title: "Pulso no tiene permiso de ubicación",
+    hint:
+      Platform.OS === "ios"
+        ? "Actívalo en Ajustes → Pulso → Ubicación → Mientras se usa la app."
+        : "Actívalo en Ajustes → Apps → Pulso → Permisos → Ubicación.",
+    cta: "Abrir ajustes",
+  },
+  services_off: {
+    title: "La ubicación del teléfono está apagada",
+    hint:
+      Platform.OS === "ios"
+        ? "Enciéndela en Ajustes → Privacidad y seguridad → Localización, y vuelve a Pulso."
+        : "Enciende la ubicación (GPS) y vuelve a intentar.",
+    cta: Platform.OS === "android" ? "Encender ubicación" : "Abrir ajustes",
+  },
+  failed: {
+    title: "No pudimos ubicarte",
+    hint: "Revisa tu señal o sal a un lugar abierto y reintenta.",
+    cta: "Reintentar",
+  },
+};
+
 export default function AvisosScreen() {
   const theme = useAlertyTheme();
   const router = useRouter();
   const {
     alerts,
+    activeCategories,
     clearUnreadAlerts,
     followingAlertIds,
     userCoords,
@@ -28,20 +79,20 @@ export default function AvisosScreen() {
   } = useAlertyStore();
   const styles = createStyles(theme);
   const [locating, setLocating] = useState(!userCoords);
-  const [locationDenied, setLocationDenied] = useState(false);
+  const [locationCode, setLocationCode] = useState<LocationRequestCode | null>(null);
 
   useEffect(() => {
     clearUnreadAlerts();
   }, [clearUnreadAlerts]);
 
-  const fetchLocation = async () => {
+  const fetchLocation = async (withFix = false) => {
     setLocating(true);
-    setLocationDenied(false);
+    setLocationCode(null);
     try {
-      const coords = await getCurrentCoords();
+      const coords = await (withFix ? requestCoordsWithFix() : getCurrentCoords());
       setUserCoords(coords);
-    } catch {
-      setLocationDenied(true);
+    } catch (e) {
+      setLocationCode(e instanceof LocationRequestError ? e.code : "unavailable");
     } finally {
       setLocating(false);
     }
@@ -58,6 +109,14 @@ export default function AvisosScreen() {
   const notifications = useMemo(() => {
     return alerts
       .map((alert) => {
+        // Lo que sigues y el SOS siempre; lo demás, según tus categorías.
+        if (
+          alert.category !== "sos" &&
+          !activeCategories.includes(alert.category) &&
+          !followingAlertIds.includes(alert.id)
+        ) {
+          return null;
+        }
         const match = matchInboxAlert(alert, userCoords, followingAlertIds);
         if (!match) return null;
         return { alert, match };
@@ -67,11 +126,13 @@ export default function AvisosScreen() {
       )
       .sort((a, b) => new Date(b.alert.createdAt).getTime() - new Date(a.alert.createdAt).getTime())
       .slice(0, 30);
-  }, [alerts, followingAlertIds, userCoords]);
+  }, [alerts, followingAlertIds, userCoords, activeCategories]);
 
   const requestLocation = () => {
-    void fetchLocation();
+    void fetchLocation(true);
   };
+
+  const copy = LOCATION_COPY[locationCopyKey(locationCode)];
 
   const renderItem = ({
     item,
@@ -152,18 +213,10 @@ export default function AvisosScreen() {
   ) : !userCoords ? (
     <View style={styles.empty}>
       <Ionicons name="navigate-outline" size={44} color={theme.colors.border} />
-      <Text style={styles.emptyText}>
-        {locationDenied
-          ? "Activa la ubicación para ver avisos de tu zona"
-          : "Sin GPS no podemos filtrar por distancia"}
-      </Text>
-      <Text style={styles.emptyHint}>
-        {locationDenied
-          ? "En el navegador, permite ubicación en el candado de la barra y vuelve a intentar."
-          : `Las alertas que sigues aparecen igual. El resto solo si están a ${AVISOS_RADIUS_KM} km.`}
-      </Text>
+      <Text style={styles.emptyText}>{copy.title}</Text>
+      <Text style={styles.emptyHint}>{copy.hint}</Text>
       <Pressable style={styles.emptyCta} onPress={requestLocation}>
-        <Text style={styles.emptyCtaText}>Activar ubicación</Text>
+        <Text style={styles.emptyCtaText}>{copy.cta}</Text>
       </Pressable>
     </View>
   ) : (

@@ -23,6 +23,8 @@ export type AlertUser = {
   activeCategories?: string[];
   showHeatmap?: boolean;
   isPremium?: boolean;
+  /** Confirmaciones que otros vecinos dieron a sus pulsos (reporter_stats). */
+  confirmationsReceived?: number;
 };
 
 export type AlertUpdate = {
@@ -87,6 +89,8 @@ export type CommunityPost = {
   text: string;
   url: string;
   mediaUrl?: string | null;
+  /** mp4 de X (media.variants): se reproduce a pantalla completa en Videos. */
+  videoUrl?: string | null;
   /** Avatar X (profile_image_url) o logo de feed RSS */
   authorAvatarUrl?: string | null;
   /** null = sin geo usable (solo Feed); mapa exige lat/lng reales, place bbox o geocode */

@@ -313,7 +313,7 @@ export default function AlertDetailScreen() {
                       style={styles.mediaVideoPress}
                       onPress={() => {
                         openReels(alert.id);
-                        router.navigate("/(tabs)/feed");
+                        router.navigate("/(tabs)/pulsos");
                       }}
                     >
                       <Video

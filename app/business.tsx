@@ -133,7 +133,7 @@ export default function BusinessOnboarding() {
             <Text style={styles.title}>Aliado en el mapa</Text>
             <Text style={styles.subtitle}>
               Farmacia abierta, gasolinera, clínica u OXXO. Un pin útil: aquí hay gente,
-              puedes parar. No es un anuncio en el feed.
+              puedes parar. No es un anuncio en la lista de Pulsos.
             </Text>
           </View>
 

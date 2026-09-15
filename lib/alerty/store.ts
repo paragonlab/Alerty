@@ -45,6 +45,7 @@ const mapCommunityRow = (row: any): CommunityPost => {
     text: row.text,
     url: row.url,
     mediaUrl: row.media_url ?? null,
+    videoUrl: row.video_url ?? null,
     authorAvatarUrl: row.author_avatar_url ?? null,
     // Sin geo usable → null (Feed sí; mapa no). No centrar en Culiacán artificialmente.
     lat: hasGeo ? row.lat : null,
@@ -98,6 +99,9 @@ type AlertyState = {
   setTimeFilter: (filter: TimeFilter) => void;
   toggleCategory: (category: AlertCategory) => void;
   setCategoryDefaults: (categories: AlertCategory[]) => void;
+  /** null hasta cargar el perfil; false = cuenta nueva que aún no elige categorías. */
+  categoriesConfigured: boolean | null;
+  completeCategoryOnboarding: (categories: AlertCategory[]) => Promise<void>;
   setLowConnection: (value: boolean) => void;
   setPushEnabled: (value: boolean) => void;
   loadAlertsFromSupabase: () => Promise<void>;
@@ -128,6 +132,10 @@ type AlertyState = {
   }) => Promise<{ error: string | null }>;
   deleteWatchedZone: (id: string) => Promise<{ error: string | null }>;
   flagAlert: (alertId: string, reason?: string) => Promise<{ error: string | null }>;
+  communityVotes: Record<string, { confirm: number; deny: number }>;
+  myCommunityVotes: Record<string, "confirm" | "deny">;
+  loadCommunityVotes: (postIds: string[]) => Promise<void>;
+  voteCommunity: (postId: string, vote: "confirm" | "deny") => Promise<void>;
   feedViewMode: "list" | "reels";
   setFeedViewMode: (mode: "list" | "reels") => void;
   reelsInitialAlertId: string | null;
@@ -146,13 +154,21 @@ const syncPreference = async (key: string, value: any) => {
   await supabase.from("users").update({ [key]: value }).eq("id", session.user.id);
 };
 
+// Se guardan las categorías ocultas, no las visibles: así una categoría nueva
+// aparece activada para todos en vez de quedar oculta para siempre. El SOS no
+// se puede ocultar.
+const hiddenFrom = (active: readonly string[]) =>
+  ALERT_CATEGORIES.filter((c) => c !== "sos" && !active.includes(c));
+const activeFromHidden = (hidden: string[] | null | undefined): AlertCategory[] =>
+  ALERT_CATEGORIES.filter((c) => c === "sos" || !(hidden ?? []).includes(c));
+
 // Los IDs de alertas demo/locales (seed-, live-, local-) no son UUID y no
 // existen en la base de datos — sus mutaciones se quedan solo en memoria.
 const isDbId = (id: string) =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
 
 const COMMUNITY_POST_COLUMNS =
-  "id,source,external_id,author_handle,author_name,text,url,media_url,author_avatar_url,lat,lng,place_label,geo_source,place_name_source,geocoded_from_text,created_at,fetched_at,category_guess,is_demo,trust_tier";
+  "id,source,external_id,author_handle,author_name,text,url,media_url,video_url,author_avatar_url,lat,lng,place_label,geo_source,place_name_source,geocoded_from_text,created_at,fetched_at,category_guess,is_demo,trust_tier";
 
 const NEWS_SYNC_MIN_MS = 2 * 60 * 1000;
 let lastNewsSyncAt = 0;
@@ -212,6 +228,10 @@ const mapUserFromRow = (row: any, fallbackId?: string): AlertUser => {
     trustScore,
     level: levelFromScore(trustScore),
     followersCount: Number(row?.followers_count ?? 0),
+    confirmationsReceived: Number(
+      (Array.isArray(row?.reporter_stats) ? row.reporter_stats[0] : row?.reporter_stats)
+        ?.confirmations_received ?? 0,
+    ),
   };
 };
 
@@ -225,8 +245,9 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
   communityPosts: [],
   alertsLoaded: false,
   communityLoaded: false,
-  timeFilter: "24h",
+  timeFilter: "7d",
   activeCategories: [...ALERT_CATEGORIES],
+  categoriesConfigured: null,
   lowConnection: false,
   pushEnabled: true,
   demoStarted: false,
@@ -244,6 +265,8 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
   sponsoredZones: [],
   watchedZones: [],
   feedViewMode: "list",
+  communityVotes: {},
+  myCommunityVotes: {},
   setFeedViewMode: (mode) => set({ feedViewMode: mode }),
   reelsInitialAlertId: null,
   openReels: (alertId) => set({ feedViewMode: "reels", reelsInitialAlertId: alertId }),
@@ -478,16 +501,24 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
   setTimeFilter: (filter) => set({ timeFilter: filter }),
   toggleCategory: (category) =>
     set((state) => {
+      // El SOS siempre está activo: es la emergencia de alguien cerca.
+      if (category === "sos") return {};
       const isActive = state.activeCategories.includes(category);
       const newCategories = isActive
         ? state.activeCategories.filter((item) => item !== category)
         : [...state.activeCategories, category];
-      syncPreference("active_categories", newCategories);
+      syncPreference("hidden_categories", hiddenFrom(newCategories));
       return { activeCategories: newCategories };
     }),
   setCategoryDefaults: (categories) => {
-    set({ activeCategories: categories });
-    syncPreference("active_categories", categories);
+    const withSos = categories.includes("sos") ? categories : [...categories, "sos" as AlertCategory];
+    set({ activeCategories: withSos });
+    syncPreference("hidden_categories", hiddenFrom(withSos));
+  },
+  completeCategoryOnboarding: async (categories) => {
+    get().setCategoryDefaults(categories);
+    set({ categoriesConfigured: true });
+    await syncPreference("categories_configured", true);
   },
   setLowConnection: (value) => {
     set({ lowConnection: value });
@@ -500,6 +531,7 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
   resetGuest: () =>
     set({
       currentUser: GUEST_USER,
+      categoriesConfigured: null,
       followingAlertIds: [],
       votedAlerts: {},
       watchedZones: [],
@@ -536,14 +568,15 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
           themeMode: data.theme_mode,
           pushEnabled: data.push_enabled,
           lowConnection: data.low_connection,
-          activeCategories: data.active_categories,
+          activeCategories: activeFromHidden(data.hidden_categories),
           showHeatmap: data.show_heatmap,
           isPremium: data.is_premium,
         },
         themeMode: data.theme_mode ?? state.themeMode,
         pushEnabled: data.push_enabled ?? state.pushEnabled,
         lowConnection: data.low_connection ?? state.lowConnection,
-        activeCategories: data.active_categories ?? state.activeCategories,
+        activeCategories: activeFromHidden(data.hidden_categories),
+        categoriesConfigured: data.categories_configured ?? true,
         showHeatmap: data.show_heatmap ?? true,
       }));
       void get().loadWatchedZones();
@@ -660,6 +693,41 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
     }));
     return { error: null };
   },
+  loadCommunityVotes: async (postIds) => {
+    if (!isSupabaseConfigured || !supabase || postIds.length === 0) return;
+    const { data } = await supabase
+      .from("community_votes")
+      .select("post_id,user_id,vote_type")
+      .in("post_id", postIds);
+    const { data: { session } } = await supabase.auth.getSession();
+    const me = session?.user?.id;
+    const counts: Record<string, { confirm: number; deny: number }> = {};
+    const mine: Record<string, "confirm" | "deny"> = {};
+    for (const row of data ?? []) {
+      const c = counts[row.post_id] ?? { confirm: 0, deny: 0 };
+      if (row.vote_type === "confirm") c.confirm += 1;
+      else c.deny += 1;
+      counts[row.post_id] = c;
+      if (me && row.user_id === me) mine[row.post_id] = row.vote_type;
+    }
+    set({ communityVotes: counts, myCommunityVotes: mine });
+  },
+  voteCommunity: async (postId, vote) => {
+    if (get().myCommunityVotes[postId]) return;
+    set((state) => {
+      const prev = state.communityVotes[postId] ?? { confirm: 0, deny: 0 };
+      return {
+        myCommunityVotes: { ...state.myCommunityVotes, [postId]: vote },
+        communityVotes: { ...state.communityVotes, [postId]: { ...prev, [vote]: prev[vote] + 1 } },
+      };
+    });
+    if (!isSupabaseConfigured || !supabase) return;
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user) return;
+    await supabase
+      .from("community_votes")
+      .insert({ post_id: postId, user_id: session.user.id, vote_type: vote });
+  },
   flagAlert: async (alertId, reason) => {
     if (!isSupabaseConfigured || !supabase) {
       return { error: "No hay conexión." };
@@ -719,6 +787,7 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
       );
       set({ communityPosts, communityLoaded: true });
       persistFeedCache(get().alerts, communityPosts);
+      void get().loadCommunityVotes(communityPosts.map((p) => p.id));
     } catch (err) {
       console.warn("loadCommunityPosts failed", err);
       if (get().communityPosts.length === 0) set({ communityPosts: [] });
@@ -798,7 +867,7 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
       .from("alerts")
       .select(`
         id,category,lat,lng,title,description,created_at,status,parent_alert_id,
-        users(id,username,avatar_url,is_verified,is_premium,trust_score,followers_count),
+        users(id,username,avatar_url,is_verified,is_premium,trust_score,followers_count,reporter_stats(confirmations_received)),
         media(id,media_url,media_type,update_id),
         alert_updates(id,content,created_at,user_id,users(id,username,avatar_url,is_verified,is_premium))
       `)

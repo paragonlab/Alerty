@@ -14,7 +14,8 @@ import { AlertCard } from "../../components/AlertCard";
 import { CommunityPostCard } from "../../components/CommunityPostCard";
 import { CommunityPostPreview } from "../../components/CommunityPostPreview";
 import { VideoReelsList } from "../../components/VideoReelsList";
-import { TIME_FILTERS } from "../../lib/alerty/constants";
+import { ReelsTimeFilter } from "../../components/ReelsTimeFilter";
+import { INFO_DISCLAIMER, TIME_FILTER_PILL_LABEL, TIME_FILTERS } from "../../lib/alerty/constants";
 import { useAlertyTheme } from "../../lib/useAlertyTheme";
 import { useAlertyStore } from "../../lib/alerty/store";
 import { requireSession } from "../../lib/alerty/session";
@@ -23,8 +24,9 @@ import {
   isAlertInWindow,
   isCommunityInWindow,
   shouldSuppressAlert,
-  videoTimeFilter,
 } from "../../lib/alerty/utils";
+import { isAboutCuliacan, isCommunityVideo } from "../../lib/alerty/communityLabel";
+import { isCategoryShown } from "../../lib/alerty/utils";
 import type { AlertItem, CommunityPost } from "../../lib/alerty/types";
 
 type FeedRow =
@@ -72,8 +74,12 @@ export default function FeedScreen() {
 
   const filteredCommunity = useMemo(
     () =>
-      communityPosts.filter((post) => isCommunityInWindow(post, timeFilter)),
-    [communityPosts, timeFilter],
+      communityPosts.filter(
+        (post) =>
+          isCommunityInWindow(post, timeFilter) &&
+          isCategoryShown(post.categoryGuess, activeCategories),
+      ),
+    [communityPosts, timeFilter, activeCategories],
   );
 
   const videoAlerts = useMemo(
@@ -82,7 +88,7 @@ export default function FeedScreen() {
         (alert) =>
           alert.status === "active" &&
           activeCategories.includes(alert.category) &&
-          isAlertInWindow(alert, videoTimeFilter(timeFilter)) &&
+          isAlertInWindow(alert, timeFilter) &&
           !shouldSuppressAlert(alert) &&
           alert.media.some((m) => m.type === "video"),
       ),
@@ -99,6 +105,23 @@ export default function FeedScreen() {
     );
     return target ? [target, ...videoAlerts] : videoAlerts;
   }, [videoAlerts, reelsInitialAlertId, alerts]);
+
+  // Videos de X y medios: siguen a los de vecinos para que Videos nunca quede
+  // vacío. Solo miniatura; el video se abre en su fuente.
+  const communityVideos = useMemo(() => {
+    const list = communityPosts.filter(
+      (post) =>
+        isCommunityVideo(post) &&
+        isAboutCuliacan(post) &&
+        isCommunityInWindow(post, timeFilter) &&
+        isCategoryShown(post.categoryGuess, activeCategories),
+    );
+    // El video tocado en la lista o el mapa entra aunque quede fuera del filtro.
+    const tapped = reelsInitialAlertId?.startsWith("c-")
+      ? communityPosts.find((p) => `c-${p.id}` === reelsInitialAlertId)
+      : undefined;
+    return tapped && !list.includes(tapped) ? [tapped, ...list] : list;
+  }, [communityPosts, timeFilter, reelsInitialAlertId, activeCategories]);
 
   const feedItems = useMemo(() => {
     type Timed = { at: number; row: FeedRow };
@@ -130,7 +153,11 @@ export default function FeedScreen() {
       return (
         <CommunityPostCard
           post={item.item}
-          onPress={() => setPreviewPost(item.item)}
+          onPress={() =>
+            isCommunityVideo(item.item)
+              ? openReels(`c-${item.item.id}`)
+              : setPreviewPost(item.item)
+          }
         />
       );
     },
@@ -214,24 +241,26 @@ export default function FeedScreen() {
   if (viewMode === "reels") {
     return (
       <View style={styles.reelsRoot}>
-        {reelsAlerts.length === 0 ? (
+        {reelsAlerts.length === 0 && communityVideos.length === 0 ? (
           <SafeAreaView style={styles.emptyReelsContainer}>
             <Pressable onPress={() => setViewMode("list")} style={styles.reelsBackBtn} hitSlop={10}>
               <Ionicons name="chevron-back" size={20} color="rgba(255,255,255,0.75)" />
               <Text style={styles.reelsBackLabel}>Lista</Text>
             </Pressable>
             <View style={styles.emptyReels}>
+              <ReelsTimeFilter />
               <Ionicons name="videocam-off-outline" size={52} color="rgba(255,255,255,0.2)" />
               <Text style={styles.emptyReelsTitle}>Sin videos en este período</Text>
               <Text style={styles.emptyReelsSubtitle}>
-                No hay videos en las últimas {videoTimeFilter(timeFilter) === "7d" ? "7 días" : "24 horas"}.
-                Publica una alerta con video o revisa más tarde.
+                No hay videos en este horario ({TIME_FILTER_PILL_LABEL[timeFilter]}). Cambia el
+                horario, publica una alerta con video o revisa más tarde.
               </Text>
             </View>
           </SafeAreaView>
         ) : (
           <VideoReelsList
             alerts={reelsAlerts}
+            communityVideos={communityVideos}
             initialAlertId={reelsInitialAlertId}
             onClose={() => setViewMode("list")}
           />
@@ -249,23 +278,14 @@ export default function FeedScreen() {
           keyExtractor={keyExtractor}
           ListHeaderComponent={ListHeader}
           ListEmptyComponent={ListEmpty}
+          ListFooterComponent={
+            feedItems.length > 0 ? <Text style={styles.disclaimer}>{INFO_DISCLAIMER}</Text> : null
+          }
           contentContainerStyle={styles.container}
           showsVerticalScrollIndicator={false}
           ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
         />
       </SafeAreaView>
-      <View style={styles.modePillWrap} pointerEvents="box-none">
-        <View style={styles.modePill} pointerEvents="auto">
-          <View style={[styles.modePillBtn, styles.modePillBtnActive]}>
-            <Ionicons name="list" size={13} color="#fff" />
-            <Text style={[styles.modePillText, { color: "#fff" }]}>LISTA</Text>
-          </View>
-          <Pressable style={styles.modePillBtn} onPress={() => openReels(null)}>
-            <Ionicons name="film" size={13} color="rgba(255,255,255,0.45)" />
-            <Text style={styles.modePillText}>VIDEOS</Text>
-          </Pressable>
-        </View>
-      </View>
       {previewPost ? (
         <CommunityPostPreview post={previewPost} onClose={() => setPreviewPost(null)} />
       ) : null}
@@ -296,48 +316,14 @@ const createStyles = (theme: any) => StyleSheet.create({
     alignItems: "center",
     gap: 10,
   },
-  modePillWrap: {
-    position: "absolute",
-    bottom: 18,
-    left: 0,
-    right: 0,
-    alignItems: "center",
-    zIndex: 30,
-  },
-  modePill: {
-    flexDirection: "row",
-    padding: 4,
-    backgroundColor: "rgba(10,10,10,0.82)",
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.12)",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.35,
-    shadowRadius: 12,
-    elevation: 12,
-  },
-  modePillBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 999,
-  },
-  modePillBtnActive: {
-    backgroundColor: "#FF4500",
-    shadowColor: "#FF4500",
-    shadowOpacity: 0.45,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 3 },
-  },
-  modePillText: {
-    fontSize: 11,
-    fontWeight: "700" as const,
-    letterSpacing: 1.1,
-    color: "rgba(255,255,255,0.45)",
-    fontFamily: "SpaceGrotesk_700Bold",
+  disclaimer: {
+    color: theme.colors.textMuted,
+    fontSize: 12,
+    lineHeight: 17,
+    textAlign: "center",
+    fontFamily: theme.fonts.body,
+    paddingHorizontal: 12,
+    paddingVertical: 16,
   },
   title: {
     color: theme.colors.text,

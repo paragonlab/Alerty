@@ -4,6 +4,7 @@ import { formatRelativeTime } from "../lib/alerty/utils";
 import type { CommunityPost } from "../lib/alerty/types";
 import { communitySourceLabel, isNewsPost } from "../lib/alerty/communityLabel";
 import { useAlertyTheme } from "../lib/useAlertyTheme";
+import { CommunityVoteBar } from "./CommunityVoteBar";
 
 type CommunityPostCardProps = {
   post: CommunityPost;
@@ -84,11 +85,12 @@ export function CommunityPostCard({ post, onPress }: CommunityPostCardProps) {
 
         <View style={styles.footerRow}>
           <Ionicons name="eye-outline" size={12} color={accent} />
-          <Text style={[styles.linkText, { color: accent }]}>Ver en Pulso</Text>
+          <Text style={[styles.linkText, { color: accent }]}>Ver detalle</Text>
           {post.isDemo ? (
             <Text style={styles.demoHint}>Muestra · no es contenido en vivo</Text>
           ) : null}
         </View>
+        {!post.isDemo ? <CommunityVoteBar postId={post.id} /> : null}
       </View>
     </Pressable>
   );

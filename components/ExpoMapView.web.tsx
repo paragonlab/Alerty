@@ -63,7 +63,12 @@ type CommunityPinMeta = {
   source?: "x" | "rss";
 };
 
-type PinMeta = AlertPinMeta | SponsorPinMeta | CommunityPinMeta;
+type DestinationPinMeta = {
+  kind: "destination";
+  color: string;
+};
+
+type PinMeta = AlertPinMeta | SponsorPinMeta | CommunityPinMeta | DestinationPinMeta;
 
 type CollectedMarker = MarkerProps & { meta: PinMeta };
 
@@ -452,6 +457,20 @@ function ensurePulseStyles() {
   pointer-events: none;
   z-index: 3;
 }
+.pulso-dest {
+  position: relative;
+  width: 34px;
+  height: 44px;
+  margin-left: -17px;
+  margin-top: -44px;
+  pointer-events: none;
+  filter: drop-shadow(0 2px 3px rgba(0,0,0,0.35));
+}
+.pulso-dest svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
 @media (prefers-reduced-motion: reduce) {
   .pulso-pin__halo,
   .pulso-pin__ring,
@@ -467,7 +486,8 @@ function ensurePulseStyles() {
 }
 .pulso-leaflet-pin .pulso-pin,
 .pulso-leaflet-pin .pulso-community,
-.pulso-leaflet-pin .pulso-sponsor {
+.pulso-leaflet-pin .pulso-sponsor,
+.pulso-leaflet-pin .pulso-dest {
   margin: 0 !important;
 }
 .pulso-leaflet-pin .pulso-pin {
@@ -602,6 +622,19 @@ function findCommunityMeta(node: React.ReactNode): CommunityPinMeta | null {
   return found;
 }
 
+/** Detecta DestinationPin vía markerKind="destination". */
+function findDestinationMeta(node: React.ReactNode): DestinationPinMeta | null {
+  let found: DestinationPinMeta | null = null;
+  Children.forEach(node, (child) => {
+    if (found || !isValidElement(child)) return;
+    const props = child.props as { markerKind?: string; color?: string };
+    if (props.markerKind === "destination") {
+      found = { kind: "destination", color: typeof props.color === "string" ? props.color : "#E9792F" };
+    }
+  });
+  return found;
+}
+
 function collectMarkerProps(node: React.ReactNode, out: CollectedMarker[] = []): CollectedMarker[] {
   Children.forEach(node, (child) => {
     if (!isValidElement(child)) return;
@@ -614,9 +647,11 @@ function collectMarkerProps(node: React.ReactNode, out: CollectedMarker[] = []):
       Number.isFinite(coord.latitude) &&
       Number.isFinite(coord.longitude)
     ) {
+      const destination = findDestinationMeta(props.children);
       const glow = findGlowProps(props.children);
       const community = findCommunityMeta(props.children);
       const meta: PinMeta =
+        destination ??
         glow ??
         community ??
         findSponsorMeta(props.children) ?? {
@@ -869,6 +904,16 @@ function buildCommunityPinElement(meta: CommunityPinMeta): HTMLDivElement {
   return el;
 }
 
+function buildDestinationPinElement(meta: DestinationPinMeta): HTMLDivElement {
+  const el = document.createElement("div");
+  el.className = "pulso-dest";
+  el.style.setProperty("--pulso-color", meta.color);
+  el.setAttribute("aria-label", "Punto seleccionado");
+  el.innerHTML =
+    '<svg viewBox="0 0 34 44" aria-hidden="true"><path style="fill: var(--pulso-color)" stroke="#fff" stroke-width="2" d="M17 1C8.2 1 1 8.1 1 16.9 1 28.6 17 43 17 43s16-14.4 16-26.1C33 8.1 25.8 1 17 1z"/><circle cx="17" cy="17" r="5.5" fill="#fff"/></svg>';
+  return el;
+}
+
 type OverlayHandle = {
   setMap: (map: unknown) => void;
 };
@@ -973,6 +1018,7 @@ type MapViewProps = {
 };
 
 function pinElement(meta: PinMeta, simplify: boolean): HTMLDivElement {
+  if (meta.kind === "destination") return buildDestinationPinElement(meta);
   if (meta.kind === "sponsor") return buildSponsorPinElement(meta);
   if (meta.kind === "community") return buildCommunityPinElement(meta);
   return buildAlertPinElement(meta, simplify);
@@ -1322,16 +1368,20 @@ const ExpoMapView = forwardRef<MapHandle, MapViewProps>(function ExpoMapView(pro
 
       markers.forEach((p) => {
         const content = pinElement(p.meta, simplify);
+        const isDest = p.meta.kind === "destination";
         const size = p.meta.kind === "alert" ? 48 : p.meta.kind === "community" ? 40 : 32;
         const icon = L.divIcon({
           html: content.outerHTML,
           className: "pulso-leaflet-pin",
-          iconSize: [size, size],
-          iconAnchor: [size / 2, size / 2],
+          // El pin de destino apunta con la punta, no con el centro.
+          iconSize: isDest ? [34, 44] : [size, size],
+          iconAnchor: isDest ? [17, 44] : [size / 2, size / 2],
         });
         const marker = L.marker([p.coordinate.latitude, p.coordinate.longitude], {
           icon,
           keyboard: false,
+          interactive: !isDest,
+          zIndexOffset: isDest ? 1000 : 0,
         });
         if (p.onPress) {
           marker.on("click", (e: any) => {

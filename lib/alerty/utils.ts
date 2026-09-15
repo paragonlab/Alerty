@@ -3,6 +3,7 @@ import {
   AVISOS_RADIUS_KM,
   CATEGORY_PIN_COLORS,
   COMMUNITY_DEFAULT_PIN_COLOR,
+  ALERT_CATEGORIES,
   TIME_FILTER_WINDOW_LABEL,
 } from "./constants";
 import type { AlertItem, CommunityPost, TimeFilter } from "./types";
@@ -13,12 +14,19 @@ export const getAlertAgeMinutes = (createdAt: string) =>
 export const formatRelativeTime = (createdAt: string) => {
   const minutes = getAlertAgeMinutes(createdAt);
   if (minutes < 1) return "Ahora";
-  if (minutes < 60) return `${minutes} min`;
+  if (minutes < 60) return `Hace ${minutes} min`;
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours} h`;
+  if (hours < 24) return `Hace ${hours} h`;
   const days = Math.floor(hours / 24);
-  return `${days} d`;
+  return `Hace ${days} d`;
 };
+
+/**
+ * Filtro por categoría para noticias de X/RSS: se muestran si su categoría
+ * detectada está activa, o si no es una de las categorías de Pulso.
+ */
+export const isCategoryShown = (guess: string | null | undefined, active: readonly string[]) =>
+  !guess || !(ALERT_CATEGORIES as readonly string[]).includes(guess) || active.includes(guess);
 
 export const isCreatedAtInWindow = (createdAt: string, filter: TimeFilter) => {
   const minutes = getAlertAgeMinutes(createdAt);
@@ -38,10 +46,6 @@ export const isCreatedAtInWindow = (createdAt: string, filter: TimeFilter) => {
 
 export const isAlertInWindow = (alert: AlertItem, filter: TimeFilter) =>
   isCreatedAtInWindow(alert.createdAt, filter);
-
-/** Videos: mínimo 24h para que el reel no quede vacío con el filtro corto del mapa. */
-export const videoTimeFilter = (feedFilter: TimeFilter): TimeFilter =>
-  feedFilter === "7d" ? "7d" : "24h";
 
 /** Comunidad: fecha del medio o primera ingesta en Pulso (fetched_at no se pisa en resync). */
 export const isCommunityInWindow = (post: CommunityPost, filter: TimeFilter) =>

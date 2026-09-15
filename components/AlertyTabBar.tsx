@@ -317,14 +317,14 @@ export function AlertyTabBar({ state, navigation }: TabBarProps) {
   const router = useRouter();
   const theme = useAlertyTheme();
   const {
-    feedViewMode, setFeedViewMode,
+    feedViewMode, setFeedViewMode, openReels,
     themeMode, addAlert, currentUser,
     unreadAlerts, clearUnreadAlerts,
   } = useAlertyStore();
 
   const isDark = themeMode === "darkHighVisibility";
   const activeRoute = state.routes[state.index];
-  const isReels = feedViewMode === "reels" && activeRoute?.name === "feed";
+  const isReels = feedViewMode === "reels" && activeRoute?.name === "pulsos";
   const [sosConfirmOpen, setSosConfirmOpen] = useState(false);
   const [sosSending, setSosSending] = useState(false);
 
@@ -422,7 +422,7 @@ export function AlertyTabBar({ state, navigation }: TabBarProps) {
 
   // ── navigation helper ─────────────────────────────────────────────────────
   function goTo(name: string) {
-    if (name !== "feed" && feedViewMode === "reels") setFeedViewMode("list");
+    if (name !== "pulsos" && feedViewMode === "reels") setFeedViewMode("list");
     const route = state.routes.find((r) => r.name === name);
     if (!route) return;
     const event = navigation.emit({ type: "tabPress", target: route.key, canPreventDefault: true });
@@ -465,7 +465,7 @@ export function AlertyTabBar({ state, navigation }: TabBarProps) {
         style={[styles.topBorder, { backgroundColor: isDark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.05)" }]}
       />
 
-      {/* tab items row: Mapa | Feed | [96px gap] | Avisos | Ajustes */}
+      {/* tab items row: Mapa | Videos | [SOS] | Pulsos | Avisos — Ajustes vive en el engrane del mapa */}
       <View style={[styles.tabRow, { height: barInner, bottom: insets.bottom }]}>
         <NavItem
           icon="map" iconOut="map-outline" label="Mapa"
@@ -475,27 +475,33 @@ export function AlertyTabBar({ state, navigation }: TabBarProps) {
           badgeBorderColor={socketColor}
         />
         <NavItem
-          icon="pulse" iconOut="pulse-outline" label="Pulsos"
-          active={activeRoute?.name === "feed"}
-          onPress={() => goTo("feed")}
+          icon="play-circle" iconOut="play-circle-outline" label="Videos"
+          active={activeRoute?.name === "pulsos" && feedViewMode === "reels"}
+          onPress={() => {
+            openReels(null);
+            goTo("pulsos");
+          }}
           activeColor={activeColor} inactiveColor={inactiveColor}
           badgeBorderColor={socketColor}
         />
         {/* spacer for raised SOS button */}
         <View style={styles.sosSpacer} />
         <NavItem
+          icon="pulse" iconOut="pulse-outline" label="Pulsos"
+          active={activeRoute?.name === "pulsos" && feedViewMode !== "reels"}
+          onPress={() => {
+            setFeedViewMode("list");
+            goTo("pulsos");
+          }}
+          activeColor={activeColor} inactiveColor={inactiveColor}
+          badgeBorderColor={socketColor}
+        />
+        <NavItem
           icon="notifications" iconOut="notifications-outline" label="Avisos"
           active={activeRoute?.name === "avisos"}
           onPress={() => goTo("avisos")}
           activeColor={activeColor} inactiveColor={inactiveColor}
           badgeCount={unreadAlerts}
-          badgeBorderColor={socketColor}
-        />
-        <NavItem
-          icon="settings" iconOut="settings-outline" label="Ajustes"
-          active={activeRoute?.name === "settings"}
-          onPress={() => goTo("settings")}
-          activeColor={activeColor} inactiveColor={inactiveColor}
           badgeBorderColor={socketColor}
         />
       </View>

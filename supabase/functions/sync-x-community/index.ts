@@ -100,7 +100,13 @@ type XTweet = {
 
 type XUser = { id: string; name?: string; username?: string; profile_image_url?: string };
 type XPlace = { id: string; full_name?: string; geo?: { bbox?: number[] } };
-type XMedia = { media_key: string; url?: string; preview_image_url?: string; type?: string };
+type XMedia = {
+  media_key: string;
+  url?: string;
+  preview_image_url?: string;
+  type?: string;
+  variants?: Array<{ content_type?: string; bit_rate?: number; url?: string }>;
+};
 
 type CommunityRow = {
   source: "x";
@@ -110,6 +116,7 @@ type CommunityRow = {
   text: string;
   url: string;
   media_url: string | null;
+  video_url?: string | null;
   author_avatar_url: string | null;
   lat: number | null;
   lng: number | null;
@@ -136,7 +143,7 @@ async function searchRecent(
     expansions: "author_id,attachments.media_keys,geo.place_id",
     "user.fields": "name,username,profile_image_url",
     "place.fields": "full_name,geo",
-    "media.fields": "url,preview_image_url,type",
+    "media.fields": "url,preview_image_url,type,variants",
   });
 
   const xRes = await fetch(`https://api.twitter.com/2/tweets/search/recent?${params}`, {
@@ -208,6 +215,98 @@ function resolveGeo(
   };
 }
 
+/**
+ * mp4 para reproducirlo a pantalla completa en la app. La calidad más alta que
+ * no pase de ~2.2 Mbps: se ve bien en el teléfono sin gastar datos de más.
+ */
+function pickVideoUrl(tweet: XTweet, mediaByKey: Map<string, XMedia>): string | null {
+  for (const key of tweet.attachments?.media_keys ?? []) {
+    const mp4 = (mediaByKey.get(key)?.variants ?? [])
+      .filter((v) => v.content_type === "video/mp4" && v.url)
+      .sort((a, b) => (a.bit_rate ?? 0) - (b.bit_rate ?? 0));
+    if (mp4.length === 0) continue;
+    const pick = [...mp4].reverse().find((v) => (v.bit_rate ?? 0) <= 2_200_000) ?? mp4[0];
+    return pick.url ?? null;
+  }
+  return null;
+}
+
+type LookupPayload = {
+  data?: XTweet[];
+  includes?: { media?: XMedia[] };
+  errors?: Array<{ value?: string; resource_id?: string; type?: string }>;
+};
+
+/**
+ * Posts de X con video guardados sin el mp4 (antes de guardarlo, o de una
+ * pasada que no lo trajo): se completan con el lookup de X. Si X responde que
+ * el post ya no existe o es privado, se borra: sus reglas piden quitarlo en
+ * menos de 24 h, y esto corre cada 10 minutos.
+ */
+async function hydrateVideos(
+  admin: ReturnType<typeof createClient>,
+  bearer: string,
+): Promise<{ hydrated: number; removed: number }> {
+  const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const { data: pending } = await admin
+    .from("community_posts")
+    .select("id,external_id")
+    .eq("source", "x")
+    .is("video_url", null)
+    .ilike("media_url", "%video_thumb%")
+    .gte("created_at", since)
+    .limit(100);
+  if (!pending?.length) return { hydrated: 0, removed: 0 };
+
+  try {
+    const params = new URLSearchParams({
+      ids: pending.map((p: { external_id: string }) => p.external_id).join(","),
+      expansions: "attachments.media_keys",
+      "media.fields": "type,variants",
+    });
+    const res = await fetch(`https://api.twitter.com/2/tweets?${params}`, {
+      headers: { Authorization: `Bearer ${bearer}` },
+    });
+    if (!res.ok) {
+      console.error("X lookup", res.status, (await res.text()).slice(0, 300));
+      return { hydrated: 0, removed: 0 };
+    }
+    const payload = (await res.json()) as LookupPayload;
+    const mediaByKey = new Map((payload.includes?.media ?? []).map((m) => [m.media_key, m]));
+
+    let hydrated = 0;
+    for (const tweet of payload.data ?? []) {
+      const url = pickVideoUrl(tweet, mediaByKey);
+      if (!url) continue;
+      const { error } = await admin
+        .from("community_posts")
+        .update({ video_url: url })
+        .eq("source", "x")
+        .eq("external_id", tweet.id);
+      if (!error) hydrated += 1;
+    }
+
+    const gone = (payload.errors ?? [])
+      .filter((e) => /resource-not-found|not-authorized-for-resource/.test(e.type ?? ""))
+      .map((e) => e.resource_id ?? e.value)
+      .filter((id): id is string => Boolean(id));
+    let removed = 0;
+    if (gone.length > 0) {
+      const { data: deleted } = await admin
+        .from("community_posts")
+        .delete()
+        .eq("source", "x")
+        .in("external_id", gone)
+        .select("id");
+      removed = deleted?.length ?? 0;
+    }
+    return { hydrated, removed };
+  } catch (e) {
+    console.error("X lookup failed", e);
+    return { hydrated: 0, removed: 0 };
+  }
+}
+
 function tweetToRow(
   tweet: XTweet,
   userById: Map<string, XUser>,
@@ -241,6 +340,8 @@ function tweetToRow(
     }
   }
 
+  const videoUrl = pickVideoUrl(tweet, mediaByKey);
+
   return {
     source: "x",
     external_id: tweet.id,
@@ -249,6 +350,7 @@ function tweetToRow(
     text: tweet.text,
     url: `https://x.com/${username ?? "i"}/status/${tweet.id}`,
     media_url: mediaUrl,
+    video_url: videoUrl,
     // X suele devolver _normal; preferir versión más grande para pines.
     author_avatar_url: author?.profile_image_url
       ? author.profile_image_url.replace("_normal.", "_bigger.")
@@ -297,6 +399,7 @@ Deno.serve(async (req) => {
   }
 
   const admin = createClient(supabaseUrl, serviceKey);
+  const hydration = await hydrateVideos(admin, bearer);
 
   let batches: Array<Awaited<ReturnType<typeof searchRecent>>> = [];
 
@@ -352,7 +455,7 @@ Deno.serve(async (req) => {
   const mediaByKey = new Map(media.map((m) => [m.media_key, m]));
 
   if (tweets.length === 0) {
-    return json({ ok: true, mode: "live", upserted: 0, message: "Sin resultados recientes" });
+    return json({ ok: true, mode: "live", upserted: 0, message: "Sin resultados recientes", ...hydration });
   }
 
   const rows: CommunityRow[] = [];
@@ -374,6 +477,7 @@ Deno.serve(async (req) => {
       with_geo: 0,
       feed_only: 0,
       message: "Sin posts de alerta/evento tras filtros",
+      ...hydration,
     });
   }
 
@@ -394,5 +498,6 @@ Deno.serve(async (req) => {
     with_geo: withGeo,
     feed_only: feedOnly,
     allowlist_size: allowlist.length,
+    ...hydration,
   });
 });

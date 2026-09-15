@@ -95,6 +95,7 @@ export default function RootLayout() {
   }, []);
 
   const { alerts, currentUser } = useAlertyStore();
+  const categoriesConfigured = useAlertyStore((s) => s.categoriesConfigured);
   const lastSOSRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -202,10 +203,16 @@ export default function RootLayout() {
       return;
     }
 
+    // Cuenta nueva: antes de entrar elige qué categorías quiere ver.
+    if (hasSession && categoriesConfigured === false && currentGroup !== "onboarding") {
+      router.replace("/onboarding" as any);
+      return;
+    }
+
     if (hasSession && isInAuth) {
       router.replace((consumeAuthNext() ?? "/(tabs)") as any);
     }
-  }, [hasSession, isReady, pathname, rootNavigationState?.key, router, segments]);
+  }, [hasSession, isReady, pathname, rootNavigationState?.key, router, segments, categoriesConfigured]);
 
   return (
     <SafeAreaProvider>
@@ -248,6 +255,13 @@ export default function RootLayout() {
           options={{
             presentation: "modal",
             headerShown: false,
+          }}
+        />
+        <Stack.Screen
+          name="onboarding"
+          options={{
+            headerShown: false,
+            gestureEnabled: false,
           }}
         />
         <Stack.Screen

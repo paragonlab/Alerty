@@ -20,7 +20,12 @@ import * as Location from "expo-location";
 import { Audio } from "expo-av";
 import * as FileSystem from "expo-file-system/legacy";
 import { useRouter } from "expo-router";
-import { ALERT_CATEGORIES, CATEGORY_ICONS, CATEGORY_LABELS } from "../lib/alerty/constants";
+import {
+  ALERT_CATEGORIES,
+  CATEGORY_ICONS,
+  CATEGORY_LABELS,
+  DANGER_CATEGORIES,
+} from "../lib/alerty/constants";
 import { useAlertyStore } from "../lib/alerty/store";
 import { Sounds } from "../lib/sounds";
 import { supabase } from "../lib/supabase";
@@ -186,7 +191,7 @@ function ContextChips({ locationLabel }: { locationLabel: string }) {
 export default function ReportScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { addAlert, currentUser, alerts, setUserCoords } = useAlertyStore();
+  const { addAlert, addUpdateToAlert, currentUser, alerts, setUserCoords } = useAlertyStore();
 
   // Categoría + GPS + enviar. Cámara/galería son opcionales desde el paso 2.
   const [step, setStep] = useState<1 | 2 | 3 | 4>(2);
@@ -201,6 +206,8 @@ export default function ReportScreen() {
   const [locationLabel, setLocationLabel] = useState("Mi ubicación");
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [sentAlertId, setSentAlertId] = useState<string | null>(null);
+  const [videoAdd, setVideoAdd] = useState<"idle" | "sending" | "done">("idle");
   const [recording, setRecording] = useState<Audio.Recording | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [recSeconds, setRecSeconds] = useState(0);
@@ -542,6 +549,7 @@ export default function ReportScreen() {
       } as any);
 
       const alertId = inserted.id;
+      setSentAlertId(alertId);
       // El aviso lo dispara el trigger alerts_notify. No se invoca desde aquí:
       // duplicaría el push, y sobre todo dejaría el aviso a merced de que este
       // teléfono siga con señal justo después de reportar.
@@ -582,6 +590,36 @@ export default function ReportScreen() {
     setStep(4);
   }
 
+  // Después de publicar sin video: uno de 10 s ayuda a que otros vecinos lo
+  // confirmen. Se cuelga del mismo pulso como actualización.
+  async function handleAddVideo() {
+    if (!sentAlertId || videoAdd !== "idle") return;
+    let asset: ImagePicker.ImagePickerAsset | undefined;
+    if (Platform.OS === "web") {
+      const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: "videos" });
+      asset = res.canceled ? undefined : res.assets[0];
+    } else {
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
+      if (status !== "granted") {
+        Alert.alert("Permiso", "Necesitamos la cámara para grabar el video.");
+        return;
+      }
+      const res = await ImagePicker.launchCameraAsync({
+        mediaTypes: "videos",
+        quality: 0.85,
+        videoMaxDuration: 30,
+      });
+      asset = res.canceled ? undefined : res.assets[0];
+    }
+    if (!asset) return;
+    setVideoAdd("sending");
+    await addUpdateToAlert(sentAlertId, "Video del lugar", [
+      { id: `cap-${Date.now()}`, url: asset.uri, type: "video" },
+    ]);
+    setVideoAdd("done");
+    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+  }
+
   // ── Render helpers ───────────────────────────────────────────────────────
 
   function renderStep1() {
@@ -620,6 +658,17 @@ export default function ReportScreen() {
               />
             </View>
           )}
+        </View>
+
+        <View style={S.safetyNote}>
+          <Ionicons
+            name="shield-outline"
+            size={13}
+            color={category && DANGER_CATEGORIES.includes(category) ? "#FF8A65" : "rgba(255,255,255,0.55)"}
+          />
+          <Text style={S.safetyNoteText}>
+            Graba solo si estás a salvo · no grabes rostros de víctimas
+          </Text>
         </View>
 
         {/* Mode selector */}
@@ -856,6 +905,39 @@ export default function ReportScreen() {
           </View>
         </View>
 
+        {sentAlertId &&
+        category &&
+        !DANGER_CATEGORIES.includes(category) &&
+        !media.some((m) => m.type === "video") ? (
+          <Pressable
+            style={S.addVideoCard}
+            onPress={() => void handleAddVideo()}
+            disabled={videoAdd !== "idle"}
+            accessibilityLabel="Agregar un video a tu pulso"
+          >
+            <View style={S.addVideoIcon}>
+              <Ionicons name={videoAdd === "done" ? "checkmark" : "videocam"} size={18} color="#fff" />
+            </View>
+            <View style={{ flex: 1, gap: 2 }}>
+              <Text style={S.addVideoTitle}>
+                {videoAdd === "done"
+                  ? "Video agregado"
+                  : videoAdd === "sending"
+                    ? "Subiendo video…"
+                    : "¿Tienes un video de 10 s?"}
+              </Text>
+              <Text style={S.addVideoSub}>
+                {videoAdd === "done"
+                  ? "Ya aparece en Videos."
+                  : "Ayuda a que más vecinos lo confirmen."}
+              </Text>
+            </View>
+            {videoAdd === "idle" ? (
+              <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.6)" />
+            ) : null}
+          </Pressable>
+        ) : null}
+
         <Text style={S.confirmNudge}>
           Si alguien cerca lo confirma con un voto, el pulso pesa más en el mapa.
         </Text>
@@ -871,7 +953,7 @@ export default function ReportScreen() {
               <Ionicons name="share-outline" size={14} color="#fff" />
               <Text style={S.successActionSecText}>Compartir</Text>
             </Pressable>
-            <Pressable style={S.successActionPri} onPress={() => router.replace("/(tabs)/feed")}>
+            <Pressable style={S.successActionPri} onPress={() => router.replace("/(tabs)/pulsos")}>
               <Ionicons name="pulse" size={14} color="#fff" />
               <Text style={S.successActionPriText}>Ver en Pulsos</Text>
             </Pressable>
@@ -1421,6 +1503,24 @@ const S = StyleSheet.create({
     fontSize: 12, color: "rgba(255,255,255,0.5)", textAlign: "center",
     lineHeight: 17, fontFamily: "SpaceGrotesk_500Medium", paddingHorizontal: 8,
   },
+  addVideoCard: {
+    flexDirection: "row", alignItems: "center", gap: 10,
+    padding: 12, borderRadius: 14,
+    backgroundColor: "rgba(255,69,0,0.12)",
+    borderWidth: 1, borderColor: "rgba(255,69,0,0.35)",
+  },
+  addVideoIcon: {
+    width: 36, height: 36, borderRadius: 10,
+    alignItems: "center", justifyContent: "center",
+    backgroundColor: "#FF4500",
+  },
+  addVideoTitle: { fontSize: 14, color: "#fff", fontFamily: "SpaceGrotesk_700Bold" },
+  addVideoSub: { fontSize: 12, color: "rgba(255,255,255,0.6)", fontFamily: "SpaceGrotesk_500Medium" },
+  safetyNote: {
+    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6,
+    paddingHorizontal: 12,
+  },
+  safetyNoteText: { fontSize: 12, color: "rgba(255,255,255,0.6)", fontFamily: "SpaceGrotesk_500Medium" },
   successActionsCol: { gap: 10 },
   successActions: { flexDirection: "row", gap: 8 },
   successActionSec: {

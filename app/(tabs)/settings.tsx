@@ -520,14 +520,20 @@ export default function SettingsScreen() {
                   key={category}
                   style={[styles.categoryPill, active && styles.categoryPillActive]}
                   onPress={() => toggleCategory(category)}
+                  disabled={category === "sos"}
+                  accessibilityLabel={category === "sos" ? "SOS siempre activo" : CATEGORY_LABELS[category]}
                 >
                   <Text style={[styles.categoryText, active && styles.categoryTextActive]}>
                     {CATEGORY_LABELS[category]}
+                    {category === "sos" ? " · siempre" : ""}
                   </Text>
                 </Pressable>
               );
             })}
           </View>
+          <Text style={styles.helperText}>
+            Aplica al mapa, Pulsos, Videos, Avisos y notificaciones. El SOS siempre te llega.
+          </Text>
         </View>
 
         <Pressable style={styles.card} onPress={() => router.push("/privacy")}>

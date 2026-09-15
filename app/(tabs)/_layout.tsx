@@ -23,17 +23,13 @@ export default function TabLayout() {
           }}
         />
         <Tabs.Screen
-          name="feed"
+          name="pulsos"
           options={{
             title: "Pulsos",
             tabBarIcon: ({ color, focused }) => (
               <Ionicons name={focused ? "pulse" : "pulse-outline"} color={color} size={22} />
             ),
           }}
-        />
-        <Tabs.Screen
-          name="videos"
-          options={{ href: null }}
         />
         <Tabs.Screen
           name="avisos"

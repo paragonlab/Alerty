@@ -39,12 +39,17 @@ import * as Location from "expo-location";
 import {
   getCurrentCoords,
   LocationRequestError,
+  requestCoordsWithFix,
   type LocationRequestCode,
 } from "../../lib/alerty/geolocation";
 import * as Haptics from "expo-haptics";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { GlowMarker } from "../../components/GlowMarker";
+import { DestinationPin } from "../../components/DestinationPin";
+import { isAboutCuliacan, isCommunityVideo } from "../../lib/alerty/communityLabel";
+import { isCategoryShown } from "../../lib/alerty/utils";
+import { placeIcon, searchCuliacanPlaces, type PlaceResult } from "../../lib/alerty/placeSearch";
 import { CommunityMarker } from "../../components/CommunityMarker";
 import { CommunityPostPreview } from "../../components/CommunityPostPreview";
 import { SOSButton } from "../../components/SOSButton";
@@ -109,6 +114,7 @@ export default function MapScreen() {
     sponsoredZones,
     alertsLoaded,
     communityLoaded,
+    openReels,
   } = useAlertyStore();
 
   const theme = useAlertyTheme();
@@ -131,8 +137,12 @@ export default function MapScreen() {
 
   const filteredCommunity = useMemo(
     () =>
-      communityPosts.filter((post) => isCommunityInWindow(post, timeFilter)),
-    [communityPosts, timeFilter],
+      communityPosts.filter(
+        (post) =>
+          isCommunityInWindow(post, timeFilter) &&
+          isCategoryShown(post.categoryGuess, activeCategories),
+      ),
+    [communityPosts, timeFilter, activeCategories],
   );
 
   // Mapa: solo noticias con colonia clara en Culiacán. El resto vive en el Feed.
@@ -229,6 +239,28 @@ export default function MapScreen() {
     ).length;
   }, [filteredCommunity, mapCommunity]);
 
+  // Videos de vecinos y de fuentes dentro de la ventana del mapa. Con ubicación
+  // se cuentan los de 5 km; si cerca no hay, se dice cuántos hay en la ciudad.
+  const videoChip = useMemo(() => {
+    const citizen = filteredAlerts.filter((a) => a.media.some((x) => x.type === "video"));
+    const community = filteredCommunity.filter(
+      (post) => isCommunityVideo(post) && isAboutCuliacan(post),
+    );
+    const total = citizen.length + community.length;
+    if (total === 0) return null;
+    if (userLocation) {
+      const near = (lat: number | null, lng: number | null) =>
+        lat != null &&
+        lng != null &&
+        calculateDistance(userLocation.latitude, userLocation.longitude, lat, lng) <= 5;
+      const nearCount =
+        citizen.filter((a) => near(a.lat, a.lng)).length +
+        community.filter((p) => near(p.lat, p.lng)).length;
+      if (nearCount > 0) return { count: nearCount, where: "cerca" };
+    }
+    return { count: total, where: "en Culiacán" };
+  }, [filteredAlerts, filteredCommunity, userLocation]);
+
   const heatSources = useMemo(
     () => [
       ...filteredAlerts.flatMap((alert) => {
@@ -300,13 +332,39 @@ export default function MapScreen() {
     () => suggestDestinationPlaces(searchText, 6),
     [searchText],
   );
+
+  // Plazas, restaurantes, hospitales…, además de colonias. Con pausa entre
+  // teclas para no consultar en cada letra.
+  const [placeResults, setPlaceResults] = useState<PlaceResult[]>([]);
+  useEffect(() => {
+    const q = searchText.trim();
+    if (!searchFocused || q.length < 3) {
+      setPlaceResults([]);
+      return;
+    }
+    const ctrl = new AbortController();
+    const t = setTimeout(() => {
+      searchCuliacanPlaces(q, ctrl.signal)
+        .then((rows) => {
+          const colonias = new Set(destinationSuggestions.map((p) => p.name.toLowerCase()));
+          setPlaceResults(rows.filter((r) => !colonias.has(r.name.toLowerCase())).slice(0, 5));
+        })
+        .catch(() => {});
+    }, 350);
+    return () => {
+      clearTimeout(t);
+      ctrl.abort();
+    };
+  }, [searchText, searchFocused, destinationSuggestions]);
+
   const showDestinationSuggestions = useMemo(() => {
-    if (destinationSuggestions.length === 0) return false;
+    if (destinationSuggestions.length === 0 && placeResults.length === 0) return false;
     const exactOnly =
+      placeResults.length === 0 &&
       destinationSuggestions.length === 1 &&
       destinationSuggestions[0].name.localeCompare(searchText.trim(), "es", { sensitivity: "accent" }) === 0;
     return !exactOnly || searchFocused;
-  }, [destinationSuggestions, searchFocused, searchText]);
+  }, [destinationSuggestions, placeResults, searchFocused, searchText]);
 
   const handleShareZone = async (
     assessment: RiskAssessment,
@@ -351,7 +409,7 @@ export default function MapScreen() {
   const handleCenterLocation = async () => {
     try {
       setLocating(true);
-      const coords = await getCurrentCoords();
+      const coords = await requestCoordsWithFix();
       setUserLocation(coords);
       setLocationError(null);
       useAlertyStore.getState().setUserCoords(coords);
@@ -364,13 +422,17 @@ export default function MapScreen() {
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     } catch (e) {
       // Alert es no-op en react-native-web: el motivo también va a la barra de zona.
-      setLocationError(e instanceof LocationRequestError ? e.code : "unavailable");
-      Alert.alert(
-        "Ubicación",
-        isWeb
-          ? "Permite ubicación en el candado del navegador y vuelve a intentar."
-          : "Activa ubicación para centrar el mapa.",
-      );
+      const code = e instanceof LocationRequestError ? e.code : "unavailable";
+      setLocationError(code);
+      // Si faltaba el permiso o el GPS, ya se mandó a Ajustes: no se repite el aviso.
+      if (!isWeb && code !== "blocked" && code !== "services_off") {
+        Alert.alert(
+          "Ubicación",
+          code === "denied"
+            ? "Sin permiso de ubicación no podemos centrar el mapa."
+            : "No pudimos ubicarte. Intenta de nuevo.",
+        );
+      }
     } finally {
       setLocating(false);
     }
@@ -447,10 +509,22 @@ export default function MapScreen() {
       goToDestination(top.lat, top.lng, top.name);
       return;
     }
+    setSearching(true);
+    try {
+      const [place] = await searchCuliacanPlaces(query);
+      if (place) {
+        goToDestination(place.lat, place.lng, place.name);
+        return;
+      }
+    } catch {
+      // Sin red o buscador caído: sigue con el geocoder del teléfono.
+    } finally {
+      setSearching(false);
+    }
     if (isWeb) {
       Alert.alert(
         "Sin resultados",
-        "No encontramos esa colonia. Elige una sugerencia o toca el mapa.",
+        "No encontramos ese lugar en Culiacán. Prueba con otro nombre o toca el mapa.",
       );
       return;
     }
@@ -493,13 +567,15 @@ export default function MapScreen() {
             : `${nearbyAlert.dist.toFixed(1)} km`
         }`
       : needsLocation
-        ? locationError === "denied"
-          ? isWeb
-            ? "Ubicación bloqueada · permítela en el navegador"
-            : "Ubicación bloqueada · actívala en ajustes"
-          : locationError
-            ? "No se pudo ubicarte · toca para reintentar"
-            : "Activa tu ubicación para ver tu zona"
+        ? locationError === "denied" && isWeb
+          ? "Ubicación bloqueada · permítela en el navegador"
+          : locationError === "blocked"
+            ? "Ubicación bloqueada · toca para abrir ajustes"
+            : locationError === "services_off"
+              ? "GPS apagado · toca para encenderlo"
+              : locationError === "timeout" || locationError === "unavailable"
+                ? "No se pudo ubicarte · toca para reintentar"
+                : "Activa tu ubicación para ver tu zona"
         : `${GO_OUT_LABEL[zoneAssessment.level]} · ${zonePlaceLabel}`;
 
   const stripTone = riskResult
@@ -599,6 +675,11 @@ export default function MapScreen() {
                 onPress={() => {
                   void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                   setSelectedCommunity(null);
+                  if (alert.media.some((x) => x.type === "video")) {
+                    openReels(alert.id);
+                    router.navigate("/(tabs)/pulsos");
+                    return;
+                  }
                   router.push(`/alert/${alert.id}`);
                 }}
               >
@@ -623,6 +704,11 @@ export default function MapScreen() {
                 onPress={() => {
                   void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                   setRiskResult(null);
+                  if (isCommunityVideo(post)) {
+                    openReels(`c-${post.id}`);
+                    router.navigate("/(tabs)/pulsos");
+                    return;
+                  }
                   setSelectedCommunity(post);
                   setSelectedSources(sources);
                 }}
@@ -665,6 +751,19 @@ export default function MapScreen() {
                 </View>
               </Marker>
             ))}
+
+            {/* Pin del punto tocado o buscado; se va al cerrar el resultado. */}
+            {riskResult ? (
+              <Marker
+                key={`dest-${riskResult.lat}-${riskResult.lng}`}
+                coordinate={{ latitude: riskResult.lat, longitude: riskResult.lng }}
+                anchor={{ x: 0.5, y: 1 }}
+                zIndex={999}
+                tracksViewChanges={Platform.OS === "android" ? pinTracks : false}
+              >
+                <DestinationPin markerKind="destination" color={theme.colors.accent} />
+              </Marker>
+            ) : null}
           </MapView>
           )}
 
@@ -685,7 +784,7 @@ export default function MapScreen() {
             />
             <View style={styles.headerRow}>
               <View style={{ flex: 1 }}>
-                <Text style={styles.cityLabel}>Culiacán, Sinaloa</Text>
+                <Text style={styles.cityLabel} numberOfLines={1}>Culiacán, Sinaloa</Text>
               </View>
               <View style={styles.headerTools}>
                 <Pressable
@@ -710,7 +809,63 @@ export default function MapScreen() {
                 >
                   <Ionicons name="grid" size={16} color={showGrid ? "#FFFFFF" : theme.colors.text} />
                 </Pressable>
+                <Pressable
+                  style={styles.headerTool}
+                  onPress={() => router.navigate("/(tabs)/settings")}
+                  accessibilityLabel="Ajustes"
+                >
+                  <Ionicons name="settings-outline" size={17} color={theme.colors.text} />
+                </Pressable>
               </View>
+            </View>
+
+            <View style={styles.searchBar}>
+              <Ionicons name="search" size={16} color={theme.colors.textMuted} />
+              <TextInput
+                ref={searchInputRef}
+                style={styles.searchInput}
+                placeholder="Colonia, plaza o lugar…"
+                placeholderTextColor={theme.colors.textMuted}
+                value={searchText}
+                onChangeText={(text) => {
+                  setSearchText(text);
+                  setSearchFocused(true);
+                }}
+                onFocus={() => setSearchFocused(true)}
+                onBlur={() => {
+                  setTimeout(() => setSearchFocused(false), 180);
+                }}
+                onSubmitEditing={handleSearch}
+                onKeyPress={(e) => {
+                  if (e.nativeEvent.key === "Enter") void handleSearch();
+                }}
+                returnKeyType="search"
+                autoCorrect={false}
+                autoCapitalize="words"
+              />
+              {searching ? (
+                <ActivityIndicator size="small" color={theme.colors.accent} />
+              ) : searchText.length > 0 ? (
+                <>
+                  <Pressable
+                    onPress={() => {
+                      setSearchText("");
+                      searchInputRef.current?.focus();
+                    }}
+                    hitSlop={8}
+                    accessibilityLabel="Borrar búsqueda"
+                  >
+                    <Ionicons name="close-circle" size={20} color={theme.colors.textMuted} />
+                  </Pressable>
+                  <Pressable
+                    onPress={() => void handleSearch()}
+                    hitSlop={8}
+                    accessibilityLabel="Consultar destino"
+                  >
+                    <Ionicons name="arrow-forward-circle" size={22} color={theme.colors.accent} />
+                  </Pressable>
+                </>
+              ) : null}
             </View>
 
             <Pressable
@@ -783,57 +938,38 @@ export default function MapScreen() {
               )}
             </Pressable>
 
-            <View style={styles.searchBar}>
-              <Ionicons name="search" size={16} color={theme.colors.textMuted} />
-              <TextInput
-                ref={searchInputRef}
-                style={styles.searchInput}
-                placeholder="Colonia o toca el mapa…"
-                placeholderTextColor={theme.colors.textMuted}
-                value={searchText}
-                onChangeText={(text) => {
-                  setSearchText(text);
-                  setSearchFocused(true);
-                }}
-                onFocus={() => setSearchFocused(true)}
-                onBlur={() => {
-                  setTimeout(() => setSearchFocused(false), 180);
-                }}
-                onSubmitEditing={handleSearch}
-                onKeyPress={(e) => {
-                  if (e.nativeEvent.key === "Enter") void handleSearch();
-                }}
-                returnKeyType="search"
-                autoCorrect={false}
-                autoCapitalize="words"
-              />
-              {searching ? (
-                <ActivityIndicator size="small" color={theme.colors.accent} />
-              ) : searchText.length > 0 ? (
-                <Pressable
-                  onPress={() => void handleSearch()}
-                  hitSlop={8}
-                  accessibilityLabel="Consultar destino"
-                >
-                  <Ionicons name="arrow-forward-circle" size={22} color={theme.colors.accent} />
-                </Pressable>
-              ) : null}
-            </View>
-
             {!riskResult && unlocatedCount > 0 ? (
               <Pressable
                 style={styles.cityStrip}
                 onPress={() => {
                   void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  router.navigate("/(tabs)/feed");
+                  router.navigate("/(tabs)/pulsos");
                 }}
-                accessibilityLabel={`Ver ${unlocatedCount} en el Feed`}
+                accessibilityLabel={`Ver ${unlocatedCount} en Pulsos`}
               >
                 <Ionicons name="newspaper-outline" size={13} color={theme.colors.textMuted} />
                 <Text style={styles.cityStripText} numberOfLines={1}>
                   {unlocatedCount === 1
                     ? "1 reporte en Culiacán sin ubicación confirmada"
                     : `${unlocatedCount} reportes en Culiacán sin ubicación confirmada`}
+                </Text>
+                <Text style={styles.cityStripCta}>Ver</Text>
+              </Pressable>
+            ) : null}
+
+            {!riskResult && videoChip ? (
+              <Pressable
+                style={styles.cityStrip}
+                onPress={() => {
+                  void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  openReels(null);
+                  router.navigate("/(tabs)/pulsos");
+                }}
+                accessibilityLabel={`Ver ${videoChip.count} videos ${videoChip.where}`}
+              >
+                <Ionicons name="film-outline" size={13} color={theme.colors.textMuted} />
+                <Text style={styles.cityStripText} numberOfLines={1}>
+                  {videoChip.count === 1 ? "1 video" : `${videoChip.count} videos`} {videoChip.where}
                 </Text>
                 <Text style={styles.cityStripCta}>Ver</Text>
               </Pressable>
@@ -874,6 +1010,24 @@ export default function MapScreen() {
                 >
                   <Ionicons name="location-outline" size={14} color={theme.colors.textMuted} />
                   <Text style={styles.suggestText}>{place.name}</Text>
+                </Pressable>
+              ))}
+              {placeResults.map((place) => (
+                <Pressable
+                  key={`p-${place.name}-${place.lat}`}
+                  style={styles.suggestRow}
+                  accessibilityLabel={`Ir a ${place.name}`}
+                  onPress={() => goToDestination(place.lat, place.lng, place.name)}
+                >
+                  <Ionicons name={placeIcon(place.kind) as any} size={14} color={theme.colors.textMuted} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.suggestText} numberOfLines={1}>
+                      {place.name}
+                    </Text>
+                    <Text style={styles.suggestDetail} numberOfLines={1}>
+                      {place.detail}
+                    </Text>
+                  </View>
                 </Pressable>
               ))}
             </View>
@@ -957,7 +1111,7 @@ export default function MapScreen() {
             </Text>
             {unlocatedCount > 0 ? (
               <Text style={styles.emptyHint}>
-                Ninguno con ubicación confirmada · están en el Feed
+                Ninguno con ubicación confirmada · están en Pulsos
               </Text>
             ) : null}
           </View>
@@ -1023,7 +1177,7 @@ const createStyles = (theme: any, themeMode: string) => StyleSheet.create({
   },
   headerStack: {
     position: "absolute",
-    top: 54,
+    top: 12,
     left: 16,
     right: 16,
     zIndex: 20,
@@ -1185,6 +1339,12 @@ const createStyles = (theme: any, themeMode: string) => StyleSheet.create({
     color: theme.colors.text,
     fontSize: 13,
     fontFamily: theme.fonts.body,
+  },
+  suggestDetail: {
+    color: theme.colors.textMuted,
+    fontSize: 11,
+    fontFamily: theme.fonts.body,
+    marginTop: 1,
   },
   searchInput: {
     flex: 1,

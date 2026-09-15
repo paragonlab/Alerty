@@ -1,9 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   Animated,
   Dimensions,
   FlatList,
+  Image,
+  Linking,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -17,15 +20,28 @@ import * as Haptics from "expo-haptics";
 import * as ImagePicker from "expo-image-picker";
 import * as Location from "expo-location";
 import { useAlertyStore } from "../lib/alerty/store";
-import { CATEGORY_ICONS, CATEGORY_LABELS } from "../lib/alerty/constants";
+import {
+  CATEGORY_ICONS,
+  CATEGORY_LABELS,
+  DANGER_CATEGORIES,
+  INFO_DISCLAIMER,
+  RELIABLE_REPORTER_MIN_CONFIRMATIONS,
+} from "../lib/alerty/constants";
 import {
   calculateDistance,
+  formatRelativeTime,
   getAlertAgeMinutes,
   getIntensityColor,
 } from "../lib/alerty/utils";
 import { Sounds } from "../lib/sounds";
 import { shareAlertPulse } from "../lib/alerty/share";
-import type { AlertItem } from "../lib/alerty/types";
+import type { AlertItem, CommunityPost } from "../lib/alerty/types";
+import { communitySourceLabel, isNewsPost } from "../lib/alerty/communityLabel";
+import { recordAlertView } from "../lib/alerty/impact";
+import { requireSession } from "../lib/alerty/session";
+import { useRouter } from "expo-router";
+import { CommunityVoteBar } from "./CommunityVoteBar";
+import { ReelsTimeFilter } from "./ReelsTimeFilter";
 
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
 const VERIFICATION_THRESHOLD = 40;
@@ -49,6 +65,26 @@ function toCardinal(deg: number): string {
 
 function fmtDist(km: number): string {
   return km < 1 ? `${Math.round(km * 1000)} m` : `${km.toFixed(1)} km`;
+}
+
+/** En categorías de riesgo, grabar solo después de confirmar que se está a salvo. */
+function confirmSafe(): Promise<boolean> {
+  const title = "Solo si estás a salvo";
+  const message = "No te acerques ni grabes rostros de víctimas. Ningún video vale tu seguridad.";
+  if (Platform.OS === "web") {
+    return Promise.resolve(Boolean(globalThis.confirm?.(`${title}\n\n${message}`)));
+  }
+  return new Promise((resolve) => {
+    Alert.alert(
+      title,
+      message,
+      [
+        { text: "Mejor no", style: "cancel", onPress: () => resolve(false) },
+        { text: "Estoy a salvo", onPress: () => resolve(true) },
+      ],
+      { cancelable: true, onDismiss: () => resolve(false) },
+    );
+  });
 }
 
 function barColor(createdAt: string): string {
@@ -291,6 +327,9 @@ export function VideoReelCard({
   const cardinal = deg !== null ? toCardinal(deg) : null;
   const distText = distKm !== null ? fmtDist(distKm) : null;
   const isNear = distKm !== null && distKm < 0.5;
+  const risky = DANGER_CATEGORIES.includes(alert.category);
+  const reliable =
+    (alert.user.confirmationsReceived ?? 0) >= RELIABLE_REPORTER_MIN_CONFIRMATIONS;
 
   const confirmCount = alert.upvotes;
   const verifyPct = Math.min(100, (confirmCount / VERIFICATION_THRESHOLD) * 100);
@@ -311,9 +350,16 @@ export function VideoReelCard({
       ]),
     );
     barLoop.start();
-    if (isNear) aportarLoop.start();
+    if (isNear && !risky) aportarLoop.start();
     return () => { barLoop.stop(); aportarLoop.stop(); };
-  }, [isActive, isNear]);
+  }, [isActive, isNear, risky]);
+
+  // Cuenta como vista si el pulso estuvo 2 s en pantalla.
+  useEffect(() => {
+    if (!isActive) return;
+    const t = setTimeout(() => void recordAlertView(alert.id), 2000);
+    return () => clearTimeout(t);
+  }, [isActive, alert.id]);
 
   async function handleAportar() {
     if (contributing) return;
@@ -325,6 +371,7 @@ export function VideoReelCard({
       );
       return;
     }
+    if (risky && !(await confirmSafe())) return;
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
     if (status !== "granted") {
       Alert.alert("Permiso", "Necesitamos la cámara para aportar tu video.");
@@ -347,7 +394,7 @@ export function VideoReelCard({
     });
     setContributing(false);
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    Alert.alert("¡Gracias!", "Tu video se publicó como otro ángulo en los Pulsos.");
+    Alert.alert("¡Gracias!", "Tu video se publicó como otro ángulo; ya aparece en Videos.");
   }
 
   if (!videoUri) return null;
@@ -394,6 +441,16 @@ export function VideoReelCard({
 
       {/* TOP ROW */}
       <View style={styles.topRow}>
+        {onClose && (
+          <Pressable
+            style={styles.listaBtn}
+            onPress={onClose}
+            accessibilityLabel="Volver a la lista de pulsos"
+          >
+            <Ionicons name="list" size={14} color="rgba(255,255,255,0.9)" />
+            <Text style={styles.listaBtnText}>Ver lista</Text>
+          </Pressable>
+        )}
         {isLive ? (
           <View style={styles.liveChip}>
             <View style={styles.liveDot} />
@@ -402,7 +459,9 @@ export function VideoReelCard({
         ) : (
           <View style={[styles.ageChip, { borderColor: urgencyColor + "55", backgroundColor: urgencyColor + "1A" }]}>
             <Ionicons name="flame" size={11} color={urgencyColor} />
-            <Text style={[styles.ageChipText, { color: urgencyColor }]}>Hace {ageMin} min</Text>
+            <Text style={[styles.ageChipText, { color: urgencyColor }]}>
+              {formatRelativeTime(alert.createdAt)}
+            </Text>
           </View>
         )}
         <View style={{ flex: 1 }} />
@@ -418,16 +477,6 @@ export function VideoReelCard({
           />
           <Text style={styles.listaBtnText}>{isMuted ? "Sin audio" : "Con audio"}</Text>
         </Pressable>
-        {onClose && (
-          <Pressable
-            style={styles.listaBtn}
-            onPress={onClose}
-            accessibilityLabel="Volver a la lista de pulsos"
-          >
-            <Ionicons name="list" size={14} color="rgba(255,255,255,0.9)" />
-            <Text style={styles.listaBtnText}>Ver lista</Text>
-          </Pressable>
-        )}
       </View>
 
       {/* MINI-MAP */}
@@ -498,8 +547,14 @@ export function VideoReelCard({
             <Text style={styles.metaChipText}>@{alert.user.username}</Text>
           </View>
           <View style={styles.metaChip}>
-            <Ionicons name="eye" size={11} color="rgba(255,255,255,0.6)" />
-            <Text style={styles.metaChipText}>{alert.user.level.toUpperCase()}</Text>
+            <Ionicons
+              name={reliable ? "shield-checkmark" : "eye"}
+              size={11}
+              color={reliable ? "#66FF8C" : "rgba(255,255,255,0.6)"}
+            />
+            <Text style={[styles.metaChipText, reliable && { color: "#66FF8C" }]}>
+              {reliable ? "REPORTERO CONFIABLE" : alert.user.level.toUpperCase()}
+            </Text>
           </View>
           {isNear && distText && (
             <View style={styles.metaChip}>
@@ -591,7 +646,7 @@ export function VideoReelCard({
 
         <View style={styles.actionItem}>
           <View style={{ alignItems: "center", justifyContent: "center" }}>
-            {isNear && (
+            {isNear && !risky && (
               <Animated.View
                 style={[styles.aportarHalo, { transform: [{ scale: aportarPulse }] }]}
                 pointerEvents="none"
@@ -626,7 +681,11 @@ export function VideoReelCard({
           </View>
           <View style={{ flex: 1 }}>
             <Text style={styles.bottomCTATitle}>Estás a {distText} del evento.</Text>
-            <Text style={styles.bottomCTASub}>Graba un video y sube reputación</Text>
+            <Text style={styles.bottomCTASub}>
+              {risky
+                ? "Ponte a salvo primero. No grabes si te arriesgas."
+                : "Graba un video y ayuda a confirmarlo"}
+            </Text>
           </View>
         </View>
       )}
@@ -650,17 +709,302 @@ export function VideoReelCard({
   );
 }
 
+// ── CommunityReelCard ─────────────────────────────────────────────────────────
+
+/**
+ * Video de X o de un medio. Los de X se reproducen dentro de Pulso con el
+ * reproductor oficial de X; los de medios se abren en su sitio. Siempre dice
+ * que no es alerta ciudadana.
+ */
+function CommunityReelCard({
+  post,
+  isActive,
+  onClose,
+}: {
+  post: CommunityPost;
+  isActive: boolean;
+  onClose?: () => void;
+}) {
+  const [failed, setFailed] = useState(false);
+  const news = isNewsPost(post);
+  const source = communitySourceLabel(post);
+  const [isMuted, setIsMuted] = useState(true);
+  const [isPaused, setIsPaused] = useState(false);
+  const handle = post.authorHandle.replace(/^@/, "");
+  const open = () => void Linking.openURL(post.url);
+  const openProfile = () => void Linking.openURL(`https://x.com/${handle}`);
+
+  // Con el mp4 de la API, pantalla completa como los videos de vecinos. Las
+  // reglas de X piden logo, foto/nombre/@ con enlace al perfil, hora con
+  // enlace al post y el texto sin cambios.
+  if (post.videoUrl) {
+    return (
+      <View style={styles.reel}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={() => setIsPaused((p) => !p)}>
+          {Platform.OS === "web" ? (
+            // Web: <video> propio para que llene la pantalla. El Referer lo quita
+            // VideoReelsList (ver useNoReferrerOnWeb).
+            createElement("video", {
+              src: post.videoUrl,
+              poster: post.mediaUrl ?? undefined,
+              loop: true,
+              playsInline: true,
+              style: {
+                position: "absolute",
+                inset: 0,
+                width: "100%",
+                height: "100%",
+                objectFit: "contain",
+                background: "#000",
+              },
+              ref: (el: HTMLVideoElement | null) => {
+                if (!el) return;
+                el.muted = isMuted;
+                if (isActive && !isPaused) void el.play().catch(() => {});
+                else el.pause();
+              },
+            })
+          ) : (
+            <Video
+              source={{ uri: post.videoUrl }}
+              posterSource={post.mediaUrl ? { uri: post.mediaUrl } : undefined}
+              usePoster={Boolean(post.mediaUrl)}
+              posterStyle={{ resizeMode: "contain" }}
+              style={StyleSheet.absoluteFill}
+              resizeMode={ResizeMode.CONTAIN}
+              isLooping
+              shouldPlay={isActive && !isPaused}
+              isMuted={isMuted}
+            />
+          )}
+        </Pressable>
+
+        {isPaused && (
+          <View style={styles.pausedOverlay} pointerEvents="none">
+            <Ionicons name="play" size={60} color="rgba(255,255,255,0.7)" />
+          </View>
+        )}
+
+        <LinearGradient
+          colors={["rgba(0,0,0,0.72)", "transparent"]}
+          style={styles.gradTop}
+          pointerEvents="none"
+        />
+        <LinearGradient
+          colors={["transparent", "rgba(0,0,0,0.92)"]}
+          start={{ x: 0, y: 0.1 }}
+          end={{ x: 0, y: 1 }}
+          style={styles.gradBottom}
+          pointerEvents="none"
+        />
+
+        <View style={styles.topRow}>
+          {onClose && (
+            <Pressable
+              style={styles.listaBtn}
+              onPress={onClose}
+              accessibilityLabel="Volver a la lista de pulsos"
+            >
+              <Ionicons name="list" size={14} color="rgba(255,255,255,0.9)" />
+              <Text style={styles.listaBtnText}>Ver lista</Text>
+            </Pressable>
+          )}
+          <View style={{ flex: 1 }} />
+          <Pressable
+            style={styles.listaBtn}
+            onPress={() => setIsMuted((m) => !m)}
+            accessibilityLabel={isMuted ? "Activar audio" : "Silenciar audio"}
+          >
+            <Ionicons
+              name={isMuted ? "volume-mute" : "volume-high"}
+              size={14}
+              color="rgba(255,255,255,0.9)"
+            />
+            <Text style={styles.listaBtnText}>{isMuted ? "Sin audio" : "Con audio"}</Text>
+          </Pressable>
+        </View>
+
+        <View style={styles.infoOverlay} pointerEvents="box-none">
+          <View style={styles.xAuthorRow}>
+            <Pressable
+              style={styles.xAuthor}
+              onPress={openProfile}
+              accessibilityLabel={`Perfil de @${handle} en X`}
+            >
+              {post.authorAvatarUrl ? (
+                <Image source={{ uri: post.authorAvatarUrl }} style={styles.xAvatar} />
+              ) : (
+                <View style={[styles.xAvatar, { backgroundColor: "#333" }]} />
+              )}
+              <View style={{ flexShrink: 1 }}>
+                <Text style={styles.xName} numberOfLines={1}>
+                  {post.authorName ?? handle}
+                </Text>
+                <Text style={styles.xHandle} numberOfLines={1}>
+                  @{handle}
+                </Text>
+              </View>
+            </Pressable>
+            <Ionicons name="logo-x" size={18} color="#FFFFFF" />
+          </View>
+          <Text style={styles.xText} numberOfLines={4}>
+            {post.text}
+          </Text>
+          <Pressable onPress={open} accessibilityLabel="Ver el post en X">
+            <Text style={styles.xTime}>{formatRelativeTime(post.createdAt)} · Ver en X</Text>
+          </Pressable>
+          <View style={[styles.catPill, styles.sourcePill]}>
+            <Text style={[styles.catText, { color: "#7CC4FA" }]}>NO ES ALERTA CIUDADANA</Text>
+          </View>
+          <CommunityVoteBar postId={post.id} dark />
+        </View>
+      </View>
+    );
+  }
+
+  // Sin mp4 (medios, o un post de X que aún no lo trae): miniatura, y el
+  // video se abre en su fuente.
+  return (
+    <View style={styles.reel}>
+      {post.mediaUrl && !failed ? (
+        <Image
+          source={{ uri: post.mediaUrl }}
+          style={StyleSheet.absoluteFill}
+          resizeMode="cover"
+          onError={() => setFailed(true)}
+        />
+      ) : null}
+      <LinearGradient
+        colors={["rgba(0,0,0,0.72)", "transparent"]}
+        style={styles.gradTop}
+        pointerEvents="none"
+      />
+      <LinearGradient
+        colors={["transparent", "rgba(0,0,0,0.92)"]}
+        start={{ x: 0, y: 0.1 }}
+        end={{ x: 0, y: 1 }}
+        style={styles.gradBottom}
+        pointerEvents="none"
+      />
+
+      <View style={styles.topRow}>
+        {onClose && (
+          <Pressable
+            style={styles.listaBtn}
+            onPress={onClose}
+            accessibilityLabel="Volver a la lista de pulsos"
+          >
+            <Ionicons name="list" size={14} color="rgba(255,255,255,0.9)" />
+            <Text style={styles.listaBtnText}>Ver lista</Text>
+          </Pressable>
+        )}
+      </View>
+
+      <View style={styles.playCenter} pointerEvents="box-none">
+        <Pressable onPress={open} hitSlop={12} accessibilityLabel={`Ver video en ${news ? source : "X"}`}>
+          <Ionicons name="play-circle" size={76} color="rgba(255,255,255,0.88)" />
+        </Pressable>
+      </View>
+
+      <View style={styles.infoOverlay} pointerEvents="box-none">
+        <View style={[styles.catPill, styles.sourcePill]}>
+          <Ionicons name={news ? "newspaper-outline" : "logo-x"} size={11} color="#7CC4FA" />
+          <Text style={[styles.catText, { color: "#7CC4FA" }]}>
+            {source.toUpperCase()} · NO ES ALERTA CIUDADANA
+          </Text>
+        </View>
+        <Text style={styles.alertTitle} numberOfLines={3}>
+          {post.text}
+        </Text>
+        <View style={styles.metaRow}>
+          <View style={styles.metaChip}>
+            <Ionicons name="person-circle-outline" size={11} color="rgba(255,255,255,0.6)" />
+            <Text style={styles.metaChipText}>@{handle}</Text>
+          </View>
+          <View style={styles.metaChip}>
+            <Ionicons name="time-outline" size={11} color="rgba(255,255,255,0.6)" />
+            <Text style={styles.metaChipText}>{formatRelativeTime(post.createdAt)}</Text>
+          </View>
+        </View>
+        <CommunityVoteBar postId={post.id} dark />
+        <Pressable style={styles.sourceCta} onPress={open}>
+          <Ionicons name="open-outline" size={14} color="#0A0A0A" />
+          <Text style={styles.sourceCtaText}>Ver video en {news ? source : "X"}</Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
+/**
+ * En web, video.twimg.com responde 403 a peticiones con Referer de otro sitio,
+ * y un <video> no acepta referrerpolicy propio. Mientras Videos está abierto la
+ * página no manda Referer; al salir vuelve a la política normal. En iOS y
+ * Android el reproductor nativo no manda Referer.
+ */
+function useNoReferrerOnWeb() {
+  useEffect(() => {
+    if (Platform.OS !== "web" || typeof document === "undefined") return;
+    let meta = document.querySelector<HTMLMetaElement>('meta[name="referrer"]');
+    const previous = meta?.content ?? null;
+    if (!meta) {
+      meta = document.createElement("meta");
+      meta.name = "referrer";
+      document.head.appendChild(meta);
+    }
+    meta.content = "no-referrer";
+    return () => {
+      if (meta) meta.content = previous ?? "strict-origin-when-cross-origin";
+    };
+  }, []);
+}
+
 // ── VideoReelsList ────────────────────────────────────────────────────────────
+
+/** Al terminar los videos: lo avisa y recuerda que Pulso no es verdad absoluta. */
+function ReelsEnd({ onClose }: { onClose?: () => void }) {
+  const router = useRouter();
+  return (
+    <View style={[styles.reel, styles.endCard]}>
+      <Ionicons name="checkmark-done-circle-outline" size={52} color="rgba(255,255,255,0.55)" />
+      <Text style={styles.endTitle}>Ya viste todos los videos</Text>
+      <Text style={styles.endSub}>Cambia el horario arriba para ver más, o vuelve más tarde.</Text>
+      <Text style={styles.endDisclaimer}>{INFO_DISCLAIMER}</Text>
+      <Pressable
+        style={[styles.sourceCta, { alignSelf: "center" }]}
+        onPress={async () => {
+          if (await requireSession("/report")) router.push("/report" as any);
+        }}
+      >
+        <Ionicons name="add-circle-outline" size={14} color="#0A0A0A" />
+        <Text style={styles.sourceCtaText}>Publicar un pulso</Text>
+      </Pressable>
+      {onClose ? (
+        <Pressable onPress={onClose} hitSlop={10} accessibilityLabel="Volver a la lista de pulsos">
+          <Text style={styles.endLink}>Volver a la lista</Text>
+        </Pressable>
+      ) : null}
+    </View>
+  );
+}
+
+type ReelItem =
+  | { key: string; kind: "alert"; alert: AlertItem }
+  | { key: string; kind: "community"; post: CommunityPost };
 
 export function VideoReelsList({
   alerts,
+  communityVideos = [],
   onClose,
   initialAlertId,
 }: {
   alerts: AlertItem[];
+  /** Videos de X y medios: van después de los de vecinos para que nunca quede vacío. */
+  communityVideos?: CommunityPost[];
   onClose?: () => void;
   initialAlertId?: string | null;
 }) {
+  useNoReferrerOnWeb();
   const [activeId, setActiveId] = useState<string | null>(initialAlertId ?? null);
   const [userCoords, setUserCoords] = useState<{ latitude: number; longitude: number } | null>(
     null,
@@ -700,12 +1044,29 @@ export function VideoReelsList({
     return [target, ...copy];
   }, [sorted, initialAlertId]);
 
+  const items = useMemo<ReelItem[]>(() => {
+    const all: ReelItem[] = [
+      ...ordered.map((alert) => ({ key: alert.id, kind: "alert" as const, alert })),
+      ...[...communityVideos]
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+        .map((post) => ({ key: `c-${post.id}`, kind: "community" as const, post })),
+    ];
+    // Un video de X tocado en la lista o el mapa va primero.
+    const idx = initialAlertId ? all.findIndex((item) => item.key === initialAlertId) : -1;
+    if (idx <= 0) return all;
+    return [all[idx], ...all.slice(0, idx), ...all.slice(idx + 1)];
+  }, [ordered, communityVideos, initialAlertId]);
+
+  // Hasta que la lista reporte qué está en pantalla, el primero cuenta como
+  // activo: si no, el primer video no arranca solo.
+  const currentKey = activeId ?? items[0]?.key ?? null;
+
   const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 80 }).current;
 
   const onViewableItemsChanged = useCallback(
     ({ viewableItems }: { viewableItems: ViewToken[] }) => {
       if (viewableItems.length > 0) {
-        setActiveId((viewableItems[0].item as AlertItem).id);
+        setActiveId((viewableItems[0].item as ReelItem).key);
       }
     },
     [],
@@ -714,16 +1075,25 @@ export function VideoReelsList({
   return (
     <View style={{ flex: 1 }}>
       <FlatList
-        data={ordered}
-        keyExtractor={(item) => item.id}
-        renderItem={({ item }) => (
-          <VideoReelCard
-            alert={item}
-            isActive={activeId === item.id}
-            userCoords={userCoords}
-            onClose={onClose}
-          />
-        )}
+        data={items}
+        keyExtractor={(item) => item.key}
+        renderItem={({ item }) =>
+          item.kind === "alert" ? (
+            <VideoReelCard
+              alert={item.alert}
+              isActive={currentKey === item.key}
+              userCoords={userCoords}
+              onClose={onClose}
+            />
+          ) : (
+            <CommunityReelCard
+              post={item.post}
+              isActive={currentKey === item.key}
+              onClose={onClose}
+            />
+          )
+        }
+        ListFooterComponent={<ReelsEnd onClose={onClose} />}
         pagingEnabled
         snapToInterval={SCREEN_HEIGHT}
         decelerationRate="fast"
@@ -738,6 +1108,10 @@ export function VideoReelsList({
         removeClippedSubviews
         windowSize={3}
       />
+      {/* Horario: el mismo del mapa y la lista, al centro de la barra de arriba. */}
+      <View style={styles.timeOverlay} pointerEvents="box-none">
+        <ReelsTimeFilter />
+      </View>
     </View>
   );
 }
@@ -745,6 +1119,109 @@ export function VideoReelsList({
 // ── styles ────────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
+  endCard: {
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 12,
+    paddingHorizontal: 28,
+  },
+  endTitle: {
+    fontSize: 20,
+    color: "#FFFFFF",
+    textAlign: "center",
+    fontFamily: "SpaceGrotesk_700Bold",
+  },
+  endSub: {
+    fontSize: 13,
+    color: "rgba(255,255,255,0.65)",
+    textAlign: "center",
+    fontFamily: "SpaceGrotesk_500Medium",
+  },
+  endDisclaimer: {
+    fontSize: 12,
+    lineHeight: 17,
+    color: "rgba(255,255,255,0.5)",
+    textAlign: "center",
+    marginTop: 6,
+    fontFamily: "SpaceGrotesk_500Medium",
+  },
+  endLink: {
+    fontSize: 13,
+    color: "rgba(255,255,255,0.7)",
+    marginTop: 4,
+    fontFamily: "SpaceGrotesk_500Medium",
+  },
+  timeOverlay: {
+    position: "absolute",
+    top: 50,
+    left: 0,
+    right: 0,
+    alignItems: "center",
+    zIndex: 30,
+  },
+  playCenter: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  xAuthorRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+  xAuthor: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    flexShrink: 1,
+  },
+  xAvatar: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+  },
+  xName: {
+    fontSize: 14,
+    color: "#FFFFFF",
+    fontFamily: "SpaceGrotesk_700Bold",
+  },
+  xHandle: {
+    fontSize: 12,
+    color: "rgba(255,255,255,0.65)",
+    fontFamily: "SpaceGrotesk_500Medium",
+  },
+  xText: {
+    fontSize: 15,
+    lineHeight: 21,
+    color: "#FFFFFF",
+    fontFamily: "SpaceGrotesk_500Medium",
+  },
+  xTime: {
+    fontSize: 12,
+    color: "#7CC4FA",
+    fontFamily: "SpaceGrotesk_500Medium",
+  },
+  sourcePill: {
+    borderColor: "rgba(124,196,250,0.5)",
+    backgroundColor: "rgba(29,155,240,0.18)",
+  },
+  sourceCta: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "flex-start",
+    gap: 6,
+    marginTop: 4,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 999,
+    backgroundColor: "#FFFFFF",
+  },
+  sourceCtaText: {
+    fontSize: 13,
+    color: "#0A0A0A",
+    fontFamily: "SpaceGrotesk_700Bold",
+  },
   reel: {
     height: SCREEN_HEIGHT,
     backgroundColor: "#090909",
