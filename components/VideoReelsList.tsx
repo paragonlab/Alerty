@@ -40,11 +40,33 @@ import { communitySourceLabel, isNewsPost } from "../lib/alerty/communityLabel";
 import { recordAlertView } from "../lib/alerty/impact";
 import { requireSession } from "../lib/alerty/session";
 import { useRouter } from "expo-router";
+import { setPlaybackAudioMode } from "../lib/alerty/audioMode";
 import { CommunityVoteBar } from "./CommunityVoteBar";
 import { MapBackdrop } from "./MapBackdrop";
 import { ReelsTimeFilter } from "./ReelsTimeFilter";
 
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
+
+// Mute compartido por todas las tarjetas: quitarlo una vez deja con sonido lo
+// que siga, hasta que se cierre la app. Antes cada tarjeta nacía en mute y la
+// nota de voz se veía sin oírse.
+let reelsMuted = true;
+const muteListeners = new Set<(muted: boolean) => void>();
+
+function useReelsMuted() {
+  const [muted, setMuted] = useState(reelsMuted);
+  useEffect(() => {
+    muteListeners.add(setMuted);
+    return () => {
+      muteListeners.delete(setMuted);
+    };
+  }, []);
+  const set = useCallback((value: boolean) => {
+    reelsMuted = value;
+    muteListeners.forEach((listener) => listener(value));
+  }, []);
+  return [muted, set] as const;
+}
 const VERIFICATION_THRESHOLD = 40;
 const MAP_W = 116;
 const MAP_H = 88;
@@ -373,7 +395,9 @@ function VoicePlayer({
           />
         ))}
       </View>
-      <Text style={styles.voiceLabel}>NOTA DE VOZ</Text>
+      <Text style={styles.voiceLabel}>
+        {muted ? "ACTIVA EL AUDIO ARRIBA" : "NOTA DE VOZ"}
+      </Text>
     </View>
   );
 }
@@ -419,8 +443,7 @@ export function VideoReelCard({
         ? "voice"
         : "text";
 
-  // En una nota de voz el audio es el contenido: arranca con sonido.
-  const [isMuted, setIsMuted] = useState(medium !== "voice");
+  const [isMuted, setIsMuted] = useReelsMuted();
   const [isPaused, setIsPaused] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [contributing, setContributing] = useState(false);
@@ -607,7 +630,7 @@ export function VideoReelCard({
         <View style={{ flex: 1 }} />
         <Pressable
           style={styles.listaBtn}
-          onPress={() => setIsMuted((m) => !m)}
+          onPress={() => setIsMuted(!isMuted)}
           accessibilityLabel={isMuted ? "Activar audio" : "Silenciar audio"}
         >
           <Ionicons
@@ -868,7 +891,7 @@ function CommunityReelCard({
   const [failed, setFailed] = useState(false);
   const news = isNewsPost(post);
   const source = communitySourceLabel(post);
-  const [isMuted, setIsMuted] = useState(true);
+  const [isMuted, setIsMuted] = useReelsMuted();
   const [isPaused, setIsPaused] = useState(false);
   const handle = post.authorHandle.replace(/^@/, "");
   const open = () => void Linking.openURL(post.url);
@@ -952,7 +975,7 @@ function CommunityReelCard({
           <View style={{ flex: 1 }} />
           <Pressable
             style={styles.listaBtn}
-            onPress={() => setIsMuted((m) => !m)}
+            onPress={() => setIsMuted(!isMuted)}
             accessibilityLabel={isMuted ? "Activar audio" : "Silenciar audio"}
           >
             <Ionicons
@@ -1145,6 +1168,9 @@ export function VideoReelsList({
   initialAlertId?: string | null;
 }) {
   useNoReferrerOnWeb();
+  useEffect(() => {
+    void setPlaybackAudioMode();
+  }, []);
   const [activeId, setActiveId] = useState<string | null>(initialAlertId ?? null);
   const [userCoords, setUserCoords] = useState<{ latitude: number; longitude: number } | null>(
     null,

@@ -14,6 +14,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
+import { setPlaybackAudioMode, setRecordingAudioMode } from "../../lib/alerty/audioMode";
 import * as Location from "expo-location";
 import * as ImagePicker from "expo-image-picker";
 import { Audio, Video, ResizeMode } from "expo-av";
@@ -233,6 +234,8 @@ export default function AlertDetailScreen() {
     if (isRecordingVoice && recording) {
       try {
         await recording.stopAndUnloadAsync();
+        // Sin esto iOS se queda en modo micrófono y lo grabado casi no se oye.
+        await setPlaybackAudioMode();
         const uri = recording.getURI();
         setRecording(null);
         setIsRecordingVoice(false);
@@ -252,7 +255,7 @@ export default function AlertDetailScreen() {
         Alert.alert("Permiso", "Necesitamos el micrófono para grabar.");
         return;
       }
-      await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
+      await setRecordingAudioMode();
       const { recording: rec } = await Audio.Recording.createAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
       setRecording(rec);
       setIsRecordingVoice(true);

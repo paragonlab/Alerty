@@ -16,6 +16,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import * as ImagePicker from "expo-image-picker";
 import * as Haptics from "expo-haptics";
+import { setPlaybackAudioMode, setRecordingAudioMode } from "../lib/alerty/audioMode";
 import * as Location from "expo-location";
 import { Audio } from "expo-av";
 import * as FileSystem from "expo-file-system/legacy";
@@ -477,7 +478,7 @@ export default function ReportScreen() {
     try {
       const { status } = await Audio.requestPermissionsAsync();
       if (status !== "granted") { Alert.alert("Permiso", "Necesitamos el micrófono para grabar."); return; }
-      await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
+      await setRecordingAudioMode();
       const { recording: rec } = await Audio.Recording.createAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
       setRecording(rec);
       setIsRecording(true);
@@ -496,6 +497,8 @@ export default function ReportScreen() {
       stopWave();
       if (recIntervalRef.current) { clearInterval(recIntervalRef.current); recIntervalRef.current = null; }
       await recording.stopAndUnloadAsync();
+      // Sin esto iOS se queda en modo micrófono y lo grabado casi no se oye.
+      await setPlaybackAudioMode();
       const tmpUri = recording.getURI();
       setRecording(null);
       if (tmpUri) {
