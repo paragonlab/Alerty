@@ -17,7 +17,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import * as ImagePicker from "expo-image-picker";
 import * as Haptics from "expo-haptics";
 import { setPlaybackAudioMode, setRecordingAudioMode } from "../lib/alerty/audioMode";
-import { saveRecording } from "../lib/alerty/voiceRecording";
+import { canRecordVoice, saveRecording, voiceRecordingOptions } from "../lib/alerty/voiceRecording";
 import * as Location from "expo-location";
 import { Audio } from "expo-av";
 import { useRouter } from "expo-router";
@@ -216,6 +216,8 @@ export default function ReportScreen() {
   const [formError, setFormError] = useState<string | null>(null);
   const [sentAlertId, setSentAlertId] = useState<string | null>(null);
   const [videoAdd, setVideoAdd] = useState<"idle" | "sending" | "done">("idle");
+  // Chrome graba en webm y el iPhone no lo reproduce: ahí no se ofrece la voz.
+  const voiceOk = canRecordVoice();
   const [recording, setRecording] = useState<Audio.Recording | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [recSeconds, setRecSeconds] = useState(0);
@@ -479,7 +481,7 @@ export default function ReportScreen() {
       const { status } = await Audio.requestPermissionsAsync();
       if (status !== "granted") { Alert.alert("Permiso", "Necesitamos el micrófono para grabar."); return; }
       await setRecordingAudioMode();
-      const { recording: rec } = await Audio.Recording.createAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
+      const { recording: rec } = await Audio.Recording.createAsync(voiceRecordingOptions());
       setRecording(rec);
       setIsRecording(true);
       setRecSeconds(0);
@@ -737,22 +739,26 @@ export default function ReportScreen() {
 
         {/* Mode selector */}
         <View style={S.modeRow}>
-          {(["video", "photo", "voice"] as const).map((mode) => (
-            <Pressable
-              key={mode}
-              style={[S.modeBtn, captureMode === mode && S.modeBtnActive]}
-              onPress={() => setCaptureMode(mode)}
-            >
-              <Ionicons
-                name={mode === "video" ? "videocam" : mode === "photo" ? "camera" : "mic"}
-                size={13}
-                color={captureMode === mode ? "#fff" : "rgba(255,255,255,0.5)"}
-              />
-              <Text style={[S.modeBtnText, captureMode === mode && S.modeBtnTextActive]}>
-                {mode === "video" ? "VIDEO" : mode === "photo" ? "FOTO" : "VOZ"}
-              </Text>
-            </Pressable>
-          ))}
+          {(["video", "photo", "voice"] as const).map((mode) => {
+            const off = mode === "voice" && !voiceOk;
+            return (
+              <Pressable
+                key={mode}
+                style={[S.modeBtn, captureMode === mode && S.modeBtnActive, off && S.fmtCardOff]}
+                disabled={off}
+                onPress={() => setCaptureMode(mode)}
+              >
+                <Ionicons
+                  name={mode === "video" ? "videocam" : mode === "photo" ? "camera" : "mic"}
+                  size={13}
+                  color={captureMode === mode ? "#fff" : "rgba(255,255,255,0.5)"}
+                />
+                <Text style={[S.modeBtnText, captureMode === mode && S.modeBtnTextActive]}>
+                  {mode === "video" ? "VIDEO" : mode === "photo" ? "FOTO" : "VOZ"}
+                </Text>
+              </Pressable>
+            );
+          })}
         </View>
 
         {/* Shutter row */}
@@ -916,18 +922,25 @@ export default function ReportScreen() {
         </Pressable>
 
         <Pressable
-          style={S.fmtCard}
+          style={[S.fmtCard, !voiceOk && S.fmtCardOff]}
+          disabled={!voiceOk}
           onPress={() => { void Haptics.selectionAsync(); setCaptureMode("voice"); setStep(1); }}
           accessibilityLabel="Grabar una nota de voz"
         >
           <View style={S.fmtIcon}>
-            <Ionicons name="mic" size={18} color="#6BE0FF" />
+            <Ionicons name="mic" size={18} color={voiceOk ? "#6BE0FF" : "rgba(255,255,255,0.35)"} />
           </View>
           <View style={{ flex: 1 }}>
             <Text style={S.videoCtaTitle}>Grabar voz</Text>
-            <Text style={S.videoCtaSub}>Cuéntalo hablando; se escucha en Videos sobre el mapa.</Text>
+            <Text style={S.videoCtaSub}>
+              {voiceOk
+                ? "Cuéntalo hablando; se escucha en Videos sobre el mapa."
+                : "Este navegador graba en un formato que los iPhone no reproducen. Ábrelo en Safari o graba un video."}
+            </Text>
           </View>
-          <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.45)" />
+          {voiceOk ? (
+            <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.45)" />
+          ) : null}
         </Pressable>
 
         <Pressable
@@ -1518,6 +1531,7 @@ const S = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.05)",
     borderWidth: 1, borderColor: "rgba(255,255,255,0.12)",
   },
+  fmtCardOff: { opacity: 0.4 },
   fmtIcon: {
     width: 40, height: 40, borderRadius: 12,
     alignItems: "center", justifyContent: "center",

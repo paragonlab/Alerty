@@ -49,7 +49,9 @@ export async function uploadMedia(
     if (Platform.OS === "web") {
       // En el navegador el archivo es un blob: URL; FileSystem no existe aquí.
       const blob = await (await fetch(localUri)).blob();
-      const contentType = blob.type || CONTENT_TYPE[type];
+      // El audio del navegador llega como "audio/mp4;codecs=mp4a.40.2": el
+      // parámetro sobra para Storage y rompe la tabla de extensiones.
+      const contentType = (blob.type || CONTENT_TYPE[type]).split(";")[0].trim();
       path = randomPath(EXT_BY_MIME[contentType] ?? EXT[type]);
       ({ error } = await supabase.storage.from(BUCKET).upload(path, blob, { contentType }));
     } else {

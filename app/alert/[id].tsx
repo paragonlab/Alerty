@@ -15,7 +15,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { setPlaybackAudioMode, setRecordingAudioMode } from "../../lib/alerty/audioMode";
-import { saveRecording } from "../../lib/alerty/voiceRecording";
+import { canRecordVoice, saveRecording, voiceRecordingOptions } from "../../lib/alerty/voiceRecording";
 import * as Location from "expo-location";
 import * as ImagePicker from "expo-image-picker";
 import { Audio, Video, ResizeMode } from "expo-av";
@@ -260,7 +260,7 @@ export default function AlertDetailScreen() {
         return;
       }
       await setRecordingAudioMode();
-      const { recording: rec } = await Audio.Recording.createAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
+      const { recording: rec } = await Audio.Recording.createAsync(voiceRecordingOptions());
       setRecording(rec);
       setIsRecordingVoice(true);
     } catch (e) {
@@ -482,7 +482,12 @@ export default function AlertDetailScreen() {
                   <Ionicons name="videocam-outline" size={18} color={theme.colors.accent} />
                 </Pressable>
                 <Pressable
-                  style={[styles.attachBtn, isRecordingVoice && styles.attachBtnRec]}
+                  style={[
+                    styles.attachBtn,
+                    isRecordingVoice && styles.attachBtnRec,
+                    !canRecordVoice() && styles.attachBtnOff,
+                  ]}
+                  disabled={!canRecordVoice()}
                   onPress={toggleVoiceRecording}
                 >
                   <Ionicons
@@ -933,6 +938,7 @@ const createStyles = (theme: any, themeMode: string) => StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  attachBtnOff: { opacity: 0.4 },
   attachBtnRec: {
     backgroundColor: theme.colors.danger,
     borderColor: theme.colors.danger,
