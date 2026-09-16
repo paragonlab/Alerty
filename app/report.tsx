@@ -17,9 +17,9 @@ import { LinearGradient } from "expo-linear-gradient";
 import * as ImagePicker from "expo-image-picker";
 import * as Haptics from "expo-haptics";
 import { setPlaybackAudioMode, setRecordingAudioMode } from "../lib/alerty/audioMode";
+import { saveRecording } from "../lib/alerty/voiceRecording";
 import * as Location from "expo-location";
 import { Audio } from "expo-av";
-import * as FileSystem from "expo-file-system/legacy";
 import { useRouter } from "expo-router";
 import {
   ALERT_CATEGORIES,
@@ -499,16 +499,19 @@ export default function ReportScreen() {
       await recording.stopAndUnloadAsync();
       // Sin esto iOS se queda en modo micrófono y lo grabado casi no se oye.
       await setPlaybackAudioMode();
-      const tmpUri = recording.getURI();
+      const saved = await saveRecording(recording, "rec");
       setRecording(null);
-      if (tmpUri) {
-        const dest = `${FileSystem.documentDirectory}rec-${Date.now()}.m4a`;
-        await FileSystem.copyAsync({ from: tmpUri, to: dest });
-        setMedia((prev) => [...prev, { id: `audio-${Date.now()}`, url: dest, type: "audio" }]);
+      if (!saved) {
+        notifyUser("No se guardó la nota de voz", "Vuelve a grabarla, por favor.");
+        return;
       }
+      setMedia((prev) => [...prev, { id: `audio-${Date.now()}`, url: saved, type: "audio" }]);
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (e) {
+      // Antes esto solo iba a consola: el vecino creía que su voz quedó grabada.
       console.error("stop recording", e);
+      setRecording(null);
+      notifyUser("No se guardó la nota de voz", "Vuelve a grabarla o publica el pulso sin ella.");
     }
   }
 
@@ -618,6 +621,12 @@ export default function ReportScreen() {
                 media_url: m.url,
                 media_type: m.type,
               })),
+            );
+          }
+          if (uploaded.length < media.length) {
+            notifyUser(
+              "Tu pulso se publicó sin todo el material",
+              "No se pudo subir un archivo. Ábrelo y agrégalo de nuevo.",
             );
           }
         })().catch(() => {});

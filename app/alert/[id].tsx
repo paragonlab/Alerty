@@ -15,6 +15,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { setPlaybackAudioMode, setRecordingAudioMode } from "../../lib/alerty/audioMode";
+import { saveRecording } from "../../lib/alerty/voiceRecording";
 import * as Location from "expo-location";
 import * as ImagePicker from "expo-image-picker";
 import { Audio, Video, ResizeMode } from "expo-av";
@@ -236,16 +237,19 @@ export default function AlertDetailScreen() {
         await recording.stopAndUnloadAsync();
         // Sin esto iOS se queda en modo micrófono y lo grabado casi no se oye.
         await setPlaybackAudioMode();
-        const uri = recording.getURI();
+        const saved = await saveRecording(recording, "upd");
         setRecording(null);
         setIsRecordingVoice(false);
-        if (uri) {
-          const dest = `${FileSystem.documentDirectory}upd-${Date.now()}.m4a`;
-          await FileSystem.copyAsync({ from: uri, to: dest });
-          setUpdateMedia((prev) => [...prev, { id: `a-${Date.now()}`, url: dest, type: "audio" }]);
+        if (saved) {
+          setUpdateMedia((prev) => [...prev, { id: `a-${Date.now()}`, url: saved, type: "audio" }]);
+        } else {
+          Alert.alert("No se guardó la nota de voz", "Vuelve a grabarla, por favor.");
         }
       } catch (e) {
         console.warn("stop voice recording", e);
+        setRecording(null);
+        setIsRecordingVoice(false);
+        Alert.alert("No se guardó la nota de voz", "Vuelve a grabarla, por favor.");
       }
       return;
     }

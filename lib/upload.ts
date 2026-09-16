@@ -20,6 +20,11 @@ const CONTENT_TYPE: Record<AlertMedia["type"], string> = {
 
 // En web la extensión sale del tipo real: Safari de iPhone graba .mov.
 const EXT_BY_MIME: Record<string, string> = {
+  "audio/webm": "webm",
+  "audio/ogg": "ogg",
+  "audio/mp4": "m4a",
+  "audio/mpeg": "mp3",
+  "audio/wav": "wav",
   "video/quicktime": "mov",
   "video/webm": "webm",
   "video/mp4": "mp4",
