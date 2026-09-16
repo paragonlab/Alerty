@@ -147,6 +147,15 @@ export default function PremiumScreen() {
       const { data, error } = await supabase.functions.invoke("stripe-customer-portal", {
         method: "POST",
       });
+      // 404 = este Círculo no salió de un pago con tarjeta: no hay portal que
+      // abrir, y decir "no se pudo" deja al vecino sin saber qué hacer.
+      if ((error as { context?: { status?: number } })?.context?.status === 404) {
+        Alert.alert(
+          "Sin suscripción de tarjeta",
+          "Tu Círculo no viene de un pago con tarjeta. Si lo compraste dentro de la app, gestiónalo desde tu cuenta de App Store o Google Play.",
+        );
+        return;
+      }
       if (error) throw error;
       const url = (data as any)?.url as string | undefined;
       if (!url) throw new Error("No se obtuvo URL del portal");
