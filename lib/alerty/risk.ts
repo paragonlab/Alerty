@@ -1,5 +1,6 @@
 // Lógica de riesgo de zona — consulta puntual, calor y cuadrícula.
 // Se calcula 100% en cliente a partir de alertas + posts de comunidad.
+import { DANGER_CATEGORIES } from "./constants";
 import type { AlertCategory, AlertItem } from "./types";
 import { calculateDistance, getAlertAgeMinutes } from "./utils";
 
@@ -72,8 +73,17 @@ export const toCommunityHeatPoint = (post: {
   return { lat: post.lat, lng: post.lng, weight, category };
 };
 
-export const buildHeatPoints = (points: WeightedPoint[]) =>
-  points.map((p) => ({ latitude: p.lat, longitude: p.lng, weight: p.weight }));
+/**
+ * Intensidad del glow de un pin (0.35–1): más alta en categorías de riesgo y
+ * en lo más reciente. El glow vive en el pin, con tamaño fijo en pantalla: las
+ * manchas del mapa de calor llenaban la pantalla.
+ */
+export const glowIntensity = (category: string | null | undefined, createdAt: string): number => {
+  const ageMin = Math.max(0, (Date.now() - new Date(createdAt).getTime()) / 60000);
+  const recency = ageMin <= 60 ? 1 : ageMin <= 360 ? 0.8 : ageMin <= 1440 ? 0.6 : 0.4;
+  const severity = category && DANGER_CATEGORIES.includes(category) ? 1 : 0.7;
+  return Math.max(0.35, Math.min(1, recency * severity));
+};
 
 type HeatColors = { mapYellow: string; mapOrange: string; mapRed: string };
 

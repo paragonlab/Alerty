@@ -9,15 +9,14 @@ import {
   TextInput,
   View,
 } from "react-native";
-import MapView, { Circle, Heatmap, Marker, PROVIDER_GOOGLE } from "../../components/ExpoMapView";
+import MapView, { Circle, Marker, PROVIDER_GOOGLE } from "../../components/ExpoMapView";
 import { RiskGrid } from "../../components/RiskGrid";
 import {
   GO_DEST_LABEL,
   GO_OUT_LABEL,
   RISK_RADIUS_KM,
-  buildHeatPoints,
   buildRiskGridFromPoints,
-  heatAppearance,
+  glowIntensity,
   riskColor,
   scoreAtPoints,
   toAlertHeatPoint,
@@ -53,7 +52,7 @@ import { placeIcon, searchCuliacanPlaces, type PlaceResult } from "../../lib/ale
 import { CommunityMarker } from "../../components/CommunityMarker";
 import { CommunityPostPreview } from "../../components/CommunityPostPreview";
 import { SOSButton } from "../../components/SOSButton";
-import { CATEGORY_LABELS, CULIACAN_CENTER, SOS_RADIUS_KM, TIME_FILTER_PILL_LABEL, TIME_FILTERS } from "../../lib/alerty/constants";
+import { CATEGORY_LABELS, CULIACAN_CENTER, TIME_FILTER_PILL_LABEL, TIME_FILTERS } from "../../lib/alerty/constants";
 import { useAlertyTheme } from "../../lib/useAlertyTheme";
 import { DARK_MAP_STYLE } from "../../lib/theme";
 import { useAlertyStore } from "../../lib/alerty/store";
@@ -62,7 +61,6 @@ import type { AlertCategory, CommunityPost } from "../../lib/alerty/types";
 import {
   calculateDistance,
   getCategoryPinColor,
-  getIntensityColor,
   getPulseDuration,
   getTimeFilterWindowLabel,
   isAlertInWindow,
@@ -278,7 +276,6 @@ export default function MapScreen() {
     [filteredAlerts, communityClusters],
   );
 
-  const heatmapPoints = useMemo(() => buildHeatPoints(heatSources), [heatSources]);
 
   // Alerta activa más cercana dentro de 500m del usuario
   const nearbyAlert = useMemo(() => {
@@ -626,46 +623,6 @@ export default function MapScreen() {
             onPress={handleMapPick}
             onLongPress={handleMapPick}
           >
-            {showHeatmap && heatmapPoints.length > 0 && Platform.OS !== "ios" && (
-              <Heatmap
-                points={heatmapPoints.map((point) => ({
-                  ...point,
-                  weight: Math.max(1, (typeof point.weight === "number" ? point.weight : 1) * 2.4),
-                }))}
-                radius={36}
-                opacity={0.62}
-                gradient={{
-                  colors: [theme.colors.mapYellow, theme.colors.mapOrange, theme.colors.mapRed],
-                  startPoints: [0.18, 0.48, 0.82],
-                  colorMapSize: 256
-                }}
-              />
-            )}
-            {showHeatmap && heatmapPoints.length > 0 && Platform.OS === "ios" && heatmapPoints.map((point, index) => {
-              const weight = typeof point.weight === "number" ? point.weight : 1;
-              const look = heatAppearance(weight, theme.colors);
-              return (
-                <Circle
-                  key={`heat-${index}`}
-                  center={{ latitude: point.latitude, longitude: point.longitude }}
-                  radius={look.radiusM}
-                  fillColor={look.fillColor}
-                  strokeWidth={0}
-                />
-              );
-            })}
-            {filteredAlerts
-              .filter((alert) => alert.category === "sos")
-              .map((alert) => (
-                <Circle
-                  key={`sos-r-${alert.id}`}
-                  center={{ latitude: alert.lat, longitude: alert.lng }}
-                  radius={SOS_RADIUS_KM * 1000}
-                  fillColor={isDark ? "rgba(255,0,0,0.16)" : "rgba(217,52,43,0.14)"}
-                  strokeColor={isDark ? "#FF0000" : theme.colors.mapRed}
-                  strokeWidth={2}
-                />
-              ))}
             {showGrid && <RiskGrid cells={riskGrid} />}
             {filteredAlerts.map((alert) => (
               <Marker
@@ -685,7 +642,9 @@ export default function MapScreen() {
               >
                 <GlowMarker
                   category={alert.category}
-                  color={getIntensityColor(alert.createdAt)}
+                  color={getCategoryPinColor(alert.category)}
+                  intensity={glowIntensity(alert.category, alert.createdAt)}
+                  showGlow={showHeatmap}
                   duration={getPulseDuration(alert.createdAt)}
                   hasMedia={alert.media.length > 0}
                   isVerified={alert.user.isVerified}
@@ -721,6 +680,8 @@ export default function MapScreen() {
                   authorAvatarUrl={post.authorAvatarUrl}
                   mediaUrl={post.mediaUrl}
                   source={post.source}
+                  intensity={glowIntensity(post.categoryGuess, post.createdAt)}
+                  showGlow={showHeatmap}
                 />
               </Marker>
             ))}
@@ -798,7 +759,7 @@ export default function MapScreen() {
                 <Pressable
                   style={[styles.headerTool, showHeatmap && styles.headerToolActive]}
                   onPress={toggleHeat}
-                  accessibilityLabel="Mapa de calor"
+                  accessibilityLabel="Brillo de las alertas"
                 >
                   <Ionicons name="flame" size={16} color={showHeatmap ? "#FFFFFF" : theme.colors.text} />
                 </Pressable>

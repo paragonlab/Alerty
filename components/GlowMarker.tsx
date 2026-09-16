@@ -15,6 +15,10 @@ type GlowMarkerProps = {
   lowConnection?: boolean;
   /** Foto del reportero; si falta, icono de categoría. */
   avatarUrl?: string | null;
+  /** 0.35–1: tamaño y brillo del halo. Solo lo intenso lleva anillo que late. */
+  intensity?: number;
+  /** false = pin sin glow (botón de brillo apagado). */
+  showGlow?: boolean;
 };
 
 export function GlowMarker({
@@ -25,7 +29,12 @@ export function GlowMarker({
   isVerified,
   lowConnection,
   avatarUrl,
+  intensity = 1,
+  showGlow = true,
 }: GlowMarkerProps) {
+  const glow = showGlow && !lowConnection;
+  const rings = glow && intensity >= 0.8;
+  const haloSize = Math.round(28 + 16 * intensity);
   const themeMode = useAlertyStore((s) => s.themeMode);
   const isDark = themeMode === "darkHighVisibility";
 
@@ -107,11 +116,14 @@ export function GlowMarker({
   }, [duration, lowConnection]);
 
   const haloScale = haloAnim.interpolate({ inputRange: [0, 1], outputRange: [0.85, 1.1] });
-  const haloOpacity = haloAnim.interpolate({ inputRange: [0, 1], outputRange: [isDark ? 0.6 : 0.45, isDark ? 0.9 : 0.75] });
+  const haloOpacity = haloAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [(isDark ? 0.45 : 0.3) * intensity, (isDark ? 0.8 : 0.6) * intensity],
+  });
 
-  const r1Scale = ring1Anim.interpolate({ inputRange: [0, 1], outputRange: [0.7, 3.6] });
+  const r1Scale = ring1Anim.interpolate({ inputRange: [0, 1], outputRange: [0.7, 2.4] });
   const r1Opacity = ring1Anim.interpolate({ inputRange: [0, 0.6, 1], outputRange: [0.9, 0.25, 0] });
-  const r2Scale = ring2Anim.interpolate({ inputRange: [0, 1], outputRange: [0.7, 3.6] });
+  const r2Scale = ring2Anim.interpolate({ inputRange: [0, 1], outputRange: [0.7, 2.4] });
   const r2Opacity = ring2Anim.interpolate({ inputRange: [0, 0.6, 1], outputRange: [0.9, 0.25, 0] });
 
   const mediaColor = isDark ? "#FF00FF" : "#5A4C3B";
@@ -124,17 +136,23 @@ export function GlowMarker({
   return (
     <View style={styles.container}>
       {/* Layer 1: Halo ambient bloom */}
-      {!lowConnection && (
+      {glow && (
         <Animated.View
           style={[
             styles.halo,
-            { backgroundColor: color, transform: [{ scale: haloScale }], opacity: haloOpacity },
+            {
+              width: haloSize,
+              height: haloSize,
+              backgroundColor: color,
+              transform: [{ scale: haloScale }],
+              opacity: haloOpacity,
+            },
           ]}
         />
       )}
 
       {/* Layer 2: Staggered expanding rings */}
-      {!lowConnection && (
+      {rings && (
         <Animated.View
           style={[
             styles.ring,
@@ -147,7 +165,7 @@ export function GlowMarker({
           ]}
         />
       )}
-      {!lowConnection && (
+      {rings && (
         <Animated.View
           style={[
             styles.ring,
@@ -228,8 +246,6 @@ const styles = StyleSheet.create({
   },
   halo: {
     position: "absolute",
-    width: 44,
-    height: 44,
     borderRadius: 999,
   },
   ring: {

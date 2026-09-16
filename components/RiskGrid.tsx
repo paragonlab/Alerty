@@ -15,9 +15,9 @@ export function RiskGrid({ cells }: { cells: GridCell[] }) {
           <Polygon
             key={cell.id}
             coordinates={cell.coordinates}
-            fillColor={`${color}55`}
-            strokeColor={`${color}AA`}
-            strokeWidth={1}
+            fillColor={`${color}22`}
+            strokeColor={`${color}55`}
+            strokeWidth={0.5}
           />
         );
       })}

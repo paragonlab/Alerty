@@ -13,6 +13,10 @@ type CommunityMarkerProps = {
   authorAvatarUrl?: string | null;
   mediaUrl?: string | null;
   source?: CommunitySource;
+  /** 0.35–1: tamaño y brillo del halo. */
+  intensity?: number;
+  /** false = pin sin glow (botón de brillo apagado). */
+  showGlow?: boolean;
 };
 
 /**
@@ -27,6 +31,8 @@ export function CommunityMarker({
   authorAvatarUrl,
   mediaUrl,
   source = "x",
+  intensity = 0.6,
+  showGlow = true,
 }: CommunityMarkerProps) {
   const pinColor = color ?? getCategoryPinColor(categoryGuess);
   const imageUrl = authorAvatarUrl || mediaUrl || null;
@@ -35,6 +41,20 @@ export function CommunityMarker({
 
   return (
     <View style={styles.wrap} accessibilityLabel={markerKind}>
+      {showGlow ? (
+        <View
+          pointerEvents="none"
+          style={[
+            styles.glow,
+            {
+              width: Math.round(28 + 16 * intensity),
+              height: Math.round(28 + 16 * intensity),
+              backgroundColor: pinColor,
+              opacity: 0.12 + 0.3 * intensity,
+            },
+          ]}
+        />
+      ) : null}
       <View
         style={[
           styles.pin,
@@ -73,6 +93,10 @@ const styles = StyleSheet.create({
     height: 40,
     alignItems: "center",
     justifyContent: "center",
+  },
+  glow: {
+    position: "absolute",
+    borderRadius: 999,
   },
   pin: {
     width: 26,

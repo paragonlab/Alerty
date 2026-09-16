@@ -46,6 +46,8 @@ type AlertPinMeta = {
   isVerified?: boolean;
   lowConnection?: boolean;
   avatarUrl?: string | null;
+  intensity?: number;
+  glow?: boolean;
 };
 
 type SponsorPinMeta = {
@@ -61,6 +63,8 @@ type CommunityPinMeta = {
   avatarUrl?: string | null;
   mediaUrl?: string | null;
   source?: "x" | "rss";
+  intensity?: number;
+  glow?: boolean;
 };
 
 type DestinationPinMeta = {
@@ -243,8 +247,8 @@ function ensurePulseStyles() {
 }
 .pulso-pin__halo {
   position: absolute;
-  width: 44px;
-  height: 44px;
+  width: var(--pulso-halo-size, 44px);
+  height: var(--pulso-halo-size, 44px);
   border-radius: 999px;
   background: var(--pulso-color);
   background: radial-gradient(circle, color-mix(in srgb, var(--pulso-color) 85%, white) 0%, var(--pulso-color) 55%, transparent 78%);
@@ -367,6 +371,23 @@ function ensurePulseStyles() {
   width: 16px;
   height: 16px;
   fill: currentColor;
+}
+.pulso-pin--calm .pulso-pin__ring,
+.pulso-pin--noglow .pulso-pin__ring,
+.pulso-pin--noglow .pulso-pin__halo {
+  display: none;
+}
+.pulso-community__glow {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: var(--pulso-glow-size, 36px);
+  height: var(--pulso-glow-size, 36px);
+  transform: translate(-50%, -50%);
+  border-radius: 999px;
+  background: var(--pulso-color, #1D9BF0);
+  opacity: var(--pulso-glow-op, 0.3);
+  pointer-events: none;
 }
 .pulso-community {
   position: relative;
@@ -557,6 +578,8 @@ function findGlowProps(node: React.ReactNode): AlertPinMeta | null {
         isVerified: Boolean(props.isVerified),
         lowConnection: Boolean(props.lowConnection),
         avatarUrl: typeof props.avatarUrl === "string" ? props.avatarUrl : null,
+        intensity: typeof props.intensity === "number" ? props.intensity : 1,
+        glow: props.showGlow !== false,
       };
       return;
     }
@@ -607,6 +630,8 @@ function findCommunityMeta(node: React.ReactNode): CommunityPinMeta | null {
       authorAvatarUrl?: string | null;
       mediaUrl?: string | null;
       source?: "x" | "rss";
+      intensity?: number;
+      showGlow?: boolean;
     };
     if (props.markerKind === "community" || "isDemo" in props) {
       found = {
@@ -616,6 +641,8 @@ function findCommunityMeta(node: React.ReactNode): CommunityPinMeta | null {
         avatarUrl: typeof props.authorAvatarUrl === "string" ? props.authorAvatarUrl : null,
         mediaUrl: typeof props.mediaUrl === "string" ? props.mediaUrl : null,
         source: props.source === "rss" ? "rss" : "x",
+        intensity: typeof props.intensity === "number" ? props.intensity : 0.6,
+        glow: props.showGlow !== false,
       };
     }
   });
@@ -729,9 +756,9 @@ function collectPolygons(
         const color = riskColor(cell.level, gridTheme);
         out.push({
           coordinates: cell.coordinates,
-          fillColor: `${color}55`,
-          strokeColor: `${color}AA`,
-          strokeWidth: 1,
+          fillColor: `${color}22`,
+          strokeColor: `${color}55`,
+          strokeWidth: 0.5,
         });
       }
       return;
@@ -812,8 +839,12 @@ function buildAlertPinElement(meta: AlertPinMeta, simplify: boolean): HTMLDivEle
   const el = document.createElement("div");
   const staticPulse = Boolean(meta.lowConnection);
   const showAvatar = Boolean(meta.avatarUrl);
-  el.className = `pulso-pin${staticPulse ? " pulso-pin--static" : ""}${simplify && !staticPulse ? " pulso-pin--simple" : ""}`;
+  const intensity = meta.intensity ?? 1;
+  el.className = `pulso-pin${staticPulse ? " pulso-pin--static" : ""}${simplify && !staticPulse ? " pulso-pin--simple" : ""}${intensity < 0.8 ? " pulso-pin--calm" : ""}${meta.glow === false ? " pulso-pin--noglow" : ""}`;
   el.style.setProperty("--pulso-color", meta.color);
+  el.style.setProperty("--pulso-halo-size", `${Math.round(28 + 16 * intensity)}px`);
+  el.style.setProperty("--pulso-halo-min", String(0.07 + 0.18 * intensity));
+  el.style.setProperty("--pulso-halo-max", String(0.1 + 0.3 * intensity));
   el.style.setProperty("--pulso-duration", `${Math.max(700, meta.duration)}ms`);
   el.setAttribute("role", "button");
   el.setAttribute("tabindex", "0");
@@ -896,7 +927,11 @@ function buildCommunityPinElement(meta: CommunityPinMeta): HTMLDivElement {
   const pinInner = imageUrl
     ? `<img class="pulso-community__avatar" src="${escapeAttr(imageUrl)}" alt="" />`
     : fallback;
+  const intensity = meta.intensity ?? 0.6;
+  el.style.setProperty("--pulso-glow-size", `${Math.round(28 + 16 * intensity)}px`);
+  el.style.setProperty("--pulso-glow-op", String(0.12 + 0.3 * intensity));
   el.innerHTML = `
+    ${meta.glow === false ? "" : '<span class="pulso-community__glow"></span>'}
     <div class="pulso-community__pin">${pinInner}</div>
     <span class="pulso-community__source">${sourceIcon}</span>
     ${meta.isDemo ? '<span class="pulso-community__demo">D</span>' : ""}
@@ -1270,10 +1305,10 @@ const ExpoMapView = forwardRef<MapHandle, MapViewProps>(function ExpoMapView(pro
     const heat = collectHeatmap(props.children);
     const overlaySig = [
       isDark ? "dark" : "light",
-      ...markers.map(
-        (m) =>
-          `${m.meta.kind}:${m.coordinate.latitude.toFixed(5)}:${m.coordinate.longitude.toFixed(5)}:${m.meta.color}`,
-      ),
+      ...markers.map((m) => {
+        const look = m.meta as { intensity?: number; glow?: boolean };
+        return `${m.meta.kind}:${m.coordinate.latitude.toFixed(5)}:${m.coordinate.longitude.toFixed(5)}:${m.meta.color}:${look.intensity ?? ""}:${look.glow === false ? "0" : "1"}`;
+      }),
       ...polygons.map((p) => `p:${p.coordinates.length}`),
       ...circles.map(
         (c) =>
