@@ -492,7 +492,10 @@ export default function MapScreen() {
     const coord = e?.nativeEvent?.coordinate;
     if (!coord) return;
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    const place = nearestCuliacanPlace(coord.latitude, coord.longitude);
+    // Radio corto: el gazetteer son puntos, no polígonos, así que con 1.6 km se
+    // nombraba la colonia vecina en lugar de la que tocaste. Sin nada cerca es
+    // preferible no nombrarla.
+    const place = nearestCuliacanPlace(coord.latitude, coord.longitude, 0.6);
     goToDestination(coord.latitude, coord.longitude, place?.name ?? "Este punto en el mapa");
   };
 

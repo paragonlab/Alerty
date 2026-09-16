@@ -19,7 +19,8 @@ export const CULIACAN_PLACES: CuliacanPlace[] = [
   { name: "Barrancos", lat: 24.7733, lng: -107.4116 },
   { name: "Humaya", lat: 24.8264, lng: -107.4154 },
   { name: "Infonavit Humaya", lat: 24.836, lng: -107.417 },
-  { name: "Stase", lat: 24.7937, lng: -107.3922 },
+  // Fracc. STASE (CP 80020): corredor Humaya, no al sur del Centro.
+  { name: "Stase", lat: 24.8254, lng: -107.4146 },
   { name: "Universidad", lat: 24.8255, lng: -107.3659 },
   { name: "Bachigualato", lat: 24.7581, lng: -107.4471 },
   { name: "Los Pinos", lat: 24.8116, lng: -107.3634 },

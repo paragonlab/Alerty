@@ -20,7 +20,15 @@ export const CULIACAN_PLACES: CuliacanPlace[] = [
   { name: "Barrancos", lat: 24.7733, lng: -107.4116 },
   { name: "Humaya", lat: 24.8264, lng: -107.4154 },
   { name: "Infonavit Humaya", lat: 24.836, lng: -107.417 },
-  { name: "Stase", lat: 24.7937, lng: -107.3922 },
+  {
+    // Fracc. STASE (CP 80020): sobre el Blvd. Dr. Enrique Cabrera, entre Humaya
+    // e Infonavit Humaya. El punto anterior lo ponía 1.3 km al sur del Centro,
+    // ~3 km fuera de lugar, y se quedaba con los toques del mapa de Guadalupe y
+    // 5 de Mayo. Falta validarlo contra el polígono de OSM.
+    name: "Stase",
+    lat: 24.8254,
+    lng: -107.4146,
+  },
   { name: "Universidad", lat: 24.8255, lng: -107.3659 },
   { name: "Bachigualato", lat: 24.7581, lng: -107.4471 },
   { name: "Los Pinos", lat: 24.8116, lng: -107.3634 },

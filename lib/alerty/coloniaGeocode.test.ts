@@ -9,9 +9,11 @@ import {
   resolveCommunityMapPoint,
   resolveDestinationQuery,
   suggestDestinationPlaces,
+  nearestCuliacanPlace,
   CULIACAN_PLACES,
   CITY_APPROX_LABEL,
 } from "./coloniaGeocode";
+import { calculateDistance } from "./utils";
 
 function assert(cond: unknown, msg: string): asserts cond {
   if (!cond) throw new Error(msg);
@@ -202,6 +204,21 @@ function run() {
 
   const prados = resolveTextColonia("Ataque armado en la colonia Prados del Sur, Culiacán");
   assert(prados?.place.name === "Prados del Sur", `Prados del Sur, got ${prados?.place.name}`);
+
+  // Stase es el fraccionamiento del corredor Humaya (CP 80020). Con el punto
+  // viejo, al sur del Centro, tocar el mapa en Guadalupe respondía "Stase".
+  const stase = CULIACAN_PLACES.find((p) => p.name === "Stase");
+  assert(stase, "gazetteer includes Stase");
+  const humaya = CULIACAN_PLACES.find((p) => p.name === "Humaya")!;
+  assert(
+    calculateDistance(stase!.lat, stase!.lng, humaya.lat, humaya.lng) < 1,
+    "Stase sits in the Humaya corridor, not south of Centro",
+  );
+  const guadalupe = CULIACAN_PLACES.find((p) => p.name === "Guadalupe")!;
+  assert(
+    nearestCuliacanPlace(guadalupe.lat, guadalupe.lng, 0.6)?.name === "Guadalupe",
+    "map tap on Guadalupe names Guadalupe",
+  );
 
   console.log("coloniaGeocode tests: OK");
 }

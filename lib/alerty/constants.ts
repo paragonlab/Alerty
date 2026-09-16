@@ -163,7 +163,7 @@ export const CULIACAN_NEIGHBORHOODS = [
   { name: "Barrancos", latitude: 24.7733, longitude: -107.4116 },
   { name: "Humaya", latitude: 24.8264, longitude: -107.4154 },
   { name: "Infonavit Humaya", latitude: 24.836, longitude: -107.417 },
-  { name: "Stase", latitude: 24.7937, longitude: -107.3922 },
+  { name: "Stase", latitude: 24.8254, longitude: -107.4146 },
   { name: "Universidad", latitude: 24.8255, longitude: -107.3659 },
   { name: "Bachigualato", latitude: 24.7581, longitude: -107.4471 },
   { name: "Los Pinos", latitude: 24.8116, longitude: -107.3634 },
