@@ -13,7 +13,7 @@ import {
   View,
   ViewToken,
 } from "react-native";
-import { Video, ResizeMode } from "expo-av";
+import { Video, ResizeMode, Audio } from "expo-av";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
@@ -41,6 +41,7 @@ import { recordAlertView } from "../lib/alerty/impact";
 import { requireSession } from "../lib/alerty/session";
 import { useRouter } from "expo-router";
 import { CommunityVoteBar } from "./CommunityVoteBar";
+import { MapBackdrop } from "./MapBackdrop";
 import { ReelsTimeFilter } from "./ReelsTimeFilter";
 
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
@@ -288,6 +289,110 @@ function ConfirmSheet({
 
 // ── VideoReelCard ─────────────────────────────────────────────────────────────
 
+/** Lo que se ve de fondo en un pulso de vecino. */
+type ReelMedium = "video" | "photo" | "voice" | "text";
+
+/** Nota de voz: suena sola al entrar en pantalla y se ve como ondas. */
+function VoicePlayer({
+  uri,
+  playing,
+  paused,
+  muted,
+  color,
+}: {
+  uri: string;
+  playing: boolean;
+  /** Las ondas se mueven mientras la tarjeta esté a la vista y sin pausar. */
+  paused: boolean;
+  muted: boolean;
+  color: string;
+}) {
+  const soundRef = useRef<Audio.Sound | null>(null);
+  const bars = useMemo(() => Array.from({ length: 26 }, () => new Animated.Value(0.2)), []);
+
+  useEffect(() => {
+    if (!playing) return;
+    let active = true;
+    let sound: Audio.Sound | null = null;
+    void (async () => {
+      try {
+        const created = await Audio.Sound.createAsync(
+          { uri },
+          { shouldPlay: true, isLooping: true, isMuted: muted },
+        );
+        if (!active) {
+          void created.sound.unloadAsync();
+          return;
+        }
+        sound = created.sound;
+        soundRef.current = created.sound;
+      } catch (e) {
+        console.warn("voice playback failed", e);
+      }
+    })();
+    return () => {
+      active = false;
+      soundRef.current = null;
+      void sound?.unloadAsync();
+    };
+  }, [uri, playing]);
+
+  useEffect(() => {
+    void soundRef.current?.setIsMutedAsync(muted);
+  }, [muted]);
+
+  useEffect(() => {
+    if (paused) return;
+    const loops = bars.map((bar, i) =>
+      Animated.loop(
+        Animated.sequence([
+          Animated.delay(i * 45),
+          Animated.timing(bar, {
+            toValue: 0.55 + ((i % 5) * 0.09),
+            duration: 280 + ((i * 37) % 260),
+            useNativeDriver: true,
+          }),
+          Animated.timing(bar, { toValue: 0.2, duration: 300, useNativeDriver: true }),
+        ]),
+      ),
+    );
+    loops.forEach((l) => l.start());
+    return () => loops.forEach((l) => l.stop());
+  }, [paused, bars]);
+
+  return (
+    <View style={styles.voiceWrap} pointerEvents="none">
+      <View style={[styles.voiceIcon, { borderColor: color }]}>
+        <Ionicons name="mic" size={26} color={color} />
+      </View>
+      <View style={styles.voiceBars}>
+        {bars.map((bar, i) => (
+          <Animated.View
+            key={i}
+            style={[styles.voiceBar, { backgroundColor: color, transform: [{ scaleY: bar }] }]}
+          />
+        ))}
+      </View>
+      <Text style={styles.voiceLabel}>NOTA DE VOZ</Text>
+    </View>
+  );
+}
+
+/** Pulso de solo texto: se lee grande sobre el mapa del lugar. */
+function TextPulse({ alert, color }: { alert: AlertItem; color: string }) {
+  const body = alert.title ?? alert.description ?? CATEGORY_LABELS[alert.category];
+  return (
+    <View style={styles.textPulseWrap} pointerEvents="none">
+      <View style={[styles.textPulseMark, { borderColor: color + "66", backgroundColor: color + "26" }]}>
+        <Ionicons name={CATEGORY_ICONS[alert.category] as any} size={18} color={color} />
+      </View>
+      <Text style={styles.textPulseBody} numberOfLines={7}>
+        {body}
+      </Text>
+    </View>
+  );
+}
+
 export function VideoReelCard({
   alert,
   isActive,
@@ -300,14 +405,28 @@ export function VideoReelCard({
   onClose?: () => void;
 }) {
   const { voteAlert, votedAlerts, addAngleAlert, maxReportingDistance, alerts } = useAlertyStore();
-  const [isMuted, setIsMuted] = useState(true);
+
+  // Video, foto, voz o solo texto. Voz y texto se ven sobre el mapa del lugar
+  // desde donde se envió el pulso.
+  const videoUri = alert.media.find((m) => m.type === "video")?.url;
+  const photoUri = alert.media.find((m) => m.type === "image")?.url;
+  const audioUri = alert.media.find((m) => m.type === "audio")?.url;
+  const medium: ReelMedium = videoUri
+    ? "video"
+    : photoUri
+      ? "photo"
+      : audioUri
+        ? "voice"
+        : "text";
+
+  // En una nota de voz el audio es el contenido: arranca con sonido.
+  const [isMuted, setIsMuted] = useState(medium !== "voice");
   const [isPaused, setIsPaused] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [contributing, setContributing] = useState(false);
   const barPulse = useRef(new Animated.Value(1)).current;
   const aportarPulse = useRef(new Animated.Value(0.9)).current;
 
-  const videoUri = alert.media.find((m) => m.type === "video")?.url;
   const parentAlert = alert.parentAlertId
     ? alerts.find((a) => a.id === alert.parentAlertId)
     : null;
@@ -397,20 +516,41 @@ export function VideoReelCard({
     Alert.alert("¡Gracias!", "Tu video se publicó como otro ángulo; ya aparece en Videos.");
   }
 
-  if (!videoUri) return null;
-
   return (
     <View style={styles.reel}>
-      {/* video */}
+      {/* fondo: lo que trae el pulso */}
       <Pressable style={StyleSheet.absoluteFill} onPress={() => setIsPaused((p) => !p)}>
-        <Video
-          source={{ uri: videoUri }}
-          style={StyleSheet.absoluteFill}
-          resizeMode={ResizeMode.COVER}
-          isLooping
-          shouldPlay={isActive && !isPaused}
-          isMuted={isMuted}
-        />
+        {medium === "video" ? (
+          <Video
+            source={{ uri: videoUri! }}
+            style={StyleSheet.absoluteFill}
+            resizeMode={ResizeMode.COVER}
+            isLooping
+            shouldPlay={isActive && !isPaused}
+            isMuted={isMuted}
+          />
+        ) : medium === "photo" ? (
+          <Image
+            source={{ uri: photoUri! }}
+            style={StyleSheet.absoluteFill}
+            resizeMode="cover"
+          />
+        ) : (
+          <>
+            <MapBackdrop lat={alert.lat} lng={alert.lng} category={alert.category} />
+            {medium === "voice" ? (
+              <VoicePlayer
+                uri={audioUri!}
+                playing={isActive && !isPaused}
+                paused={isPaused}
+                muted={isMuted}
+                color={intensityColor}
+              />
+            ) : (
+              <TextPulse alert={alert} color={intensityColor} />
+            )}
+          </>
+        )}
       </Pressable>
 
       {isPaused && (
@@ -509,8 +649,8 @@ export function VideoReelCard({
           </View>
         )}
 
-        {/* title */}
-        {(alert.title || alert.description) && (
+        {/* title — en un pulso de texto ya se lee grande al centro */}
+        {(alert.title || alert.description) && medium !== "text" && (
           <Text style={styles.alertTitle} numberOfLines={2}>
             {alert.title ?? alert.description}
           </Text>
@@ -553,7 +693,7 @@ export function VideoReelCard({
               color={reliable ? "#66FF8C" : "rgba(255,255,255,0.6)"}
             />
             <Text style={[styles.metaChipText, reliable && { color: "#66FF8C" }]}>
-              {reliable ? "REPORTERO CONFIABLE" : alert.user.level.toUpperCase()}
+              {reliable ? "REPORTERO CONFIABLE" : (alert.user.level ?? "vecino").toUpperCase()}
             </Text>
           </View>
           {isNear && distText && (
@@ -1119,6 +1259,60 @@ export function VideoReelsList({
 // ── styles ────────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
+  voiceWrap: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 18,
+  },
+  voiceIcon: {
+    width: 68,
+    height: 68,
+    borderRadius: 999,
+    borderWidth: 2,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(0,0,0,0.45)",
+  },
+  voiceBars: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    height: 78,
+  },
+  voiceBar: {
+    width: 4,
+    height: 78,
+    borderRadius: 999,
+  },
+  voiceLabel: {
+    fontSize: 11,
+    letterSpacing: 2,
+    color: "rgba(255,255,255,0.6)",
+    fontFamily: "SpaceGrotesk_700Bold",
+  },
+  textPulseWrap: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 34,
+    gap: 16,
+  },
+  textPulseMark: {
+    width: 46,
+    height: 46,
+    borderRadius: 999,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  textPulseBody: {
+    fontSize: 26,
+    lineHeight: 34,
+    textAlign: "center",
+    color: "#fff",
+    fontFamily: "SpaceGrotesk_700Bold",
+  },
   endCard: {
     alignItems: "center",
     justifyContent: "center",

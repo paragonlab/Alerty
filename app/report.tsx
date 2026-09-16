@@ -200,7 +200,8 @@ export default function ReportScreen() {
   const { addAlert, addUpdateToAlert, currentUser, alerts, setUserCoords } = useAlertyStore();
 
   // Categoría + GPS + enviar. Cámara/galería son opcionales desde el paso 2.
-  const [step, setStep] = useState<1 | 2 | 3 | 4>(2);
+  // 2 = qué pasa · 5 = cómo lo cuentas · 1 = grabar voz · 3 = revisa · 4 = enviado
+  const [step, setStep] = useState<1 | 2 | 3 | 4 | 5>(2);
   const [captureMode, setCaptureMode] = useState<"video" | "photo" | "voice">("video");
   const [category, setCategory] = useState<AlertCategory | null>(null);
   const [title, setTitle] = useState("");
@@ -353,17 +354,21 @@ export default function ReportScreen() {
     setLocationLoading(false);
   }
 
-  // Atajo desde "Nuevo pulso": abre la cámara directo en video, sin pasar por
-  // la pantalla de evidencia.
-  async function recordVideoNow() {
+  // Atajo desde "¿Cómo lo cuentas?": abre la cámara directo y pasa a revisar.
+  async function captureNow(kind: "video" | "photo") {
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
     if (status !== "granted") {
-      Alert.alert("Permiso", "Necesitamos la cámara para grabar el video.");
+      Alert.alert(
+        "Permiso",
+        kind === "video"
+          ? "Necesitamos la cámara para grabar el video."
+          : "Necesitamos la cámara para tomar la foto.",
+      );
       return;
     }
     const result = await ImagePicker.launchCameraAsync({
-      mediaTypes: "videos",
+      mediaTypes: kind === "video" ? "videos" : "images",
       quality: 0.85,
       videoMaxDuration: 30,
     });
@@ -371,15 +376,20 @@ export default function ReportScreen() {
     const tooBig = result.assets.find((a) => (a.fileSize ?? 0) > 45 * 1024 * 1024);
     if (tooBig) {
       notifyUser(
-        "Video muy pesado",
+        kind === "video" ? "Video muy pesado" : "Foto muy pesada",
         `Pesa ${Math.round((tooBig.fileSize ?? 0) / 1048576)} MB. Graba uno de 10 a 15 segundos.`,
       );
       return;
     }
     setMedia((prev) => [
       ...prev,
-      ...result.assets.map((a) => ({ id: `cap-${Date.now()}`, url: a.uri, type: "video" as const })),
+      ...result.assets.map((a) => ({
+        id: `cap-${Date.now()}`,
+        url: a.uri,
+        type: (kind === "video" ? "video" : "image") as "video" | "image",
+      })),
     ]);
+    setStep(3);
   }
 
   async function handleGallery() {
@@ -397,7 +407,7 @@ export default function ReportScreen() {
       type: (a.type === "video" ? "video" : "image") as "image" | "video",
     }));
     setMedia((prev) => [...prev, ...picked]);
-    if (step === 1) setStep(2);
+    if (step === 1) setStep(3);
   }
 
   async function handleShutter() {
@@ -406,7 +416,7 @@ export default function ReportScreen() {
     if (captureMode === "voice") {
       if (isRecording) {
         await handleStopRecording();
-        setStep(2);
+        setStep(3);
       } else {
         await handleStartRecording();
       }
@@ -432,7 +442,7 @@ export default function ReportScreen() {
         }));
         setMedia((prev) => [...prev, ...picked]);
         void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        if (step === 1) setStep(2);
+        if (step === 1) setStep(3);
       }
     } catch {
       await handleGallery();
@@ -757,7 +767,7 @@ export default function ReportScreen() {
           <View style={S.shutterSide} />
         </View>
 
-        <Pressable style={S.skipBtn} onPress={() => setStep(2)}>
+        <Pressable style={S.skipBtn} onPress={() => setStep(3)}>
           <Text style={S.skipBtnText}>Continuar sin evidencia</Text>
           <Ionicons name="arrow-forward" size={12} color="rgba(255,255,255,0.45)" />
         </Pressable>
@@ -793,37 +803,6 @@ export default function ReportScreen() {
               </Pressable>
             )}
           </View>
-        ) : risky ? (
-          <View style={S.safeCard}>
-            <Ionicons name="shield-outline" size={18} color="#FF8A65" />
-            <View style={{ flex: 1 }}>
-              <Text style={S.safeCardTitle}>Ponte a salvo primero</Text>
-              <Text style={S.evidenceSub}>Graba solo si no te arriesgas. Tu pulso sirve igual sin video.</Text>
-            </View>
-            <Pressable onPress={() => setStep(1)} hitSlop={8} accessibilityLabel="Agregar evidencia">
-              <Text style={S.safeCardLink}>Agregar</Text>
-            </Pressable>
-          </View>
-        ) : (
-          <Pressable
-            style={S.videoCta}
-            onPress={() => void recordVideoNow()}
-            accessibilityLabel="Grabar un video de 10 segundos"
-          >
-            <View style={S.videoCtaIcon}>
-              <Ionicons name="videocam" size={20} color="#fff" />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={S.videoCtaTitle}>Graba un video de 10 s</Text>
-              <Text style={S.videoCtaSub}>Con video tu pulso se confirma más rápido y sale en Videos.</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.7)" />
-          </Pressable>
-        )}
-        {media.length === 0 && Platform.OS !== "web" && !risky ? (
-          <Pressable onPress={() => setStep(1)} hitSlop={6} style={S.altEvidence}>
-            <Text style={S.skipBtnText}>O agrega foto o audio</Text>
-          </Pressable>
         ) : null}
 
         {/* Category label */}
@@ -886,6 +865,90 @@ export default function ReportScreen() {
             Se publica en el mapa de {locationLabel}.{risky ? " Foto o video son opcionales." : ""}
           </Text>
         </View>
+      </>
+    );
+  }
+
+  function renderStep5() {
+    const risky = category !== null && DANGER_CATEGORIES.includes(category);
+    return (
+      <>
+        <Text style={S.sheetLabel}>¿Cómo lo cuentas?</Text>
+        <Text style={S.sheetHint}>
+          {category ? CATEGORY_LABELS[category] : "Tu pulso"} · {locationLabel}
+        </Text>
+
+        {risky ? (
+          <View style={S.safeCard}>
+            <Ionicons name="shield-outline" size={18} color="#FF8A65" />
+            <View style={{ flex: 1 }}>
+              <Text style={S.safeCardTitle}>Ponte a salvo primero</Text>
+              <Text style={S.evidenceSub}>Graba solo si no te arriesgas. Tu pulso sirve igual sin video.</Text>
+            </View>
+          </View>
+        ) : null}
+
+        <Pressable
+          style={S.videoCta}
+          onPress={() => void captureNow("video")}
+          accessibilityLabel="Grabar un video"
+        >
+          <View style={S.videoCtaIcon}>
+            <Ionicons name="videocam" size={20} color="#fff" />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={S.videoCtaTitle}>Grabar video · recomendado</Text>
+            <Text style={S.videoCtaSub}>Se confirma más rápido y abre la sección de Videos.</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.7)" />
+        </Pressable>
+
+        <Pressable
+          style={S.fmtCard}
+          onPress={() => { void Haptics.selectionAsync(); setCaptureMode("voice"); setStep(1); }}
+          accessibilityLabel="Grabar una nota de voz"
+        >
+          <View style={S.fmtIcon}>
+            <Ionicons name="mic" size={18} color="#6BE0FF" />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={S.videoCtaTitle}>Grabar voz</Text>
+            <Text style={S.videoCtaSub}>Cuéntalo hablando; se escucha en Videos sobre el mapa.</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.45)" />
+        </Pressable>
+
+        <Pressable
+          style={S.fmtCard}
+          onPress={() => void captureNow("photo")}
+          accessibilityLabel="Tomar una foto"
+        >
+          <View style={S.fmtIcon}>
+            <Ionicons name="camera" size={18} color="#6BE0FF" />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={S.videoCtaTitle}>Tomar foto</Text>
+            <Text style={S.videoCtaSub}>Una imagen del lugar también sale en Videos.</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.45)" />
+        </Pressable>
+
+        <Pressable
+          style={S.fmtCard}
+          onPress={() => { void Haptics.selectionAsync(); void handleSubmit(); }}
+          accessibilityLabel="Publicar solo con texto"
+        >
+          <View style={S.fmtIcon}>
+            <Ionicons name="text" size={18} color="rgba(255,255,255,0.75)" />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={S.videoCtaTitle}>Solo texto</Text>
+            <Text style={S.videoCtaSub}>Se publica con el mapa de tu ubicación de fondo.</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.45)" />
+        </Pressable>
+
+        {formError ? <Text style={S.formError}>{formError}</Text> : null}
       </>
     );
   }
@@ -1118,9 +1181,15 @@ export default function ReportScreen() {
           ) : (
             <View style={S.sheetHead}>
               <Text style={S.sheetTitle}>
-                {step === 3 ? "Revisa" : step === 1 ? "Evidencia" : "Nuevo pulso"}
+                {step === 3
+                  ? "Revisa"
+                  : step === 1
+                    ? "Grabar"
+                    : step === 5
+                      ? "Formato"
+                      : "Nuevo pulso"}
               </Text>
-              <StepDots current={step === 1 ? 1 : 2} total={2} />
+              <StepDots current={step === 2 ? 1 : step === 5 ? 2 : 3} total={3} />
               <Pressable style={S.closeBtn} onPress={() => safeBack(router)} hitSlop={12}>
                 <Ionicons name="close" size={18} color="#fff" />
               </Pressable>
@@ -1139,6 +1208,7 @@ export default function ReportScreen() {
           >
             {step === 1 && renderStep1()}
             {step === 2 && renderStep2()}
+            {step === 5 && renderStep5()}
             {step === 3 && renderStep3()}
             {step === 4 && renderStep4()}
           </ScrollView>
@@ -1150,11 +1220,13 @@ export default function ReportScreen() {
               <ReportCta
                 disabled={!category || submitting || !userLocation}
                 onPress={() => {
-                  void handleSubmit();
+                  void Haptics.selectionAsync();
+                  setFormError(null);
+                  setStep(5);
                 }}
               >
-                <Ionicons name="paper-plane" size={18} color="#fff" />
-                <Text style={S.ctaText}>{submitting ? "ENVIANDO…" : "ENVIAR PULSO"}</Text>
+                <Ionicons name="arrow-forward" size={18} color="#fff" />
+                <Text style={S.ctaText}>CONTINUAR</Text>
               </ReportCta>
               <Text style={S.ctaHelper}>Anónimo · sin datos personales</Text>
             </View>
@@ -1428,6 +1500,17 @@ const S = StyleSheet.create({
     fontFamily: "SpaceGrotesk_500Medium",
   },
   altEvidence: { alignSelf: "center", marginTop: -4 },
+  fmtCard: {
+    flexDirection: "row", alignItems: "center", gap: 10,
+    padding: 12, borderRadius: 14,
+    backgroundColor: "rgba(255,255,255,0.05)",
+    borderWidth: 1, borderColor: "rgba(255,255,255,0.12)",
+  },
+  fmtIcon: {
+    width: 40, height: 40, borderRadius: 12,
+    alignItems: "center", justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.08)",
+  },
   safeCard: {
     flexDirection: "row", alignItems: "center", gap: 10,
     padding: 12, borderRadius: 14,

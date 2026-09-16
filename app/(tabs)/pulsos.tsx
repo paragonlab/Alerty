@@ -82,15 +82,16 @@ export default function FeedScreen() {
     [communityPosts, timeFilter, activeCategories],
   );
 
-  const videoAlerts = useMemo(
+  // Videos muestra todo pulso: video, foto, voz y texto. Los que no traen
+  // imagen se ven sobre el mapa del lugar desde donde se enviaron.
+  const reelAlerts = useMemo(
     () =>
       alerts.filter(
         (alert) =>
           alert.status === "active" &&
           activeCategories.includes(alert.category) &&
           isAlertInWindow(alert, timeFilter) &&
-          !shouldSuppressAlert(alert) &&
-          alert.media.some((m) => m.type === "video"),
+          !shouldSuppressAlert(alert),
       ),
     [alerts, activeCategories, timeFilter],
   );
@@ -98,13 +99,11 @@ export default function FeedScreen() {
   // Lista para los Pulsos. Garantiza que el video tocado esté incluido aunque
   // quede fuera de la ventana de tiempo / filtros del feed.
   const reelsAlerts = useMemo(() => {
-    if (!reelsInitialAlertId) return videoAlerts;
-    if (videoAlerts.some((a) => a.id === reelsInitialAlertId)) return videoAlerts;
-    const target = alerts.find(
-      (a) => a.id === reelsInitialAlertId && a.media.some((m) => m.type === "video"),
-    );
-    return target ? [target, ...videoAlerts] : videoAlerts;
-  }, [videoAlerts, reelsInitialAlertId, alerts]);
+    if (!reelsInitialAlertId) return reelAlerts;
+    if (reelAlerts.some((a) => a.id === reelsInitialAlertId)) return reelAlerts;
+    const target = alerts.find((a) => a.id === reelsInitialAlertId);
+    return target ? [target, ...reelAlerts] : reelAlerts;
+  }, [reelAlerts, reelsInitialAlertId, alerts]);
 
   // Videos de X y medios: siguen a los de vecinos para que Videos nunca quede
   // vacío. Solo miniatura; el video se abre en su fuente.
@@ -250,10 +249,10 @@ export default function FeedScreen() {
             <View style={styles.emptyReels}>
               <ReelsTimeFilter />
               <Ionicons name="videocam-off-outline" size={52} color="rgba(255,255,255,0.2)" />
-              <Text style={styles.emptyReelsTitle}>Sin videos en este período</Text>
+              <Text style={styles.emptyReelsTitle}>Sin pulsos en este período</Text>
               <Text style={styles.emptyReelsSubtitle}>
-                No hay videos en este horario ({TIME_FILTER_PILL_LABEL[timeFilter]}). Cambia el
-                horario, publica una alerta con video o revisa más tarde.
+                No hay pulsos en este horario ({TIME_FILTER_PILL_LABEL[timeFilter]}). Cambia el
+                horario, publica un pulso o revisa más tarde.
               </Text>
             </View>
           </SafeAreaView>
