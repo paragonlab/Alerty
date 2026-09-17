@@ -13,14 +13,13 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-import * as WebBrowser from "expo-web-browser";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { lightTheme as theme } from "../lib/theme";
 import { supabase } from "../lib/supabase";
 import { safeBack } from "../lib/alerty/nav";
-import { APP_SHARE_URL } from "../lib/alerty/share";
 import { ALIADO_PRICE_LABEL } from "../lib/alerty/circulo";
 import { getCurrentCoords } from "../lib/alerty/geolocation";
+import { requireSession } from "../lib/alerty/session";
 
 type ZoneType = "refugio" | "anuncio";
 
@@ -29,9 +28,12 @@ export default function BusinessOnboarding() {
   const params = useLocalSearchParams<{ status?: string; zone_id?: string }>();
   const styles = createStyles();
 
-  // En iOS la inscripción B2B se hace desde la web para no incluir un flujo de
-  // pago dentro de la app (evita rechazo en App Store review).
-  const isIOS = Platform.OS === "ios";
+  // En iPhone y Android no se cobra ni se manda a pagar fuera: App Review 3.1.1
+  // prohíbe llevar a otro medio de pago, y un pin que se ve dentro de la app no
+  // entra en la excepción de apps de campañas publicitarias (3.1.3g). La
+  // política de pagos de Google Play tampoco exime la venta B2B. Ahí el negocio
+  // deja su solicitud y la venta se cierra por fuera.
+  const isStore = Platform.OS !== "web";
 
   // Si el negocio vuelve de Stripe con status=success, mostramos confirmación
   useEffect(() => {
@@ -83,8 +85,43 @@ export default function BusinessOnboarding() {
     validCoords &&
     !loading;
 
+  /** En las tiendas: solicitud, sin precio ni pago. */
+  const handleLead = async () => {
+    if (!canSubmit || !supabase) return;
+    if (!(await requireSession("/business"))) return;
+    setLoading(true);
+    try {
+      const { data: auth } = await supabase.auth.getUser();
+      const uid = auth.user?.id;
+      if (!uid) throw new Error("Entra con tu cuenta para enviar la solicitud.");
+      const { error } = await supabase.from("aliado_leads").insert({
+        user_id: uid,
+        name: name.trim(),
+        description: description.trim(),
+        contact_email: email.trim(),
+        type,
+        lat: parsedLat,
+        lng: parsedLng,
+      });
+      if (error) throw error;
+      Alert.alert(
+        "Solicitud enviada",
+        "Revisamos tu negocio y te contactamos por correo.",
+        [{ text: "OK", onPress: () => safeBack(router) }],
+      );
+    } catch (e: any) {
+      Alert.alert("Error", e?.message ?? "No se pudo enviar la solicitud.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleSubmit = async () => {
     if (!canSubmit || !supabase) return;
+    if (isStore) {
+      void handleLead();
+      return;
+    }
     setLoading(true);
     try {
       const { data, error } = await supabase.functions.invoke("stripe-checkout-b2b", {
@@ -101,12 +138,7 @@ export default function BusinessOnboarding() {
       if (error) throw error;
       const url = (data as any)?.url as string | undefined;
       if (!url) throw new Error("No se obtuvo URL de pago");
-
-      if (Platform.OS === "web") {
-        if (typeof window !== "undefined") window.location.href = url;
-      } else {
-        await WebBrowser.openBrowserAsync(url);
-      }
+      if (typeof window !== "undefined") window.location.href = url;
     } catch (e: any) {
       Alert.alert("Error", e?.message ?? "No se pudo iniciar el pago");
     } finally {
@@ -137,20 +169,6 @@ export default function BusinessOnboarding() {
             </Text>
           </View>
 
-          {isIOS ? (
-            <View style={styles.card}>
-              <Text style={styles.label}>Inscripción de negocios</Text>
-              <Text style={styles.priceAmount}>
-                El pin de Aliado se paga en la web ({ALIADO_PRICE_LABEL}). En iPhone no se cobra dentro de la app.
-              </Text>
-              <Pressable
-                style={styles.submitButton}
-                onPress={() => WebBrowser.openBrowserAsync(`${APP_SHARE_URL}/business`)}
-              >
-                <Text style={styles.submitText}>Abrir registro web</Text>
-              </Pressable>
-            </View>
-          ) : (
           <View style={styles.card}>
             <Text style={styles.label}>Tipo de pin</Text>
             <View style={styles.typeRow}>
@@ -251,12 +269,14 @@ export default function BusinessOnboarding() {
               </Pressable>
             )}
 
-            <View style={styles.priceBox}>
-              <Text style={styles.priceLabel}>$499 MXN / mes</Text>
-              <Text style={styles.priceAmount}>
-                Una sucursal en el mapa. Cancela cuando quieras.
-              </Text>
-            </View>
+            {!isStore ? (
+              <View style={styles.priceBox}>
+                <Text style={styles.priceLabel}>{ALIADO_PRICE_LABEL}</Text>
+                <Text style={styles.priceAmount}>
+                  Una sucursal en el mapa. Cancela cuando quieras.
+                </Text>
+              </View>
+            ) : null}
 
             <Pressable
               style={[styles.submitButton, !canSubmit && styles.submitButtonDisabled]}
@@ -266,16 +286,18 @@ export default function BusinessOnboarding() {
               {loading ? (
                 <ActivityIndicator color="#fff" />
               ) : (
-                <Text style={styles.submitText}>Continuar al pago</Text>
+                <Text style={styles.submitText}>
+                  {isStore ? "Enviar solicitud" : "Continuar al pago"}
+                </Text>
               )}
             </Pressable>
 
             <Text style={styles.legalText}>
-              El pin aparece en el mapa mientras la suscripción esté activa.
-              Pulso revisa cada Aliado antes de publicarlo.
+              {isStore
+                ? "Pulso revisa cada Aliado antes de publicarlo. Te contactamos por correo para ver los detalles."
+                : "El pin aparece en el mapa mientras la suscripción esté activa. Pulso revisa cada Aliado antes de publicarlo."}
             </Text>
           </View>
-          )}
         </ScrollView>
       </LinearGradient>
     </SafeAreaView>

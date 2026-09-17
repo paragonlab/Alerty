@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -408,7 +409,9 @@ export default function SettingsScreen() {
             <View style={{ flex: 1 }}>
               <Text style={styles.settingLabel}>Aliado en el mapa</Text>
               <Text style={styles.helperText}>
-                Pin de negocio. Se paga en la web ({ALIADO_PRICE_LABEL}). En iPhone no se cobra dentro de la app.
+                {Platform.OS === "web"
+                  ? `Pon tu negocio en el mapa (${ALIADO_PRICE_LABEL}).`
+                  : "Farmacia, gasolinera o clínica: aparece en el mapa como un lugar donde parar."}
               </Text>
             </View>
             <Ionicons name="chevron-forward" size={18} color={theme.colors.textMuted} />
