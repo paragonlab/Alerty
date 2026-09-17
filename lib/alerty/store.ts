@@ -142,6 +142,10 @@ type AlertyState = {
   setFeedViewMode: (mode: "list" | "reels") => void;
   reelsInitialAlertId: string | null;
   openReels: (alertId: string | null) => void;
+  /** Post de comunidad que Pulsos abre al entrar desde un pin del mapa. */
+  focusCommunityId: string | null;
+  focusCommunity: (postId: string) => void;
+  clearCommunityFocus: () => void;
   unreadAlerts: number;
   clearUnreadAlerts: () => void;
   userCoords: UserCoords | null;
@@ -317,6 +321,9 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
   setFeedViewMode: (mode) => set({ feedViewMode: mode }),
   reelsInitialAlertId: null,
   openReels: (alertId) => set({ feedViewMode: "reels", reelsInitialAlertId: alertId }),
+  focusCommunityId: null,
+  focusCommunity: (postId) => set({ feedViewMode: "list", focusCommunityId: postId }),
+  clearCommunityFocus: () => set({ focusCommunityId: null }),
   unreadAlerts: 0,
   clearUnreadAlerts: () => set({ unreadAlerts: 0 }),
   userCoords: null,

@@ -43,7 +43,7 @@ import {
 } from "../../lib/alerty/geolocation";
 import * as Haptics from "expo-haptics";
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
+import { useNavigation, useRouter } from "expo-router";
 import { GlowMarker } from "../../components/GlowMarker";
 import { DestinationPin } from "../../components/DestinationPin";
 import { isAboutCuliacan, isCommunityVideo } from "../../lib/alerty/communityLabel";
@@ -73,6 +73,7 @@ const COMMUNITY_CLUSTER_MS = 3 * 60 * 60 * 1000;
 
 export default function MapScreen() {
   const router = useRouter();
+  const navigation = useNavigation();
   const mapRef = useRef<MapView | null>(null);
   const searchInputRef = useRef<TextInput>(null);
   const [locating, setLocating] = useState(false);
@@ -113,6 +114,7 @@ export default function MapScreen() {
     alertsLoaded,
     communityLoaded,
     openReels,
+    focusCommunity,
   } = useAlertyStore();
 
   const theme = useAlertyTheme();
@@ -472,6 +474,9 @@ export default function MapScreen() {
     setSelectedSources(best.sources);
   };
 
+  /** Cambia de pestaña como lo hace la barra de abajo. */
+  const goToPulsos = () => navigation.navigate("pulsos" as never);
+
   const goToDestination = (lat: number, lng: number, label: string) => {
     setSearchText(label);
     setSearchFocused(false);
@@ -634,7 +639,7 @@ export default function MapScreen() {
                   setSelectedCommunity(null);
                   if (alert.media.some((x) => x.type === "video")) {
                     openReels(alert.id);
-                    router.navigate("/(tabs)/pulsos");
+                    goToPulsos();
                     return;
                   }
                   router.push(`/alert/${alert.id}`);
@@ -655,7 +660,7 @@ export default function MapScreen() {
             ))}
 
             {/* Posts de comunidad desde X — pin estático, no GlowMarker; un pin por hecho */}
-            {communityClusters.map(({ post, sources }) => (
+            {communityClusters.map(({ post }) => (
               <Marker
                 key={`x-${post.id}`}
                 coordinate={{ latitude: post.lat, longitude: post.lng }}
@@ -663,13 +668,12 @@ export default function MapScreen() {
                 onPress={() => {
                   void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                   setRiskResult(null);
-                  if (isCommunityVideo(post)) {
-                    openReels(`c-${post.id}`);
-                    router.navigate("/(tabs)/pulsos");
-                    return;
-                  }
-                  setSelectedCommunity(post);
-                  setSelectedSources(sources);
+                  // La noticia se ve donde se lee: con video abre el reel, y
+                  // sin video abre su ficha en Pulsos. Antes se quedaba en una
+                  // tarjeta encima del mapa.
+                  if (isCommunityVideo(post)) openReels(`c-${post.id}`);
+                  else focusCommunity(post.id);
+                  goToPulsos();
                 }}
               >
                 <CommunityMarker
@@ -904,7 +908,7 @@ export default function MapScreen() {
                 style={styles.cityStrip}
                 onPress={() => {
                   void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  router.navigate("/(tabs)/pulsos");
+                  goToPulsos();
                 }}
                 accessibilityLabel={`Ver ${unlocatedCount} en Pulsos`}
               >
@@ -924,7 +928,7 @@ export default function MapScreen() {
                 onPress={() => {
                   void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                   openReels(null);
-                  router.navigate("/(tabs)/pulsos");
+                  goToPulsos();
                 }}
                 accessibilityLabel={`Ver ${videoChip.count} videos ${videoChip.where}`}
               >

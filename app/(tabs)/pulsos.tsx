@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
@@ -45,6 +45,8 @@ export default function FeedScreen() {
     setFeedViewMode: setViewMode,
     openReels,
     reelsInitialAlertId,
+    focusCommunityId,
+    clearCommunityFocus,
     realtimeStarted,
     alertsLoaded,
     communityLoaded,
@@ -52,6 +54,14 @@ export default function FeedScreen() {
   const theme = useAlertyTheme();
   const styles = createStyles(theme);
   const [previewPost, setPreviewPost] = useState<CommunityPost | null>(null);
+
+  // Llegó desde un pin de noticia del mapa: se abre su ficha.
+  useEffect(() => {
+    if (!focusCommunityId) return;
+    const post = communityPosts.find((item) => item.id === focusCommunityId);
+    if (post) setPreviewPost(post);
+    clearCommunityFocus();
+  }, [focusCommunityId, communityPosts, clearCommunityFocus]);
 
   const baseFilteredAlerts = useMemo(
     () =>
