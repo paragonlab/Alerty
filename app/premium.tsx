@@ -85,12 +85,7 @@ export default function PremiumScreen() {
     if (isAlreadyPremium) return;
 
     if (!isRevenueCatConfigured) {
-      Alert.alert(
-        "Pagos no disponibles",
-        Platform.OS === "web"
-          ? "Configura la edge function stripe-checkout-plus para habilitar pagos."
-          : "Configura EXPO_PUBLIC_REVENUECAT_IOS_KEY / EXPO_PUBLIC_REVENUECAT_ANDROID_KEY.",
-      );
+      Alert.alert("Círculo aún no está disponible", "Muy pronto podrás activarlo desde aquí.");
       return;
     }
 
@@ -187,27 +182,34 @@ export default function PremiumScreen() {
             Pulso <Text style={{ color: theme.colors.accent }}>Círculo</Text>
           </Text>
           <Text style={styles.subtitle}>
-            Avísame si se pone pesado en otra colonia. El mapa y los pulsos siguen gratis.
+            Cuida los lugares que te importan aunque no estés ahí. Si alguien reporta algo
+            cerca, te avisamos.
           </Text>
         </View>
 
         <View style={styles.featuresList}>
           <FeatureItem
-            icon="home-outline"
-            title="1 zona gratis"
-            description="Casa o donde estás. Sin pagar."
+            icon="location-outline"
+            title="Guarda tus lugares"
+            description="Tu casa, la escuela de tus hijos, tu trabajo o la casa de tu mamá. Cada lugar es una zona."
             theme={theme}
           />
           <FeatureItem
-            icon="people"
-            title="Hasta 5 zonas"
-            description="Escuela, trabajo, casa de mamá. Push cuando hay un pulso cerca."
+            icon="notifications-outline"
+            title="Te avisamos, estés donde estés"
+            description="Si alguien reporta un pulso a menos de 800 m de una de tus zonas, te llega una notificación con el nombre del lugar."
+            theme={theme}
+          />
+          <FeatureItem
+            icon="people-outline"
+            title="Gratis 1 zona · con Círculo 5"
+            description="Sin pagar cuidas un lugar. Con Círculo cuidas hasta cinco."
             theme={theme}
           />
           <FeatureItem
             icon="map-outline"
-            title="El mapa no se cobra"
-            description="Ver Culiacán, reportar y SOS siguen libres."
+            title="Lo demás sigue gratis"
+            description="Ver el mapa, publicar pulsos y pedir SOS nunca se cobran."
             theme={theme}
           />
         </View>
@@ -234,6 +236,13 @@ export default function PremiumScreen() {
                 </Pressable>
               )}
             </>
+          ) : !isRevenueCatConfigured ? (
+            <View style={styles.soonCard}>
+              <Text style={styles.soonTitle}>Muy pronto</Text>
+              <Text style={styles.soonText}>
+                Estamos terminando de habilitar el pago. Mientras, tu zona gratis ya funciona.
+              </Text>
+            </View>
           ) : (
             <Pressable
               style={[styles.subscribeButton, loading && { opacity: 0.7 }]}
@@ -251,7 +260,7 @@ export default function PremiumScreen() {
             </Pressable>
           )}
 
-          {Platform.OS !== "web" && !isAlreadyPremium && (
+          {Platform.OS !== "web" && !isAlreadyPremium && isRevenueCatConfigured && (
             <>
               <Pressable
                 style={styles.restoreButton}
@@ -372,6 +381,27 @@ const createStyles = (theme: any) => StyleSheet.create({
     color: theme.colors.text,
     fontSize: 14,
     fontFamily: theme.fonts.heading,
+  },
+  soonCard: {
+    alignItems: "center",
+    gap: 6,
+    paddingVertical: 18,
+    paddingHorizontal: 20,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface,
+  },
+  soonTitle: {
+    fontSize: 17,
+    fontWeight: "700",
+    color: theme.colors.text,
+  },
+  soonText: {
+    fontSize: 14,
+    lineHeight: 20,
+    textAlign: "center",
+    color: theme.colors.textMuted,
   },
   restoreButton: {
     marginTop: 8,
