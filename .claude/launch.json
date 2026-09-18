@@ -4,7 +4,10 @@
     {
       "name": "alerty-web",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "web"],
+      "runtimeArgs": [
+        "run",
+        "web"
+      ],
       "port": 8081
     }
   ]

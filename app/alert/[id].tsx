@@ -36,7 +36,7 @@ import type { AlertMedia, AlertUpdate } from "../../lib/alerty/types";
 export default function AlertDetailScreen() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { alerts, voteAlert, votedAlerts, followingAlertIds, toggleFollowAlert, addUpdateToAlert, getReportingRange, themeMode, openReels, flagAlert, fetchAlertById } = useAlertyStore();
+  const { alerts, voteAlert, votedAlerts, followingAlertIds, toggleFollowAlert, addUpdateToAlert, getReportingRange, themeMode, openReels, flagAlert, fetchAlertById, blockUser } = useAlertyStore();
   const theme = useAlertyTheme();
   const isDark = themeMode === "darkHighVisibility";
   const styles = createStyles(theme, themeMode);
@@ -49,6 +49,7 @@ export default function AlertDetailScreen() {
   const [recording, setRecording] = useState<Audio.Recording | null>(null);
   const [isRecordingVoice, setIsRecordingVoice] = useState(false);
   const [flagging, setFlagging] = useState(false);
+  const [blocking, setBlocking] = useState(false);
 
   const alert = useMemo(() => alerts.find((item) => item.id === id), [alerts, id]);
 
@@ -172,6 +173,33 @@ export default function AlertDetailScreen() {
     // Deja de verlo quien reporta; para bajarlo del mapa hacen falta tres.
     Alert.alert("Gracias", "Dejarás de ver este pulso. Lo revisamos con otros reportes.");
     safeBack(router);
+  };
+
+  const handleBlock = () => {
+    if (!alert) return;
+    Alert.alert(
+      `Bloquear a @${alert.user.username}`,
+      "Dejarás de ver sus pulsos en el mapa, en Pulsos y en Videos. Nosotros revisamos su contenido.",
+      [
+        { text: "Cancelar", style: "cancel" },
+        {
+          text: "Bloquear",
+          style: "destructive",
+          onPress: async () => {
+            if (!(await requireSession(`/alert/${alert.id}`))) return;
+            setBlocking(true);
+            const { error } = await blockUser(alert.user.id, "Bloqueado desde el detalle del pulso");
+            setBlocking(false);
+            if (error) {
+              Alert.alert("Bloquear", error);
+              return;
+            }
+            Alert.alert("Listo", "No volverás a ver contenido de esa cuenta.");
+            safeBack(router);
+          },
+        },
+      ],
+    );
   };
 
   const handleAddUpdate = async () => {
@@ -601,6 +629,18 @@ export default function AlertDetailScreen() {
           <Ionicons name="flag-outline" size={13} color={theme.colors.textMuted} />
           <Text style={styles.flagText}>
             {flagging ? "Enviando…" : "Reportar pulso falso o mal ubicado"}
+          </Text>
+        </Pressable>
+
+        <Pressable
+          style={styles.flagButton}
+          onPress={handleBlock}
+          disabled={blocking}
+          accessibilityLabel={`Bloquear a ${alert.user.username}`}
+        >
+          <Ionicons name="person-remove-outline" size={13} color={theme.colors.textMuted} />
+          <Text style={styles.flagText}>
+            {blocking ? "Bloqueando…" : `Bloquear a @${alert.user.username}`}
           </Text>
         </Pressable>
       </ScrollView>

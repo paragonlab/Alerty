@@ -96,6 +96,7 @@ export default function RootLayout() {
 
   const { alerts, currentUser } = useAlertyStore();
   const categoriesConfigured = useAlertyStore((s) => s.categoriesConfigured);
+  const termsAccepted = useAlertyStore((s) => s.termsAccepted);
   const lastSOSRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -203,6 +204,12 @@ export default function RootLayout() {
       return;
     }
 
+    // Contenido de usuarios: nadie entra sin aceptar las reglas (App Review 1.2).
+    if (hasSession && termsAccepted === false && currentGroup !== "terminos") {
+      router.replace("/terminos" as any);
+      return;
+    }
+
     // Cuenta nueva: antes de entrar elige qué categorías quiere ver.
     if (hasSession && categoriesConfigured === false && currentGroup !== "onboarding") {
       router.replace("/onboarding" as any);
@@ -212,7 +219,7 @@ export default function RootLayout() {
     if (hasSession && isInAuth) {
       router.replace((consumeAuthNext() ?? "/(tabs)") as any);
     }
-  }, [hasSession, isReady, pathname, rootNavigationState?.key, router, segments, categoriesConfigured]);
+  }, [hasSession, isReady, pathname, rootNavigationState?.key, router, segments, categoriesConfigured, termsAccepted]);
 
   return (
     <SafeAreaProvider>
@@ -259,6 +266,13 @@ export default function RootLayout() {
         />
         <Stack.Screen
           name="onboarding"
+          options={{
+            headerShown: false,
+            gestureEnabled: false,
+          }}
+        />
+        <Stack.Screen
+          name="terminos"
           options={{
             headerShown: false,
             gestureEnabled: false,

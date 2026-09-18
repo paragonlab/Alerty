@@ -134,6 +134,14 @@ type AlertyState = {
   }) => Promise<{ error: string | null }>;
   deleteWatchedZone: (id: string) => Promise<{ error: string | null }>;
   flagAlert: (alertId: string, reason?: string) => Promise<{ error: string | null }>;
+  /** Cuentas bloqueadas por el vecino: su contenido no se le muestra. */
+  blockedUserIds: string[];
+  loadBlockedUsers: () => Promise<void>;
+  blockUser: (userId: string, reason?: string) => Promise<{ error: string | null }>;
+  unblockUser: (userId: string) => Promise<{ error: string | null }>;
+  /** null mientras no se sabe; false = hay que aceptar los términos. */
+  termsAccepted: boolean | null;
+  acceptTerms: () => Promise<void>;
   communityVotes: Record<string, { confirm: number; deny: number }>;
   myCommunityVotes: Record<string, "confirm" | "deny">;
   loadCommunityVotes: (postIds: string[]) => Promise<void>;
@@ -299,6 +307,8 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
   timeFilter: "7d",
   activeCategories: [...ALERT_CATEGORIES],
   categoriesConfigured: null,
+  blockedUserIds: [],
+  termsAccepted: null,
   lowConnection: false,
   pushEnabled: true,
   demoStarted: false,
@@ -632,8 +642,10 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
         activeCategories: activeFromHidden(data.hidden_categories),
         categoriesConfigured: data.categories_configured ?? true,
         showHeatmap: data.show_heatmap ?? true,
+        termsAccepted: Boolean(data.terms_accepted_at),
       }));
       void get().loadWatchedZones();
+      void get().loadBlockedUsers();
     }
   },
   loadSponsoredZones: async () => {
@@ -781,6 +793,67 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
     await supabase
       .from("community_votes")
       .insert({ post_id: postId, user_id: session.user.id, vote_type: vote });
+  },
+  loadBlockedUsers: async () => {
+    if (!isSupabaseConfigured || !supabase) return;
+    const { currentUser } = get();
+    if (!currentUser.id || currentUser.id === "local-user") return;
+    const { data } = await supabase
+      .from("blocked_users")
+      .select("blocked_id")
+      .eq("blocker_id", currentUser.id);
+    const ids = (data ?? []).map((row: { blocked_id: string }) => row.blocked_id);
+    set((state) => ({
+      blockedUserIds: ids,
+      // Lo que ya estaba en pantalla también se va: bloquear tiene que notarse
+      // de inmediato, no en la próxima carga.
+      alerts: state.alerts.filter((a) => !ids.includes(a.user.id)),
+    }));
+  },
+  blockUser: async (userId, reason) => {
+    if (!isSupabaseConfigured || !supabase) return { error: "No hay conexión." };
+    const { currentUser } = get();
+    if (!currentUser.id || currentUser.id === "local-user") {
+      return { error: "Inicia sesión para bloquear a alguien." };
+    }
+    if (userId === currentUser.id) return { error: "No puedes bloquearte a ti." };
+    const { error } = await supabase
+      .from("blocked_users")
+      .insert({ blocker_id: currentUser.id, blocked_id: userId, reason: reason ?? null });
+    if (error && !error.message.includes("duplicate key")) {
+      return { error: error.message };
+    }
+    set((state) => ({
+      blockedUserIds: state.blockedUserIds.includes(userId)
+        ? state.blockedUserIds
+        : [...state.blockedUserIds, userId],
+      alerts: state.alerts.filter((a) => a.user.id !== userId),
+    }));
+    return { error: null };
+  },
+  unblockUser: async (userId) => {
+    if (!isSupabaseConfigured || !supabase) return { error: "No hay conexión." };
+    const { currentUser } = get();
+    if (!currentUser.id || currentUser.id === "local-user") return { error: "Inicia sesión." };
+    const { error } = await supabase
+      .from("blocked_users")
+      .delete()
+      .eq("blocker_id", currentUser.id)
+      .eq("blocked_id", userId);
+    if (error) return { error: error.message };
+    set((state) => ({ blockedUserIds: state.blockedUserIds.filter((id) => id !== userId) }));
+    await get().loadAlertsFromSupabase();
+    return { error: null };
+  },
+  acceptTerms: async () => {
+    set({ termsAccepted: true });
+    if (!isSupabaseConfigured || !supabase) return;
+    const { currentUser } = get();
+    if (!currentUser.id || currentUser.id === "local-user") return;
+    await supabase
+      .from("users")
+      .update({ terms_accepted_at: new Date().toISOString() })
+      .eq("id", currentUser.id);
   },
   flagAlert: async (alertId, reason) => {
     if (!isSupabaseConfigured || !supabase) {
@@ -959,8 +1032,11 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
       return;
     }
 
+    const blocked = get().blockedUserIds;
     const toItems = (voteCounts: Map<string, { up: number; down: number }>): AlertItem[] =>
-      data.map((row: any) => mapAlertRow(row, voteCounts.get(row.id)));
+      data
+        .map((row: any) => mapAlertRow(row, voteCounts.get(row.id)))
+        .filter((alert: AlertItem) => !blocked.includes(alert.user.id));
 
     set({ alerts: toItems(new Map()), alertsLoaded: true });
     get().recomputeVerifiedStatus();
