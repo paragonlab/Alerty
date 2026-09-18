@@ -26,63 +26,81 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
+/**
+ * Un error sin cabeceras CORS llega al navegador como "bloqueado por CORS": se
+ * ve como problema de permisos lo que en realidad fue una config faltante o un
+ * error de Stripe. Todo lo que salga de aquí las lleva y dice qué pasó.
+ */
+const fail = (message: string, status = 500) =>
+  new Response(JSON.stringify({ error: message }), {
+    status,
+    headers: { ...corsHeaders, "content-type": "application/json" },
+  });
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return new Response("Method not allowed", { status: 405 });
 
   const authHeader = req.headers.get("authorization");
-  if (!authHeader) return new Response("Unauthorized", { status: 401, headers: corsHeaders });
+  if (!authHeader) return fail("Falta el token de sesión.", 401);
 
-  // Cliente con el JWT del usuario para resolver su identidad
-  const userClient = createClient(
-    Deno.env.get("SUPABASE_URL")!,
-    Deno.env.get("SUPABASE_ANON_KEY")!,
-    { global: { headers: { Authorization: authHeader } } },
-  );
+  if (!Deno.env.get("STRIPE_SECRET_KEY")) return fail("Falta el secret STRIPE_SECRET_KEY.");
+  if (!PRICE_ID) return fail("Falta el secret STRIPE_PRICE_ID_PLUS.");
 
-  const { data: { user }, error: userErr } = await userClient.auth.getUser();
-  if (userErr || !user) {
-    return new Response("Unauthorized", { status: 401, headers: corsHeaders });
-  }
+  try {
+    // Cliente con el JWT del usuario para resolver su identidad
+    const userClient = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_ANON_KEY")!,
+      { global: { headers: { Authorization: authHeader } } },
+    );
 
-  // Cliente con service role para leer/actualizar stripe_customer_id
-  const adminClient = createClient(
-    Deno.env.get("SUPABASE_URL")!,
-    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-  );
+    const { data: { user }, error: userErr } = await userClient.auth.getUser();
+    if (userErr || !user) return fail("Tu sesión no es válida. Entra de nuevo.", 401);
 
-  const { data: profile } = await adminClient
-    .from("users")
-    .select("stripe_customer_id")
-    .eq("id", user.id)
-    .single();
+    // Cliente con service role para leer/actualizar stripe_customer_id
+    const adminClient = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+    );
 
-  let customerId = profile?.stripe_customer_id ?? null;
-  if (!customerId) {
-    const customer = await stripe.customers.create({
-      email: user.email ?? undefined,
-      metadata: { user_id: user.id },
-    });
-    customerId = customer.id;
-    await adminClient
+    const { data: profile } = await adminClient
       .from("users")
-      .update({ stripe_customer_id: customerId })
-      .eq("id", user.id);
+      .select("stripe_customer_id")
+      .eq("id", user.id)
+      .single();
+
+    let customerId = profile?.stripe_customer_id ?? null;
+    if (!customerId) {
+      const customer = await stripe.customers.create({
+        email: user.email ?? undefined,
+        metadata: { user_id: user.id },
+      });
+      customerId = customer.id;
+      await adminClient
+        .from("users")
+        .update({ stripe_customer_id: customerId })
+        .eq("id", user.id);
+    }
+
+    const session = await stripe.checkout.sessions.create({
+      mode: "subscription",
+      customer: customerId,
+      line_items: [{ price: PRICE_ID, quantity: 1 }],
+      success_url: `${RETURN_URL}?status=success`,
+      cancel_url: `${RETURN_URL}?status=cancel`,
+      metadata: { user_id: user.id },
+      subscription_data: { metadata: { user_id: user.id } },
+      allow_promotion_codes: true,
+    });
+
+    return new Response(JSON.stringify({ url: session.url }), {
+      status: 200,
+      headers: { ...corsHeaders, "content-type": "application/json" },
+    });
+  } catch (e) {
+    const detail = e instanceof Error ? e.message : String(e);
+    console.error("stripe-checkout-plus failed", detail);
+    return fail(`Stripe: ${detail}`);
   }
-
-  const session = await stripe.checkout.sessions.create({
-    mode: "subscription",
-    customer: customerId,
-    line_items: [{ price: PRICE_ID, quantity: 1 }],
-    success_url: `${RETURN_URL}?status=success`,
-    cancel_url: `${RETURN_URL}?status=cancel`,
-    metadata: { user_id: user.id },
-    subscription_data: { metadata: { user_id: user.id } },
-    allow_promotion_codes: true,
-  });
-
-  return new Response(JSON.stringify({ url: session.url }), {
-    status: 200,
-    headers: { ...corsHeaders, "content-type": "application/json" },
-  });
 });

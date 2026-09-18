@@ -3,6 +3,7 @@
 // Expone la misma API que la versión nativa.
 
 import { supabase } from "./supabase";
+import { edgeErrorMessage } from "./alerty/edgeError";
 
 export const isRevenueCatConfigured = true; // siempre "configurado" en web (usa Stripe directo)
 
@@ -29,7 +30,11 @@ export const purchasePlus = async (
   const { data, error } = await supabase.functions.invoke("stripe-checkout-plus", {
     method: "POST",
   });
-  if (error) throw error;
+  if (error) {
+    // Sin esto el vecino solo ve "non-2xx status code" y el motivo se pierde.
+    const detail = await edgeErrorMessage(error);
+    throw detail ? new Error(detail) : error;
+  }
   const url = (data as any)?.url as string | undefined;
   if (!url) throw new Error("No se pudo crear la sesión de pago");
 
