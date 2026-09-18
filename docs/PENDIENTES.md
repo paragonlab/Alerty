@@ -1,5 +1,39 @@
 # Pendientes
 
+## Cobro de Círculo: dónde quedó (17 sep 2026)
+
+**Web (Stripe).** Funciona: el checkout abre y crea el cliente. Lo que faltó fue
+un cliente guardado de modo prueba con una llave de modo vivo; la función ahora
+crea uno nuevo si el guardado ya no existe.
+
+**Falta probar:** que el webhook ponga `is_premium` tras un pago completo. Es el
+único eslabón de la cadena del dinero que nunca ha corrido.
+
+**iPhone (RevenueCat).** Ya están las llaves públicas del SDK en el entorno
+`production` de EAS, sacadas del proyecto Pulso (`c7d5cf25`): la app de iOS es
+"Alerty (App Store)" (`com.mrparagon.alerty`) y la de Android "Alerty"
+(`com.paragonlabs.alerty`). El entitlement se llama `plus`, que es el que lee
+`lib/revenuecat.ts`, y hay una oferta "Default" con un paquete.
+
+Para que el paywall cobre falta:
+
+1. **Build nuevo** — las `EXPO_PUBLIC_*` se hornean en el binario. La cuota de
+   builds de iOS del plan gratuito de EAS se agotó; se reinicia el 1 de octubre
+   de 2026.
+2. **Mandar la suscripción a revisión.** `com.mrparagon.alerty.plus_monthly`
+   está en "Rechazada por el desarrollador" en App Store Connect. Apple pide una
+   captura del paywall corriendo, que sale del build del punto 1.
+3. **Llave de In-App Purchase (P8)** de App Store Connect subida a RevenueCat:
+   sin ella avisa que no puede validar con StoreKit 2.
+
+**Android está parado antes de empezar:** no existe cuenta de desarrollador de
+Play Console (25 USD, una vez). Por eso el producto de Android en RevenueCat
+(`com.mrparagon.alerty.plus_monthly:monthly`) aparece como "Not found": apunta a
+algo que no existe en ninguna tienda de Google.
+
+**Lo que sí está listo:** contrato de apps de pago activo, banco en MXN y
+formularios fiscales al corriente en App Store Connect.
+
 ## Grande: convertir videos en el servidor (después de publicar en App Store)
 
 **Problema.** El iPhone graba en HEVC (.mov), también desde Safari en la versión
