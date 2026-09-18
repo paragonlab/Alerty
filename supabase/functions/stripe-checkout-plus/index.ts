@@ -71,6 +71,19 @@ Deno.serve(async (req) => {
       .single();
 
     let customerId = profile?.stripe_customer_id ?? null;
+
+    // El id guardado puede apuntar a un cliente de otro modo (prueba vs vivo) o
+    // borrado. Stripe responde "No such customer" y el pago moría ahí; mejor
+    // crear uno nuevo y seguir.
+    if (customerId) {
+      try {
+        const existing = await stripe.customers.retrieve(customerId);
+        if ((existing as { deleted?: boolean }).deleted) customerId = null;
+      } catch {
+        customerId = null;
+      }
+    }
+
     if (!customerId) {
       const customer = await stripe.customers.create({
         email: user.email ?? undefined,

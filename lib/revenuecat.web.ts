@@ -33,6 +33,8 @@ export const purchasePlus = async (
   if (error) {
     // Sin esto el vecino solo ve "non-2xx status code" y el motivo se pierde.
     const detail = await edgeErrorMessage(error);
+    // También a la consola: es donde se mira cuando algo falla en el navegador.
+    console.error("stripe-checkout-plus:", detail ?? error);
     throw detail ? new Error(detail) : error;
   }
   const url = (data as any)?.url as string | undefined;
