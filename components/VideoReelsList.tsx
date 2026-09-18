@@ -428,7 +428,8 @@ export function VideoReelCard({
   userCoords: { latitude: number; longitude: number } | null;
   onClose?: () => void;
 }) {
-  const { voteAlert, votedAlerts, addAngleAlert, maxReportingDistance, alerts } = useAlertyStore();
+  const { voteAlert, votedAlerts, addAngleAlert, maxReportingDistance, alerts, blockUser, flagAlert } =
+    useAlertyStore();
 
   // Video, foto, voz o solo texto. Voz y texto se ven sobre el mapa del lugar
   // desde donde se envió el pulso.
@@ -502,6 +503,37 @@ export function VideoReelCard({
     const t = setTimeout(() => void recordAlertView(alert.id), 2000);
     return () => clearTimeout(t);
   }, [isActive, alert.id]);
+
+  /** Denunciar el pulso o bloquear a quien lo publicó, sin salir del reel. */
+  function handleReportOrBlock() {
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    Alert.alert("Este pulso", "¿Qué quieres hacer?", [
+      { text: "Cancelar", style: "cancel" },
+      {
+        text: "Reportar contenido",
+        onPress: async () => {
+          if (!(await requireSession("/(tabs)/pulsos"))) return;
+          const { error } = await flagAlert(alert.id);
+          Alert.alert(
+            error ? "Reportar" : "Gracias",
+            error ?? "Dejarás de ver este pulso. Lo revisamos con otros reportes.",
+          );
+        },
+      },
+      {
+        text: `Bloquear a @${alert.user.username}`,
+        style: "destructive",
+        onPress: async () => {
+          if (!(await requireSession("/(tabs)/pulsos"))) return;
+          const { error } = await blockUser(alert.user.id, "Bloqueado desde Videos");
+          Alert.alert(
+            error ? "Bloquear" : "Listo",
+            error ?? "No volverás a ver contenido de esa cuenta.",
+          );
+        },
+      },
+    ]);
+  }
 
   async function handleAportar() {
     if (contributing) return;
@@ -805,6 +837,17 @@ export function VideoReelCard({
             <Ionicons name="share-social-outline" size={28} color="rgba(255,255,255,0.85)" />
           </Pressable>
           <Text style={styles.actionLabel}>Compartir alerta</Text>
+        </View>
+
+        <View style={styles.actionItem}>
+          <Pressable
+            style={styles.actionIconBtn}
+            onPress={handleReportOrBlock}
+            accessibilityLabel="Reportar este pulso o bloquear a quien lo publicó"
+          >
+            <Ionicons name="ellipsis-horizontal" size={28} color="rgba(255,255,255,0.85)" />
+          </Pressable>
+          <Text style={styles.actionLabel}>Reportar</Text>
         </View>
 
         <View style={styles.actionItem}>
