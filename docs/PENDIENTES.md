@@ -58,6 +58,25 @@ algo que no existe en ninguna tienda de Google.
 **Lo que sí está listo:** contrato de apps de pago activo, banco en MXN y
 formularios fiscales al corriente en App Store Connect.
 
+## Aliado: cómo se revisa una solicitud (19 sep 2026)
+
+El negocio ya no teclea coordenadas: pone el pin en el mapa o busca la
+dirección, y la solicitud viaja con un respaldo de que el lugar es suyo.
+
+Cada solicitud queda en `aliado_leads` con `address`, y con una de dos pruebas:
+
+- `location_verified_at` + `location_distance_m`: el negocio pidió el alta
+  estando ahí y su GPS cayó a menos de 150 m del pin.
+- `proof_url` + `proof_kind` (`fachada` o `recibo`): un archivo en el bucket
+  privado `aliado-proofs`, bajo la carpeta del usuario.
+
+El bucket es privado a propósito —un recibo trae nombre y domicilio—, así que
+los comprobantes se miran desde Storage en el panel de Supabase, no por URL.
+Nadie más que quien la subió puede leer su carpeta.
+
+Falta decidir qué pasa cuando alguien reclama un pin ajeno; hoy la defensa es
+que toda alta pasa por revisión antes de publicarse.
+
 ## Grande: convertir videos en el servidor (después de publicar en App Store)
 
 **Problema.** El iPhone graba en HEVC (.mov), también desde Safari en la versión

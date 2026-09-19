@@ -72,6 +72,44 @@ export async function uploadMedia(
   }
 }
 
+/**
+ * Comprobante de que un negocio es de quien lo da de alta. Va a un bucket
+ * privado bajo su propia carpeta: un recibo con nombre y domicilio no puede
+ * quedar en una URL pública. Devuelve la ruta dentro del bucket, no una URL.
+ */
+export async function uploadAliadoProof(
+  localUri: string,
+  userId: string,
+): Promise<string | null> {
+  if (!isSupabaseConfigured || !supabase) return null;
+  try {
+    let ext = "jpg";
+    let body: Blob | ArrayBuffer;
+    let contentType = "image/jpeg";
+    if (Platform.OS === "web") {
+      const blob = await (await fetch(localUri)).blob();
+      contentType = (blob.type || contentType).split(";")[0].trim();
+      ext = EXT_BY_MIME[contentType] ?? "jpg";
+      body = blob;
+    } else {
+      const base64 = await FileSystem.readAsStringAsync(localUri, { encoding: "base64" });
+      body = decode(base64);
+    }
+    const path = `${userId}/${randomPath(ext)}`;
+    const { error } = await supabase.storage
+      .from("aliado-proofs")
+      .upload(path, body, { contentType });
+    if (error) {
+      console.warn("uploadAliadoProof failed", error);
+      return null;
+    }
+    return path;
+  } catch (e) {
+    console.warn("uploadAliadoProof failed", e);
+    return null;
+  }
+}
+
 // Sube un lote de media. Los items que ya son URL remota se dejan igual.
 export async function uploadMediaBatch(items: AlertMedia[]): Promise<AlertMedia[]> {
   const out: AlertMedia[] = [];
