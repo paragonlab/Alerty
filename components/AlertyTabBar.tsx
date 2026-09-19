@@ -216,7 +216,7 @@ function SOSCenterBtn({
       <View style={{ borderRadius: coreSize / 2 + 3, padding: 3, backgroundColor: socketColor }}>
         {/* Core */}
         <Pressable
-          accessibilityLabel="Mantén presionado para SOS a 2 km"
+          accessibilityLabel="Mantén presionado para avisar a los vecinos a 2 km"
           style={{ width: coreSize, height: coreSize, borderRadius: coreSize / 2, overflow: "hidden", alignItems: "center", justifyContent: "center" }}
           onPressIn={handlePressIn}
           onPressOut={handlePressOut}
@@ -416,7 +416,7 @@ export function AlertyTabBar({ state, navigation }: TabBarProps) {
     setSosConfirmOpen(false);
     Alert.alert(
       "Alerta SOS enviada",
-      `Avisamos a todos a ${SOS_RADIUS_KM} km a la redonda. Tu ubicación quedó como emergencia crítica.`,
+      `Avisamos a los vecinos que están a ${SOS_RADIUS_KM} km a la redonda. Pulso no llama al 911: si necesitas ayuda de la autoridad, márcale tú.`,
     );
   };
 
@@ -534,7 +534,7 @@ export function AlertyTabBar({ state, navigation }: TabBarProps) {
             ¿Estás seguro?
           </Text>
           <Text style={[styles.sosBody, { color: isDark ? "#CCCCCC" : theme.colors.textMuted }]}>
-            Esto no es un juego. Si es una emergencia real, se envía a {SOS_RADIUS_KM} km a la redonda y se notifica a todos. Si no es real, cancela.
+            Esto no es un juego. Tu aviso llega a los vecinos que estén a {SOS_RADIUS_KM} km, no a la policía ni al 911. Si necesitas a la autoridad, llámala tú. Si no es real, cancela.
           </Text>
           <Pressable
             style={[styles.sosSendBtn, sosSending && { opacity: 0.55 }]}
