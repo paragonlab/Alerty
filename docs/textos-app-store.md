@@ -5,7 +5,10 @@ de delitos sin respaldo de la autoridad local. Estos tres textos quitan de en
 medio la lectura de "canal de denuncia" y dejan a Pulso como lo que es: vecinos
 avisándose entre ellos.
 
-Nada de esto se ha aplicado todavía.
+Los tres ya se aplicaron: la ficha se guardó en App Store Connect el 18 de
+septiembre de 2026, los textos del SOS viven en `components/AlertyTabBar.tsx`
+(commit 09d66ab) y la respuesta se envió por el Centro de Resoluciones ese mismo
+día.
 
 ---
 
@@ -73,31 +76,39 @@ Ante Apple conviene decirlo en la pantalla misma.
 
 ## 3. Respuesta a App Review (Centro de Resoluciones, en inglés)
 
+Enviada el 18 de septiembre de 2026 sobre el envío 59d3b608-1477-42fb-8d9b-d78b7a35bb51.
+Corregida antes de enviarla: las protecciones de 1.2 están en el código, no en el
+build 13 que Apple revisó, y Apple revisa el binario. Decirle que la app "ya las
+incluye" habría sido falso.
+
 Hello,
 
-Thank you for the review. We would like to clarify how the app works, because
-we believe it was understood as a crime-reporting channel, which it is not.
+Thank you for the review. We would like to clarify how the app works, because we
+believe it was understood as a crime-reporting channel, which it is not.
 
-Pulso Ciudadano is a neighbor-to-neighbor information app. People share what
-they see in their own neighborhood with other residents nearby, alongside
-headlines from local news outlets. The app does not transmit anything to law
-enforcement, emergency services, or any public institution. There is no
-integration with any authority, we do not claim any partnership, and no report
-made in the app reaches the police or 911.
+Pulso Ciudadano is a neighbor-to-neighbor information app. People share what they
+see in their own neighborhood with other residents nearby, alongside headlines
+from local news outlets. The app does not transmit anything to law enforcement,
+emergency services, or any public institution. There is no integration with any
+authority, we do not claim any partnership, and no report made in the app reaches
+the police or 911.
 
-We have updated the app so this is unmistakable:
+The App Store listing has already been updated: the app is now named Pulso
+Ciudadano, and the description states explicitly that it is not a reporting
+channel to any authority and that users must call 911 in an emergency.
 
-- The app is now named Pulso Ciudadano, and the App Store description states
-  explicitly that the app is not a reporting channel to any authority and that
-  users must call 911 for emergencies.
-- The in-app SOS notifies only other users of the app within 2 km, and the
-  screen now states that it does not contact the police or 911.
+We have also made the following changes inside the app. They are implemented, but
+they are not present in the build you reviewed; they will be included in the next
+build we submit:
 
-Regarding Guideline 1.2, the app now includes: terms that every account must
-accept before entering, with zero tolerance for objectionable content; a way to
-report any post; a way to block an abusive account, which removes that account's
-content from the map, the feed and the video section immediately; and a
-moderation process that acts on reports within 24 hours.
+- The SOS screen now states that the alert reaches only other users of the app
+  within 2 km, and that it does not contact the police or 911.
+- For Guideline 1.2: terms that every account must accept before entering, with
+  zero tolerance for objectionable content; a way to report any post; a way to
+  block an abusive account, which immediately removes that account's content from
+  the map, the feed and the video section; and a moderation process that acts on
+  reports within 24 hours. We will include the requested video recording of these
+  mechanisms in the App Review Notes of that submission.
 
 If any wording still reads as a crime-reporting service, we are glad to change
 it. Thank you for your time.

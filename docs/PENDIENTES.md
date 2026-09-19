@@ -1,5 +1,27 @@
 # Pendientes
 
+## App Review: rechazo por Guideline 2.1 (18 sep 2026)
+
+Apple leyó la app como canal de denuncia de delitos sin respaldo de la autoridad.
+Se respondió por el Centro de Resoluciones reposicionándola como red de vecinos
+(texto completo en `docs/textos-app-store.md`). También pidió, por Guideline 1.2,
+términos, reporte de contenido y bloqueo de cuentas.
+
+Ya hecho: ficha renombrada a "Pulso Ciudadano" con descripción nueva, textos del
+SOS que aclaran que no llama al 911 (commit 09d66ab), términos obligatorios,
+reporte en el detalle y en Videos, y bloqueo de cuentas con borrado inmediato de
+su contenido.
+
+**Falta, y depende del siguiente build** (la cuota de iOS de EAS se reinicia el 1
+de octubre de 2026):
+
+1. Que esas protecciones viajen en un binario: hoy viven en `main`, no en el
+   build 13 que Apple revisó. Así se le dijo a Apple.
+2. Grabar el video que Apple pidió mostrando reporte y bloqueo, y referirlo en
+   las Notas de App Review del envío.
+3. Proceso de moderación en 24 horas sobre `alert_flags` y `blocked_users`: se
+   prometió en los términos y a Apple, pero nadie lo revisa todavía.
+
 ## Cobro de Círculo: dónde quedó (17 sep 2026)
 
 **Web (Stripe).** Funciona: el checkout abre y crea el cliente. Lo que faltó fue
