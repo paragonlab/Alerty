@@ -20,6 +20,35 @@ import { uploadMediaBatch } from "../upload";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import type { AlertUser } from "./types";
 
+/** Un pulso reportado, tal como lo ve quien modera. */
+export type ModerationItem = {
+  alertId: string;
+  category: string;
+  description: string | null;
+  createdAt: string;
+  hiddenAt: string | null;
+  authorId: string | null;
+  authorUsername: string | null;
+  flagCount: number;
+  firstFlagAt: string;
+  lastFlagAt: string;
+  reasons: string[];
+  reviewedAt: string | null;
+  lastAction: "hidden" | "kept" | null;
+};
+
+/** Cuenta que otros vecinos bloquearon: señal de quien reincide. */
+export type ModerationBlockedAccount = {
+  userId: string;
+  username: string | null;
+  blockCount: number;
+  lastBlockAt: string;
+};
+
+/** Pendiente de revisar: nunca se vio, o volvieron a reportarlo después. */
+export const needsReview = (item: ModerationItem) =>
+  !item.reviewedAt || item.reviewedAt < item.lastFlagAt;
+
 const mapCommunityRow = (row: any): CommunityPost => {
   const hasGeo =
     typeof row.lat === "number" &&
@@ -142,6 +171,15 @@ type AlertyState = {
   /** null mientras no se sabe; false = hay que aceptar los términos. */
   termsAccepted: boolean | null;
   acceptTerms: () => Promise<void>;
+  /** Moderación: solo tiene contenido para cuentas con is_moderator. */
+  isModerator: boolean;
+  moderationQueue: ModerationItem[];
+  moderationBlocked: ModerationBlockedAccount[];
+  loadModeration: () => Promise<void>;
+  reviewAlert: (
+    alertId: string,
+    action: "hidden" | "kept",
+  ) => Promise<{ error: string | null }>;
   communityVotes: Record<string, { confirm: number; deny: number }>;
   myCommunityVotes: Record<string, "confirm" | "deny">;
   loadCommunityVotes: (postIds: string[]) => Promise<void>;
@@ -309,6 +347,9 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
   categoriesConfigured: null,
   blockedUserIds: [],
   termsAccepted: null,
+  isModerator: false,
+  moderationQueue: [],
+  moderationBlocked: [],
   lowConnection: false,
   pushEnabled: true,
   demoStarted: false,
@@ -643,9 +684,11 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
         categoriesConfigured: data.categories_configured ?? true,
         showHeatmap: data.show_heatmap ?? true,
         termsAccepted: Boolean(data.terms_accepted_at),
+        isModerator: Boolean(data.is_moderator),
       }));
       void get().loadWatchedZones();
       void get().loadBlockedUsers();
+      void get().loadModeration();
     }
   },
   loadSponsoredZones: async () => {
@@ -854,6 +897,60 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
       .from("users")
       .update({ terms_accepted_at: new Date().toISOString() })
       .eq("id", currentUser.id);
+  },
+  loadModeration: async () => {
+    if (!isSupabaseConfigured || !supabase || !get().isModerator) return;
+    const client = supabase;
+    const [queue, blocked] = await Promise.all([
+      client.from("moderation_queue").select("*").order("first_flag_at", { ascending: true }),
+      client
+        .from("moderation_blocked_accounts")
+        .select("*")
+        .order("block_count", { ascending: false })
+        .limit(20),
+    ]);
+    set({
+      moderationQueue: (queue.data ?? []).map((row: any) => ({
+        alertId: row.alert_id,
+        category: row.category,
+        description: row.description,
+        createdAt: row.created_at,
+        hiddenAt: row.hidden_at,
+        authorId: row.author_id,
+        authorUsername: row.author_username,
+        flagCount: Number(row.flag_count ?? 0),
+        firstFlagAt: row.first_flag_at,
+        lastFlagAt: row.last_flag_at,
+        reasons: row.reasons ?? [],
+        reviewedAt: row.reviewed_at,
+        lastAction: row.last_action,
+      })),
+      moderationBlocked: (blocked.data ?? []).map((row: any) => ({
+        userId: row.user_id,
+        username: row.username,
+        blockCount: Number(row.block_count ?? 0),
+        lastBlockAt: row.last_block_at,
+      })),
+    });
+  },
+  reviewAlert: async (alertId, action) => {
+    if (!isSupabaseConfigured || !supabase) return { error: "No hay conexión." };
+    const { currentUser, isModerator } = get();
+    if (!isModerator) return { error: "Esta cuenta no modera." };
+    const client = supabase;
+    const { error: updateError } = await client
+      .from("alerts")
+      .update({ hidden_at: action === "hidden" ? new Date().toISOString() : null })
+      .eq("id", alertId);
+    if (updateError) return { error: updateError.message };
+    // La constancia es lo que permite decir que se revisó, y cuándo.
+    const { error } = await client
+      .from("moderation_reviews")
+      .insert({ alert_id: alertId, moderator_id: currentUser.id, action });
+    if (error) return { error: error.message };
+    await get().loadModeration();
+    await get().loadAlertsFromSupabase();
+    return { error: null };
   },
   flagAlert: async (alertId, reason) => {
     if (!isSupabaseConfigured || !supabase) {

@@ -17,7 +17,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { ALERT_CATEGORIES, CATEGORY_LABELS, getLevelProgress } from "../../lib/alerty/constants";
 import { ALIADO_PRICE_LABEL, CIRCULO_PRICE_LABEL, circuloZoneLimit } from "../../lib/alerty/circulo";
-import { useAlertyStore } from "../../lib/alerty/store";
+import { needsReview, useAlertyStore } from "../../lib/alerty/store";
 import { useAlertyTheme } from "../../lib/useAlertyTheme";
 import { requireSession } from "../../lib/alerty/session";
 import { supabase } from "../../lib/supabase";
@@ -47,6 +47,8 @@ export default function SettingsScreen() {
     updateAvatar,
     watchedZones,
     resetGuest,
+    isModerator,
+    moderationQueue,
   } = useAlertyStore();
 
   const theme = useAlertyTheme();
@@ -403,6 +405,22 @@ export default function SettingsScreen() {
             <Ionicons name="chevron-forward" size={18} color={theme.colors.textMuted} />
           </View>
         </Pressable>
+
+        {isModerator && (
+          <Pressable style={styles.card} onPress={() => router.push("/moderacion")}>
+            <View style={styles.settingRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.settingLabel}>Moderación</Text>
+                <Text style={styles.helperText}>
+                  {moderationQueue.filter(needsReview).length === 0
+                    ? "Nada pendiente de revisar."
+                    : `${moderationQueue.filter(needsReview).length} reportes esperan revisión.`}
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={theme.colors.textMuted} />
+            </View>
+          </Pressable>
+        )}
 
         <Pressable style={styles.card} onPress={() => router.push("/business")}>
           <View style={styles.settingRow}>

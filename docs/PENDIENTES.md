@@ -19,8 +19,10 @@ de octubre de 2026):
    build 13 que Apple revisó. Así se le dijo a Apple.
 2. Grabar el video que Apple pidió mostrando reporte y bloqueo, y referirlo en
    las Notas de App Review del envío.
-3. Proceso de moderación en 24 horas sobre `alert_flags` y `blocked_users`: se
-   prometió en los términos y a Apple, pero nadie lo revisa todavía.
+3. ~~Proceso de moderación en 24 horas~~: hecho el 19 de septiembre de 2026.
+   Ajustes → Moderación, solo para cuentas con `is_moderator`. El proceso está
+   escrito en `docs/moderacion.md`; falta avisar al moderador cuando entra un
+   reporte (hoy solo hay un contador en Ajustes).
 
 ## Cobro de Círculo: dónde quedó (17 sep 2026)
 
