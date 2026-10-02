@@ -23,7 +23,7 @@ import { identifyUser as identifyRevenueCatUser } from "../lib/revenuecat";
 import * as Location from "expo-location";
 import * as Haptics from "expo-haptics";
 
-const AUTH_ONLY_ROUTES = new Set(["report", "premium", "business", "circulo"]);
+const AUTH_ONLY_ROUTES = new Set(["report", "premium", "business", "circulo", "admin"]);
 
 export default function RootLayout() {
   const { loadAlertsFromSupabase, startRealtime, themeMode, loadUserProfile, loadSponsoredZones, loadCommunityPosts, startDemo, resetGuest } = useAlertyStore();
@@ -198,7 +198,9 @@ export default function RootLayout() {
           ? "/business"
           : pathname.startsWith("/circulo")
             ? "/circulo"
-            : "/report";
+            : pathname.startsWith("/admin")
+              ? "/admin"
+              : "/report";
       setAuthNext(next);
       router.replace("/(auth)/login");
       return;
@@ -286,6 +288,12 @@ export default function RootLayout() {
         />
         <Stack.Screen
           name="moderacion"
+          options={{
+            headerShown: false,
+          }}
+        />
+        <Stack.Screen
+          name="admin"
           options={{
             headerShown: false,
           }}

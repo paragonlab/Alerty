@@ -407,6 +407,18 @@ export default function SettingsScreen() {
         </Pressable>
 
         {isModerator && (
+          <Pressable style={styles.card} onPress={() => router.push("/admin")}>
+            <View style={styles.settingRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.settingLabel}>Administración</Text>
+                <Text style={styles.helperText}>Solicitudes de Aliado y pines del mapa.</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={theme.colors.textMuted} />
+            </View>
+          </Pressable>
+        )}
+
+        {isModerator && (
           <Pressable style={styles.card} onPress={() => router.push("/moderacion")}>
             <View style={styles.settingRow}>
               <View style={{ flex: 1 }}>
