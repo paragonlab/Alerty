@@ -93,7 +93,7 @@ export default function PrivacyScreen() {
         <Text style={styles.p}>
           Gustavo Montoya. Correo de contacto: el publicado en la ficha de App Store.
         </Text>
-        <Text style={styles.p}>Sitio: https://alerty-two.vercel.app</Text>
+        <Text style={styles.p}>Sitio: https://pulso-ciudadano.com</Text>
       </ScrollView>
     </SafeAreaView>
   );

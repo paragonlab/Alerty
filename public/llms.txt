@@ -1,0 +1,18 @@
+# Pulso Ciudadano
+
+> Red de vecinos de Culiacán para saber cómo está tu zona antes de salir. También se llama Pulso. Sitio: https://pulso-ciudadano.com
+
+Pulso Ciudadano no es un canal de denuncia. No envía publicaciones a la policía, al 911 ni a ninguna autoridad, y no sustituye a ninguna institución. Si hace falta ayuda de emergencia, la persona llama al 911.
+
+Los vecinos se avisan entre ellos: qué pasa en la colonia, qué calles evitar y qué lugares están tranquilos. Lo que se lee lo escriben personas de la zona, junto con notas de noticieros locales. Nada de lo publicado está verificado: hay que confirmarlo por cuenta propia antes de actuar.
+
+Gratis: mapa en vivo de Culiacán, pulsos de la comunidad y de noticieros locales, compartir lo que ves, y un aviso a los vecinos que estén a 2 km. Círculo es una suscripción de 39 MXN al mes para cuidar hasta 5 lugares y recibir aviso cuando alguien publique cerca; un lugar es gratis. El mapa, los pulsos y el aviso no se cobran.
+
+La interfaz de la app se carga con JavaScript. Este archivo es el resumen estable para agentes.
+
+## Páginas
+
+- [Inicio](https://pulso-ciudadano.com/): la app web
+- [Privacidad](https://pulso-ciudadano.com/privacy): qué datos se recaban y cómo borrar la cuenta
+- [Robots](https://pulso-ciudadano.com/robots.txt)
+- [Sitemap](https://pulso-ciudadano.com/sitemap.xml)

@@ -8,7 +8,7 @@
     "ios": "expo run:ios",
     "web": "expo start --web",
     "build:web": "expo export --platform web",
-    "vercel-build": "npm run build:web && cp public/privacy.html dist/privacy.html",
+    "vercel-build": "npm run build:web && cp public/privacy.html public/robots.txt public/sitemap.xml public/llms.txt dist/ && cp assets/icon.png dist/icon.png",
     "start:local": "PATH=\"$(pwd)/.local/node/bin:$PATH\" expo start",
     "typecheck": "tsc --noEmit",
     "verify": "npm run typecheck",
