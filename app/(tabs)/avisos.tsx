@@ -12,7 +12,7 @@ import {
 } from "../../lib/alerty/geolocation";
 import { useAlertyStore } from "../../lib/alerty/store";
 import { useAlertyTheme } from "../../lib/useAlertyTheme";
-import { AVISOS_RADIUS_KM, CATEGORY_ICONS, CATEGORY_LABELS } from "../../lib/alerty/constants";
+import { AVISOS_RADIUS_KM, CATEGORY_ICONS, CATEGORY_LABELS, CULIACAN_CENTER } from "../../lib/alerty/constants";
 import { formatRelativeTime, matchInboxAlert } from "../../lib/alerty/utils";
 import type { AlertItem } from "../../lib/alerty/types";
 
@@ -81,6 +81,8 @@ export default function AvisosScreen() {
   const styles = createStyles(theme);
   const [locating, setLocating] = useState(!userCoords);
   const [locationCode, setLocationCode] = useState<LocationRequestCode | null>(null);
+  const [browseCenter, setBrowseCenter] = useState(false);
+  const inboxCoords = userCoords ?? (browseCenter ? CULIACAN_CENTER : null);
 
   useEffect(() => {
     clearUnreadAlerts();
@@ -92,6 +94,7 @@ export default function AvisosScreen() {
     try {
       const coords = await (withFix ? requestCoordsWithFix() : getCurrentCoords());
       setUserCoords(coords);
+      setBrowseCenter(false);
     } catch (e) {
       setLocationCode(e instanceof LocationRequestError ? e.code : "unavailable");
     } finally {
@@ -118,7 +121,7 @@ export default function AvisosScreen() {
         ) {
           return null;
         }
-        const match = matchInboxAlert(alert, userCoords, followingAlertIds);
+        const match = matchInboxAlert(alert, inboxCoords, followingAlertIds);
         if (!match) return null;
         return { alert, match };
       })
@@ -127,7 +130,7 @@ export default function AvisosScreen() {
       )
       .sort((a, b) => new Date(b.alert.createdAt).getTime() - new Date(a.alert.createdAt).getTime())
       .slice(0, 30);
-  }, [alerts, followingAlertIds, userCoords, activeCategories]);
+  }, [alerts, followingAlertIds, inboxCoords, activeCategories]);
 
   const requestLocation = () => {
     void fetchLocation(true);
@@ -170,7 +173,7 @@ export default function AvisosScreen() {
             )}
             {match.nearby && (
               <View style={styles.reasonBadge}>
-                <Text style={styles.reasonBadgeText}>CERCA</Text>
+                <Text style={styles.reasonBadgeText}>{browseCenter && !userCoords ? "CENTRO" : "CERCA"}</Text>
               </View>
             )}
             {match.following && (
@@ -211,7 +214,7 @@ export default function AvisosScreen() {
       <ActivityIndicator color={theme.colors.textMuted} />
       <Text style={styles.emptyText}>Buscando avisos cerca de ti</Text>
     </View>
-  ) : !userCoords ? (
+  ) : !inboxCoords ? (
     <View style={styles.empty}>
       <Ionicons name="navigate-outline" size={44} color={theme.colors.border} />
       <Text style={styles.emptyText}>{copy.title}</Text>
@@ -219,13 +222,18 @@ export default function AvisosScreen() {
       <Pressable style={styles.emptyCta} onPress={requestLocation}>
         <Text style={styles.emptyCtaText}>{copy.cta}</Text>
       </Pressable>
+      <Pressable style={styles.emptySecondary} onPress={() => setBrowseCenter(true)}>
+        <Text style={styles.emptySecondaryText}>Ver el centro de Culiacán</Text>
+      </Pressable>
     </View>
   ) : (
     <View style={styles.empty}>
       <Ionicons name="notifications-off-outline" size={44} color={theme.colors.border} />
       <Text style={styles.emptyText}>Nada cerca ni en seguimiento</Text>
       <Text style={styles.emptyHint}>
-        Avisos muestra alertas a {AVISOS_RADIUS_KM} km o las que sigues. Pulsos tiene el resto.
+        {browseCenter && !userCoords
+          ? `Esto es el centro de Culiacán, no tu ubicación. Avisos muestra alertas a ${AVISOS_RADIUS_KM} km o las que sigues.`
+          : `Avisos muestra alertas a ${AVISOS_RADIUS_KM} km o las que sigues. Pulsos tiene el resto.`}
       </Text>
     </View>
   );
@@ -235,7 +243,9 @@ export default function AvisosScreen() {
       <View style={styles.header}>
         <Text style={styles.title}>Avisos</Text>
         <Text style={styles.subtitle}>
-          Cerca de ti ({AVISOS_RADIUS_KM} km) y alertas que sigues
+          {browseCenter && !userCoords
+            ? `Centro de Culiacán (${AVISOS_RADIUS_KM} km), sin tu ubicación`
+            : `Cerca de ti (${AVISOS_RADIUS_KM} km) y alertas que sigues`}
         </Text>
       </View>
       <FlatList
@@ -414,6 +424,15 @@ const createStyles = (theme: any) =>
     },
     emptyCtaText: {
       color: "#fff",
+      fontSize: 13,
+      fontFamily: theme.fonts.heading,
+    },
+    emptySecondary: {
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+    },
+    emptySecondaryText: {
+      color: theme.colors.text,
       fontSize: 13,
       fontFamily: theme.fonts.heading,
     },
