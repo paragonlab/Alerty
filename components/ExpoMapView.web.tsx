@@ -141,7 +141,11 @@ function loadGoogleMaps(): Promise<void> {
   }
   if (mapsAuthFailed) return Promise.reject(new Error("maps-auth"));
   const g = (window as any).google;
-  if (g?.maps?.Map) return Promise.resolve();
+  if (g?.maps?.Map || g?.maps?.importLibrary) {
+    if (g.maps.Map) return Promise.resolve();
+    mapsLoad = g.maps.importLibrary("maps").then(() => undefined);
+    return mapsLoad;
+  }
   if (!API_KEY) {
     return Promise.reject(new Error("missing-key"));
   }
@@ -178,12 +182,19 @@ function loadGoogleMaps(): Promise<void> {
       existing.addEventListener("error", () => fail("script-error"));
       return;
     }
+    const callbackName = "__pulsoInitGoogleMaps";
+    (window as any)[callbackName] = () => {
+      try {
+        delete (window as any)[callbackName];
+      } catch {
+        // ignore
+      }
+      ready();
+    };
     const script = document.createElement("script");
-    // loading=async evita el warning de Chrome y deja cargar el loader moderno.
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(API_KEY)}&v=weekly&loading=async`;
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(API_KEY)}&v=weekly&loading=async&callback=${callbackName}`;
     script.async = true;
     script.setAttribute("data-pulso-gmaps", "1");
-    script.onload = () => ready();
     script.onerror = () => fail("script-error");
     document.head.appendChild(script);
   });
@@ -1314,11 +1325,8 @@ const ExpoMapView = forwardRef<MapHandle, MapViewProps>(function ExpoMapView(pro
       });
 
     const boot = API_KEY
-      ? startGoogle().catch((err) => {
+      ? startGoogle().catch(() => {
           if (cancelled) return;
-          if (typeof window !== "undefined") {
-            (window as any).__pulsoMapFail = String((err as Error)?.message || err);
-          }
           mapsAuthFailed = false;
           mapsLoad = null;
           if (hostRef.current) hostRef.current.innerHTML = "";
