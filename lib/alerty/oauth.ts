@@ -1,11 +1,14 @@
 import { Platform } from "react-native";
-import { makeRedirectUri } from "expo-auth-session";
 import { supabase } from "../supabase";
 
-export const oauthRedirectTo =
-  Platform.OS === "web"
-    ? makeRedirectUri({ path: "auth-callback" })
-    : "alerty://auth-callback";
+/** En web el origen de la pestaña, para no caer en el Site URL viejo de Supabase. */
+export function oauthRedirectTo(): string {
+  if (Platform.OS !== "web") return "alerty://auth-callback";
+  if (typeof window !== "undefined" && window.location?.origin) {
+    return `${window.location.origin}/auth-callback`;
+  }
+  return "https://pulso-ciudadano.com/auth-callback";
+}
 
 const AUTH_CODE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

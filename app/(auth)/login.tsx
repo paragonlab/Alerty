@@ -95,7 +95,7 @@ export default function LoginScreen() {
       void trackEvent({ event_type: "auth_oauth_started", metadata: { provider } });
 
       const isWeb = Platform.OS === "web";
-      const redirectTo = oauthRedirectTo;
+      const redirectTo = oauthRedirectTo();
 
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider,

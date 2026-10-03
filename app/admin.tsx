@@ -17,6 +17,7 @@ import { needsReview, useAlertyStore } from "../lib/alerty/store";
 import { useAlertyTheme } from "../lib/useAlertyTheme";
 import { safeBack } from "../lib/alerty/nav";
 import { supabase } from "../lib/supabase";
+import { CATEGORY_LABELS } from "../lib/alerty/constants";
 
 type LeadStatus = "new" | "contacted" | "closed";
 type ZoneType = "refugio" | "anuncio";
@@ -50,6 +51,48 @@ type Zone = {
   lng: number;
 };
 
+type AdminUser = {
+  id: string;
+  username: string | null;
+  email: string | null;
+  created_at: string;
+  is_premium: boolean;
+  is_moderator: boolean;
+  subscription_status: string | null;
+  alerts_count: number;
+  zones_count: number;
+};
+
+type AdminAlert = {
+  id: string;
+  category: string;
+  title: string | null;
+  description: string | null;
+  lat: number;
+  lng: number;
+  status: string;
+  hidden_at: string | null;
+  created_at: string;
+  username: string | null;
+};
+
+type WatchedZone = {
+  id: string;
+  label: string;
+  lat: number;
+  lng: number;
+  created_at: string;
+  username: string | null;
+};
+
+type Counts = {
+  users: number;
+  alerts_active: number;
+  alerts_total: number;
+  watched_zones: number;
+  community_posts: number;
+};
+
 const ZONE_STATUS: Record<ZoneStatus, string> = {
   active: "En el mapa",
   pending: "Esperando pago",
@@ -64,6 +107,10 @@ function hace(iso: string) {
   return `hace ${Math.floor(horas / 24)} d`;
 }
 
+function coords(lat: number, lng: number) {
+  return `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+}
+
 export default function AdminScreen() {
   const theme = useAlertyTheme();
   const styles = createStyles(theme);
@@ -74,6 +121,10 @@ export default function AdminScreen() {
   const loadSponsoredZones = useAlertyStore((s) => s.loadSponsoredZones);
   const [leads, setLeads] = useState<Lead[]>([]);
   const [zones, setZones] = useState<Zone[]>([]);
+  const [users, setUsers] = useState<AdminUser[]>([]);
+  const [alerts, setAlerts] = useState<AdminAlert[]>([]);
+  const [watched, setWatched] = useState<WatchedZone[]>([]);
+  const [counts, setCounts] = useState<Counts | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [working, setWorking] = useState<string | null>(null);
@@ -83,7 +134,7 @@ export default function AdminScreen() {
       setLoading(false);
       return;
     }
-    const [leadRes, zoneRes] = await Promise.all([
+    const [leadRes, zoneRes, overviewRes] = await Promise.all([
       supabase
         .from("aliado_leads")
         .select(
@@ -94,12 +145,26 @@ export default function AdminScreen() {
         .from("sponsored_zones")
         .select("id,name,description,owner_email,type,status,lat,lng")
         .order("created_at", { ascending: false }),
+      supabase.rpc("admin_overview"),
       loadModeration(),
     ]);
     if (leadRes.error) Alert.alert("Solicitudes", leadRes.error.message);
     else setLeads((leadRes.data ?? []) as Lead[]);
     if (zoneRes.error) Alert.alert("Pines", zoneRes.error.message);
     else setZones((zoneRes.data ?? []) as Zone[]);
+    if (overviewRes.error) Alert.alert("Resumen", overviewRes.error.message);
+    else if (overviewRes.data) {
+      const data = overviewRes.data as {
+        users?: AdminUser[];
+        alerts?: AdminAlert[];
+        watched_zones?: WatchedZone[];
+        counts?: Counts;
+      };
+      setUsers(data.users ?? []);
+      setAlerts(data.alerts ?? []);
+      setWatched(data.watched_zones ?? []);
+      setCounts(data.counts ?? null);
+    }
     setLoading(false);
   }, [isModerator, loadModeration]);
 
@@ -212,18 +277,105 @@ export default function AdminScreen() {
         >
           <View style={styles.stats}>
             <View style={styles.stat}>
+              <Text style={styles.statNum}>{counts?.users ?? users.length}</Text>
+              <Text style={styles.statLabel}>Usuarios</Text>
+            </View>
+            <View style={styles.stat}>
+              <Text style={styles.statNum}>{counts?.alerts_active ?? 0}</Text>
+              <Text style={styles.statLabel}>Alertas</Text>
+            </View>
+            <View style={styles.stat}>
+              <Text style={styles.statNum}>{counts?.watched_zones ?? watched.length}</Text>
+              <Text style={styles.statLabel}>Zonas</Text>
+            </View>
+          </View>
+          <View style={styles.stats}>
+            <View style={styles.stat}>
               <Text style={styles.statNum}>{nuevas.length}</Text>
               <Text style={styles.statLabel}>Solicitudes</Text>
             </View>
             <View style={styles.stat}>
               <Text style={styles.statNum}>{enMapa}</Text>
-              <Text style={styles.statLabel}>En el mapa</Text>
+              <Text style={styles.statLabel}>Aliados</Text>
             </View>
             <Pressable style={styles.stat} onPress={() => router.push("/moderacion")}>
               <Text style={styles.statNum}>{reports}</Text>
               <Text style={styles.statLabel}>Reportes</Text>
             </Pressable>
           </View>
+
+          <Text style={styles.sectionTitle}>Usuarios</Text>
+          <Text style={styles.sectionHelp}>
+            No guardamos la ubicación en vivo. Aquí ves zonas de Círculo y cuántos pulsos llevan.
+          </Text>
+          {users.length === 0 ? (
+            <View style={styles.emptyInline}>
+              <Text style={styles.emptyText}>No hay usuarios.</Text>
+            </View>
+          ) : (
+            users.map((user) => (
+              <View key={user.id} style={styles.card}>
+                <View style={styles.cardTop}>
+                  <Text style={styles.name}>{user.username || "sin nombre"}</Text>
+                  <Text style={styles.meta}>{hace(user.created_at)}</Text>
+                </View>
+                {user.email ? <Text style={styles.meta}>{user.email}</Text> : null}
+                <Text style={styles.meta}>
+                  {user.alerts_count} {user.alerts_count === 1 ? "alerta" : "alertas"} ·{" "}
+                  {user.zones_count} {user.zones_count === 1 ? "zona" : "zonas"}
+                  {user.is_premium ? " · Círculo" : ""}
+                  {user.is_moderator ? " · admin" : ""}
+                </Text>
+              </View>
+            ))
+          )}
+
+          <Text style={styles.sectionTitle}>Alertas recientes</Text>
+          {alerts.length === 0 ? (
+            <View style={styles.emptyInline}>
+              <Text style={styles.emptyText}>No hay alertas.</Text>
+            </View>
+          ) : (
+            alerts.map((alert) => (
+              <Pressable
+                key={alert.id}
+                style={styles.card}
+                onPress={() => router.push(`/alert/${alert.id}` as any)}
+              >
+                <View style={styles.cardTop}>
+                  <Text style={styles.kicker}>
+                    {(CATEGORY_LABELS[alert.category as keyof typeof CATEGORY_LABELS] ?? alert.category).toUpperCase()}
+                  </Text>
+                  <Text style={styles.meta}>{hace(alert.created_at)}</Text>
+                </View>
+                <Text style={styles.bodyText} numberOfLines={2}>
+                  {alert.title || alert.description || "Sin texto"}
+                </Text>
+                <Text style={styles.meta}>
+                  {alert.username || "cuenta borrada"} · {coords(alert.lat, alert.lng)}
+                  {alert.hidden_at ? " · oculta" : ""}
+                  {alert.status !== "active" ? ` · ${alert.status}` : ""}
+                </Text>
+              </Pressable>
+            ))
+          )}
+
+          <Text style={styles.sectionTitle}>Zonas vigiladas</Text>
+          <Text style={styles.sectionHelp}>Lugares de Círculo que la gente está cuidando.</Text>
+          {watched.length === 0 ? (
+            <View style={styles.emptyInline}>
+              <Text style={styles.emptyText}>Nadie tiene zonas todavía.</Text>
+            </View>
+          ) : (
+            watched.map((zone) => (
+              <View key={zone.id} style={styles.card}>
+                <Text style={styles.name}>{zone.label}</Text>
+                <Text style={styles.meta}>
+                  {zone.username || "cuenta borrada"} · {coords(zone.lat, zone.lng)} · {hace(zone.created_at)}
+                </Text>
+              </View>
+            ))
+          )}
 
           <Text style={styles.sectionTitle}>Aliados por revisar</Text>
           <Text style={styles.sectionHelp}>
@@ -359,9 +511,9 @@ const createStyles = (theme: any) =>
       padding: 14,
       gap: 6,
     },
-    cardTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+    cardTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
     kicker: { fontSize: 11, letterSpacing: 0.5, color: theme.colors.accent, fontFamily: theme.fonts.heading },
-    name: { fontSize: 16, fontFamily: theme.fonts.heading, color: theme.colors.text },
+    name: { fontSize: 16, fontFamily: theme.fonts.heading, color: theme.colors.text, flexShrink: 1 },
     bodyText: { fontSize: 14, lineHeight: 20, color: theme.colors.text },
     meta: { fontSize: 12, color: theme.colors.textMuted },
     link: { fontSize: 13, color: theme.colors.accent, fontFamily: theme.fonts.heading },
