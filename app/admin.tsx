@@ -35,6 +35,8 @@ type Lead = {
   proof_url: string | null;
   proof_kind: string | null;
   location_distance_m: number | null;
+  pin_shape: string | null;
+  logo_url: string | null;
   status: LeadStatus;
   zone_id: string | null;
   created_at: string;
@@ -206,7 +208,7 @@ export default function AdminScreen() {
       supabase
         .from("aliado_leads")
         .select(
-          "id,name,description,contact_email,type,lat,lng,address,proof_url,proof_kind,location_distance_m,status,zone_id,created_at",
+          "id,name,description,contact_email,type,lat,lng,address,proof_url,proof_kind,location_distance_m,pin_shape,logo_url,status,zone_id,created_at",
         )
         .order("created_at", { ascending: false }),
       supabase
@@ -269,6 +271,11 @@ export default function AdminScreen() {
         type: lead.type,
         lat: lead.lat,
         lng: lead.lng,
+        pin_shape:
+          lead.pin_shape === "flag" || lead.pin_shape === "house" || lead.pin_shape === "shield"
+            ? lead.pin_shape
+            : "pin",
+        logo_url: lead.logo_url,
         status: "active",
       })
       .select("id")

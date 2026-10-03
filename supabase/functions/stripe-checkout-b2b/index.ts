@@ -7,7 +7,7 @@
 //   supabase secrets set BUSINESS_RETURN_URL=https://pulso-ciudadano.com/business
 //
 // Body esperado:
-//   { name, description, lat, lng, type, owner_email }
+//   { name, description, lat, lng, type, owner_email, pin_shape?, logo_url? }
 
 import Stripe from "https://esm.sh/stripe@17.5.0?target=deno";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.97.0";
@@ -42,6 +42,8 @@ Deno.serve(async (req) => {
     lng?: number;
     type?: "refugio" | "anuncio";
     owner_email?: string;
+    pin_shape?: string;
+    logo_url?: string | null;
   };
 
   let body: Body;
@@ -51,7 +53,7 @@ Deno.serve(async (req) => {
     return new Response("Bad JSON", { status: 400, headers: corsHeaders });
   }
 
-  const { name, description, lat, lng, type, owner_email } = body;
+  const { name, description, lat, lng, type, owner_email, pin_shape, logo_url } = body;
   if (!name || !description || typeof lat !== "number" || typeof lng !== "number"
       || !type || !owner_email) {
     return new Response("Missing fields", { status: 400, headers: corsHeaders });
@@ -61,11 +63,25 @@ Deno.serve(async (req) => {
   }
 
   // Pre-creamos la zona en estado pending. La activación final es por webhook.
+  const shape =
+    pin_shape === "flag" || pin_shape === "house" || pin_shape === "shield" || pin_shape === "pin"
+      ? pin_shape
+      : "pin";
+  const logo =
+    typeof logo_url === "string" &&
+    logo_url.startsWith("https://") &&
+    logo_url.includes("/aliado-logos/") &&
+    logo_url.length < 500
+      ? logo_url
+      : null;
+
   const { data: zone, error: zoneErr } = await supabase
     .from("sponsored_zones")
     .insert({
       name, description, lat, lng, type,
       owner_email,
+      pin_shape: shape,
+      logo_url: logo,
       status: "pending",
     })
     .select("id")

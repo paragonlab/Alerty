@@ -728,7 +728,7 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
     try {
       const res = await supabase
         .from("sponsored_zones")
-        .select("id,name,description,lat,lng,type,logo_url")
+        .select("id,name,description,lat,lng,type,logo_url,pin_shape")
         .eq("status", "active");
       if (res.error || !res.data) return;
       data = res.data;
@@ -745,6 +745,10 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
       lng: row.lng,
       type: row.type,
       logoUrl: row.logo_url ?? undefined,
+      pinShape:
+        row.pin_shape === "flag" || row.pin_shape === "house" || row.pin_shape === "shield"
+          ? row.pin_shape
+          : "pin",
     }));
     set({ sponsoredZones: zones });
   },

@@ -16,7 +16,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
 import MapView, { Marker } from "../components/ExpoMapView";
-import { DestinationPin } from "../components/DestinationPin";
+import { SponsorPin, type PinShape } from "../components/SponsorPin";
 import { lightTheme as theme } from "../lib/theme";
 import { supabase } from "../lib/supabase";
 import { safeBack } from "../lib/alerty/nav";
@@ -26,7 +26,7 @@ import { getCurrentCoords } from "../lib/alerty/geolocation";
 import { addressFromCoords } from "../lib/alerty/geocode";
 import { placeIcon, searchCuliacanPlaces, type PlaceResult } from "../lib/alerty/placeSearch";
 import { calculateDistance } from "../lib/alerty/utils";
-import { uploadAliadoProof } from "../lib/upload";
+import { uploadAliadoLogo, uploadAliadoProof } from "../lib/upload";
 import { requireSession } from "../lib/alerty/session";
 
 type ZoneType = "refugio" | "anuncio";
@@ -67,6 +67,8 @@ export default function BusinessOnboarding() {
   const [description, setDescription] = useState("");
   const [email, setEmail] = useState("");
   const [type, setType] = useState<ZoneType>("refugio");
+  const [pinShape, setPinShape] = useState<PinShape>("pin");
+  const [logoUri, setLogoUri] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [locationLoading, setLocationLoading] = useState(false);
 
@@ -153,6 +155,16 @@ export default function BusinessOnboarding() {
     }
   };
 
+  const handlePickLogo = async () => {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"],
+      quality: 0.7,
+      allowsEditing: true,
+      aspect: [1, 1],
+    });
+    if (!result.canceled) setLogoUri(result.assets[0].uri);
+  };
+
   const handlePickProof = async () => {
     const abrirGaleria = async () => {
       const result = await ImagePicker.launchImageLibraryAsync({
@@ -199,24 +211,33 @@ export default function BusinessOnboarding() {
    * guarda en los dos caminos —solicitud en las tiendas, pago en la web— para
    * que el comprobante nunca dependa de que el cobro salga bien.
    */
-  const guardarSolicitud = async (): Promise<string | null> => {
-    if (!supabase || !point) return "No hay conexión.";
+  const guardarSolicitud = async (): Promise<{ error: string | null; logoUrl: string | null }> => {
+    if (!supabase || !point) return { error: "No hay conexión.", logoUrl: null };
     const { data: auth } = await supabase.auth.getUser();
     const uid = auth.user?.id;
-    if (!uid) return "Entra con tu cuenta para enviar la solicitud.";
+    if (!uid) return { error: "Entra con tu cuenta para enviar la solicitud.", logoUrl: null };
 
     let proofPath: string | null = null;
     if (proofUri) {
       proofPath = await uploadAliadoProof(proofUri, uid);
-      if (!proofPath) return "No se pudo subir el comprobante. Inténtalo de nuevo.";
+      if (!proofPath) return { error: "No se pudo subir el comprobante. Inténtalo de nuevo.", logoUrl: null };
     }
 
+    let logoUrl: string | null = null;
+    if (logoUri) {
+      logoUrl = await uploadAliadoLogo(logoUri, uid);
+      if (!logoUrl) return { error: "No se pudo subir el logotipo. Inténtalo de nuevo.", logoUrl: null };
+    }
+
+    const savedLogo = logoUrl;
     const { error } = await supabase.from("aliado_leads").insert({
       user_id: uid,
       name: name.trim(),
       description: description.trim(),
       contact_email: email.trim(),
       type,
+      pin_shape: pinShape,
+      logo_url: logoUrl,
       lat: point.latitude,
       lng: point.longitude,
       address: address.trim() || null,
@@ -225,7 +246,7 @@ export default function BusinessOnboarding() {
       location_verified_at: onSite?.at ?? null,
       location_distance_m: onSite?.distanceM ?? null,
     });
-    return error ? error.message : null;
+    return { error: error ? error.message : null, logoUrl: savedLogo };
   };
 
   /** En las tiendas: solicitud, sin precio ni pago. */
@@ -234,8 +255,8 @@ export default function BusinessOnboarding() {
     if (!(await requireSession("/business"))) return;
     setLoading(true);
     try {
-      const error = await guardarSolicitud();
-      if (error) throw new Error(error);
+      const guardado = await guardarSolicitud();
+      if (guardado.error) throw new Error(guardado.error);
       Alert.alert(
         "Solicitud enviada",
         "Revisamos tu negocio y te contactamos por correo.",
@@ -258,7 +279,7 @@ export default function BusinessOnboarding() {
     setLoading(true);
     try {
       const guardado = await guardarSolicitud();
-      if (guardado) throw new Error(guardado);
+      if (guardado.error) throw new Error(guardado.error);
       const { data, error } = await supabase.functions.invoke("stripe-checkout-b2b", {
         method: "POST",
         body: {
@@ -268,6 +289,8 @@ export default function BusinessOnboarding() {
           type,
           lat: point.latitude,
           lng: point.longitude,
+          pin_shape: pinShape,
+          logo_url: guardado.logoUrl,
         },
       });
       if (error) throw error;
@@ -334,6 +357,57 @@ export default function BusinessOnboarding() {
                 </Text>
               </Pressable>
             </View>
+
+            <Text style={styles.label}>Cómo se ve tu pin</Text>
+            <Text style={styles.help}>
+              Elige la forma. El logotipo es opcional y se ve dentro del pin.
+            </Text>
+            <View style={styles.shapeRow}>
+              <SponsorPin
+                markerKind="sponsor"
+                color={type === "refugio" ? theme.colors.success : theme.colors.accent}
+                shape={pinShape}
+                logoUrl={logoUri}
+              />
+              <View style={styles.shapeChoices}>
+                {(
+                  [
+                    ["pin", "Pin", "location"],
+                    ["flag", "Bandera", "flag"],
+                    ["house", "Casa", "home"],
+                    ["shield", "Escudo", "shield"],
+                  ] as const
+                ).map(([id, label, icon]) => (
+                  <Pressable
+                    key={id}
+                    style={[styles.shapeButton, pinShape === id && styles.typeButtonActive]}
+                    onPress={() => setPinShape(id)}
+                  >
+                    <Ionicons
+                      name={icon}
+                      size={14}
+                      color={pinShape === id ? "#fff" : theme.colors.accent}
+                    />
+                    <Text style={[styles.typeText, pinShape === id && styles.typeTextActive]}>
+                      {label}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+            </View>
+            <Pressable style={styles.proofOption} onPress={handlePickLogo}>
+              <Ionicons
+                name={logoUri ? "checkmark-circle" : "image-outline"}
+                size={18}
+                color={logoUri ? theme.colors.success : theme.colors.textMuted}
+              />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.proofTitle}>Subir logotipo</Text>
+                <Text style={styles.proofHelp}>
+                  {logoUri ? "Listo. Toca para cambiarlo." : "Una imagen cuadrada de tu marca. No es obligatorio."}
+                </Text>
+              </View>
+            </Pressable>
 
             <Text style={styles.label}>Nombre del negocio</Text>
             <TextInput
@@ -423,7 +497,12 @@ export default function BusinessOnboarding() {
               >
                 {point ? (
                   <Marker coordinate={point} anchor={{ x: 0.5, y: 1 }}>
-                    <DestinationPin markerKind="destination" color={theme.colors.accent} />
+                    <SponsorPin
+                      markerKind="sponsor"
+                      color={type === "refugio" ? theme.colors.success : theme.colors.accent}
+                      shape={pinShape}
+                      logoUrl={logoUri}
+                    />
                   </Marker>
                 ) : null}
               </MapView>
@@ -627,6 +706,28 @@ const createStyles = () => StyleSheet.create({
     fontFamily: theme.fonts.body,
     lineHeight: 17,
     marginTop: -4,
+  },
+  shapeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  shapeChoices: {
+    flex: 1,
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  shapeButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: theme.radius.md,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surfaceAlt,
   },
   searchRow: { flexDirection: "row", gap: 8, alignItems: "center" },
   searchButton: {

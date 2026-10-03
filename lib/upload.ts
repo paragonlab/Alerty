@@ -110,6 +110,44 @@ export async function uploadAliadoProof(
   }
 }
 
+/**
+ * Logotipo público del pin de un Aliado. A diferencia del comprobante, este
+ * sí se muestra en el mapa, así que vive en un bucket público.
+ */
+export async function uploadAliadoLogo(
+  localUri: string,
+  userId: string,
+): Promise<string | null> {
+  if (!isSupabaseConfigured || !supabase) return null;
+  try {
+    let ext = "jpg";
+    let body: Blob | ArrayBuffer;
+    let contentType = "image/jpeg";
+    if (Platform.OS === "web") {
+      const blob = await (await fetch(localUri)).blob();
+      contentType = (blob.type || contentType).split(";")[0].trim();
+      ext = EXT_BY_MIME[contentType] ?? "jpg";
+      body = blob;
+    } else {
+      const base64 = await FileSystem.readAsStringAsync(localUri, { encoding: "base64" });
+      body = decode(base64);
+    }
+    const path = `${userId}/${randomPath(ext)}`;
+    const { error } = await supabase.storage
+      .from("aliado-logos")
+      .upload(path, body, { contentType });
+    if (error) {
+      console.warn("uploadAliadoLogo failed", error);
+      return null;
+    }
+    const { data } = supabase.storage.from("aliado-logos").getPublicUrl(path);
+    return data.publicUrl || null;
+  } catch (e) {
+    console.warn("uploadAliadoLogo failed", e);
+    return null;
+  }
+}
+
 // Sube un lote de media. Los items que ya son URL remota se dejan igual.
 export async function uploadMediaBatch(items: AlertMedia[]): Promise<AlertMedia[]> {
   const out: AlertMedia[] = [];

@@ -53,6 +53,8 @@ export type AlertItem = {
   parentAlertId?: string;
 };
 
+export type PinShape = "pin" | "flag" | "house" | "shield";
+
 export type SponsoredZone = {
   id: string;
   name: string;
@@ -60,6 +62,7 @@ export type SponsoredZone = {
   lat: number;
   lng: number;
   logoUrl?: string;
+  pinShape: PinShape;
   type: "refugio" | "anuncio";
 };
 

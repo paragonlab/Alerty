@@ -53,7 +53,8 @@ type AlertPinMeta = {
 type SponsorPinMeta = {
   kind: "sponsor";
   color: string;
-  icon: "shield" | "star";
+  shape: "pin" | "flag" | "house" | "shield";
+  logoUrl?: string | null;
 };
 
 type CommunityPinMeta = {
@@ -396,25 +397,93 @@ function ensurePulseStyles() {
 }
 .pulso-sponsor {
   position: relative;
-  width: 32px;
-  height: 32px;
-  margin-left: -16px;
-  margin-top: -16px;
-  border-radius: 999px;
-  background: var(--pulso-color);
-  border: 2px solid #fff;
-  box-shadow: 0 2px 6px rgba(0,0,0,0.35);
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  width: 44px;
+  height: 52px;
+  margin-left: -22px;
+  margin-top: -52px;
   cursor: pointer;
   pointer-events: auto;
   color: #fff;
+  filter: drop-shadow(0 2px 4px rgba(0,0,0,0.35));
+}
+.pulso-sponsor__mark {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: var(--pulso-color);
+  border: 2px solid #fff;
+  color: #fff;
+}
+.pulso-sponsor--pin .pulso-sponsor__mark {
+  left: 5px;
+  top: 0;
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+}
+.pulso-sponsor--pin .pulso-sponsor__tip {
+  position: absolute;
+  left: 15px;
+  top: 30px;
+  width: 0;
+  height: 0;
+  border-left: 7px solid transparent;
+  border-right: 7px solid transparent;
+  border-top: 12px solid var(--pulso-color);
+}
+.pulso-sponsor--flag .pulso-sponsor__pole {
+  position: absolute;
+  left: 8px;
+  top: 2px;
+  width: 3px;
+  height: 46px;
+  border-radius: 2px;
+  background: #fff;
+}
+.pulso-sponsor--flag .pulso-sponsor__mark {
+  left: 11px;
+  top: 4px;
+  width: 28px;
+  height: 20px;
+  border-radius: 2px 6px 6px 2px;
+}
+.pulso-sponsor--house .pulso-sponsor__roof {
+  position: absolute;
+  left: 4px;
+  top: 2px;
+  width: 0;
+  height: 0;
+  border-left: 18px solid transparent;
+  border-right: 18px solid transparent;
+  border-bottom: 14px solid var(--pulso-color);
+}
+.pulso-sponsor--house .pulso-sponsor__mark {
+  left: 6px;
+  top: 15px;
+  width: 32px;
+  height: 24px;
+  border-radius: 0 0 3px 3px;
+  border-top: 0;
+}
+.pulso-sponsor--shield .pulso-sponsor__mark {
+  left: 5px;
+  top: 2px;
+  width: 34px;
+  height: 40px;
+  border-radius: 8px 8px 17px 17px;
 }
 .pulso-sponsor svg {
   width: 16px;
   height: 16px;
   fill: currentColor;
+}
+.pulso-sponsor__logo {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
 .pulso-pin--calm .pulso-pin__ring,
 .pulso-pin--noglow .pulso-pin__ring,
@@ -635,8 +704,9 @@ function findGlowProps(node: React.ReactNode): AlertPinMeta | null {
 }
 
 function findSponsorMeta(node: React.ReactNode): SponsorPinMeta | null {
+  let explicit: SponsorPinMeta | null = null;
   let color: string | null = null;
-  let icon: "shield" | "star" | null = null;
+  let sawShield = false;
 
   const walk = (n: React.ReactNode) => {
     Children.forEach(n, (child) => {
@@ -645,20 +715,34 @@ function findSponsorMeta(node: React.ReactNode): SponsorPinMeta | null {
         style?: unknown;
         name?: string;
         children?: React.ReactNode;
+        markerKind?: string;
+        color?: string;
+        shape?: string;
+        logoUrl?: string | null;
       };
+      if (props.markerKind === "sponsor") {
+        const shape =
+          props.shape === "flag" || props.shape === "house" || props.shape === "shield"
+            ? props.shape
+            : "pin";
+        explicit = {
+          kind: "sponsor",
+          color: typeof props.color === "string" ? props.color : "#E9792F",
+          shape,
+          logoUrl: typeof props.logoUrl === "string" ? props.logoUrl : null,
+        };
+      }
       const bg = readBackgroundColor(props.style);
       if (bg) color = bg;
-      if (typeof props.name === "string") {
-        if (props.name.includes("shield")) icon = "shield";
-        else if (props.name.includes("star")) icon = "star";
-      }
+      if (typeof props.name === "string" && props.name.includes("shield")) sawShield = true;
       if (props.children != null) walk(props.children);
     });
   };
   walk(node);
 
+  if (explicit) return explicit;
   if (!color) return null;
-  return { kind: "sponsor", color, icon: icon ?? "star" };
+  return { kind: "sponsor", color, shape: sawShield ? "shield" : "pin", logoUrl: null };
 }
 
 /** Detecta CommunityMarker vía markerKind / isDemo en props del elemento. */
@@ -860,6 +944,10 @@ const ICON_SVGS: Record<string, string> = {
     '<svg viewBox="0 0 512 512" aria-hidden="true"><path d="M394.23 197.56a300.43 300.43 0 00-53.37-90C329.5 89.32 306.31 64 256 64c0 55.4-28.26 84.5-47.63 110.19-18 23.81-32.8 43.48-32.8 72.1 0 38.44 22.53 66.53 56.51 83.21-6.72-21-10.9-41.07-10.9-62.28 0-58.75 48.55-95.07 91.56-130.9 8.5-7 16.27-13.43 23.53-19.63 19.4 31.53 30.68 59.33 30.68 92.33 0 45.21-16 73-36.32 103.67-4.09 6.14-8.4 12.13-12.87 18.08-23.49 31.32-51.5 53.44-51.5 92.83 0 26.18 10.61 49 27.58 66.31C162.47 439 96 384.36 96 284.49c0-61.09 29.73-118.8 77.42-171.24C187.12 96.7 219.63 64 256 32c86.85 67.52 138.43 126 138.43 200.26 0 77.47-43.66 129-87.12 165.49 13.54-18.68 22.58-40.87 22.58-67.91 0-43.78-24.07-74.71-47.22-105.28z"/></svg>',
   water:
     '<svg viewBox="0 0 512 512" aria-hidden="true"><path d="M256 48s-144 160-144 256a144 144 0 00288 0C400 208 256 48 256 48zm0 336a80 80 0 01-80-80c0-44 48-112 80-152 32 40 80 108 80 152a80 80 0 01-80 80z"/></svg>',
+  flag:
+    '<svg viewBox="0 0 512 512" aria-hidden="true"><path d="M112 48h32v416h-32zm48 32h256l-56 72 56 72H160z"/></svg>',
+  home:
+    '<svg viewBox="0 0 512 512" aria-hidden="true"><path d="M256 64L64 224v208h128v-96h128v96h128V224z"/></svg>',
   shield:
     '<svg viewBox="0 0 512 512" aria-hidden="true"><path d="M256 48c-64 32-128 32-176 40v128c0 96 64 176 176 248 112-72 176-152 176-248V88c-48-8-112-8-176-40z"/><path fill="#fff" d="M224 288l-40-40 22-22 18 18 72-72 22 22z"/></svg>',
   star:
@@ -939,12 +1027,20 @@ function escapeAttr(value: string): string {
 
 function buildSponsorPinElement(meta: SponsorPinMeta): HTMLDivElement {
   const el = document.createElement("div");
-  el.className = "pulso-sponsor";
+  el.className = `pulso-sponsor pulso-sponsor--${meta.shape}`;
   el.style.setProperty("--pulso-color", meta.color);
   el.setAttribute("role", "button");
   el.setAttribute("tabindex", "0");
-  el.setAttribute("aria-label", meta.icon === "shield" ? "Refugio" : "Aliado");
-  el.innerHTML = ICON_SVGS[meta.icon] ?? ICON_SVGS.star;
+  el.setAttribute("aria-label", meta.shape === "shield" ? "Refugio" : "Aliado");
+  const icon =
+    meta.shape === "flag" ? "flag" : meta.shape === "house" ? "home" : meta.shape === "shield" ? "shield" : "star";
+  const inner = meta.logoUrl
+    ? `<img class="pulso-sponsor__logo" src="${escapeAttr(meta.logoUrl)}" alt="" />`
+    : (ICON_SVGS[icon] ?? ICON_SVGS.star);
+  const tip = meta.shape === "pin" ? '<span class="pulso-sponsor__tip"></span>' : "";
+  const pole = meta.shape === "flag" ? '<span class="pulso-sponsor__pole"></span>' : "";
+  const roof = meta.shape === "house" ? '<span class="pulso-sponsor__roof"></span>' : "";
+  el.innerHTML = `${pole}${roof}${tip}<span class="pulso-sponsor__mark">${inner}</span>`;
   return el;
 }
 
@@ -1489,13 +1585,14 @@ const ExpoMapView = forwardRef<MapHandle, MapViewProps>(function ExpoMapView(pro
       markers.forEach((p) => {
         const content = pinElement(p.meta, simplify);
         const isDest = p.meta.kind === "destination";
+        const isSponsor = p.meta.kind === "sponsor";
         const size = p.meta.kind === "alert" ? 48 : p.meta.kind === "community" ? 40 : 32;
         const icon = L.divIcon({
           html: content.outerHTML,
           className: "pulso-leaflet-pin",
-          // El pin de destino apunta con la punta, no con el centro.
-          iconSize: isDest ? [34, 44] : [size, size],
-          iconAnchor: isDest ? [17, 44] : [size / 2, size / 2],
+          // Destino y aliado apuntan con la base, no con el centro.
+          iconSize: isDest ? [34, 44] : isSponsor ? [44, 52] : [size, size],
+          iconAnchor: isDest ? [17, 44] : isSponsor ? [22, 52] : [size / 2, size / 2],
         });
         const marker = L.marker([p.coordinate.latitude, p.coordinate.longitude], {
           icon,

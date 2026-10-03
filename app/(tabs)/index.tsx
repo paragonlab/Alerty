@@ -46,6 +46,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useNavigation, useRouter } from "expo-router";
 import { GlowMarker } from "../../components/GlowMarker";
 import { DestinationPin } from "../../components/DestinationPin";
+import { SponsorPin } from "../../components/SponsorPin";
 import { isAboutCuliacan, isCommunityVideo } from "../../lib/alerty/communityLabel";
 import { isCategoryShown } from "../../lib/alerty/utils";
 import { placeIcon, searchCuliacanPlaces, type PlaceResult } from "../../lib/alerty/placeSearch";
@@ -695,7 +696,8 @@ export default function MapScreen() {
               <Marker
                 key={zone.id}
                 coordinate={{ latitude: zone.lat, longitude: zone.lng }}
-                tracksViewChanges={false}
+                anchor={{ x: 0.5, y: 1 }}
+                tracksViewChanges={Boolean(zone.logoUrl)}
                 onPress={() => {
                   void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                   Alert.alert(
@@ -704,16 +706,12 @@ export default function MapScreen() {
                   );
                 }}
               >
-                <View style={[
-                  styles.sponsorMarker, 
-                  zone.type === "refugio" ? styles.sponsorRefugio : styles.sponsorAnuncio
-                ]}>
-                  <Ionicons 
-                    name={zone.type === "refugio" ? "shield-checkmark" : "star"} 
-                    size={16} 
-                    color="#fff" 
-                  />
-                </View>
+                <SponsorPin
+                  markerKind="sponsor"
+                  color={zone.type === "refugio" ? theme.colors.success : theme.colors.accent}
+                  shape={zone.pinShape}
+                  logoUrl={zone.logoUrl}
+                />
               </Marker>
             ))}
 
@@ -1250,26 +1248,6 @@ const createStyles = (theme: any, themeMode: string) => StyleSheet.create({
     fontSize: 11,
     fontFamily: theme.fonts.body,
     color: theme.colors.text,
-  },
-  sponsorMarker: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 2,
-    borderColor: "#fff",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 3,
-    elevation: 4,
-  },
-  sponsorRefugio: {
-    backgroundColor: theme.colors.success,
-  },
-  sponsorAnuncio: {
-    backgroundColor: theme.colors.accent,
   },
   searchBar: {
     height: 40,
