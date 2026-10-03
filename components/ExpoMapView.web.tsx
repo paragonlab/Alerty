@@ -1250,7 +1250,8 @@ const ExpoMapView = forwardRef<MapHandle, MapViewProps>(function ExpoMapView(pro
           }, 1200);
         });
 
-        if (!authOk || cancelled) {
+        if (cancelled) return;
+        if (!authOk) {
           mapRef.current = null;
           if (hostRef.current) hostRef.current.innerHTML = "";
           throw new Error("maps-auth");
@@ -1315,6 +1316,9 @@ const ExpoMapView = forwardRef<MapHandle, MapViewProps>(function ExpoMapView(pro
 
     const boot = API_KEY
       ? startGoogle().catch(() => {
+          if (cancelled) return;
+          mapsAuthFailed = false;
+          mapsLoad = null;
           if (hostRef.current) hostRef.current.innerHTML = "";
           return startLeaflet();
         })
@@ -1326,6 +1330,8 @@ const ExpoMapView = forwardRef<MapHandle, MapViewProps>(function ExpoMapView(pro
 
     return () => {
       cancelled = true;
+      mapsAuthFailed = false;
+      mapsLoad = null;
       setReady(false);
       resizeObserver?.disconnect();
       if (longPressTimer.current) window.clearTimeout(longPressTimer.current);
