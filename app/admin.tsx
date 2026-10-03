@@ -344,7 +344,7 @@ export default function AdminScreen() {
               >
                 <View style={styles.cardTop}>
                   <Text style={styles.kicker}>
-                    {(CATEGORY_LABELS[alert.category as keyof typeof CATEGORY_LABELS] ?? alert.category).toUpperCase()}
+                    {((CATEGORY_LABELS as Record<string, string>)[alert.category] ?? alert.category).toUpperCase()}
                   </Text>
                   <Text style={styles.meta}>{hace(alert.created_at)}</Text>
                 </View>
