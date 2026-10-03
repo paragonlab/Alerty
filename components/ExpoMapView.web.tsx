@@ -152,27 +152,8 @@ function loadGoogleMaps(): Promise<void> {
       mapsLoad = null;
       reject(new Error(reason));
     };
-    const prevAuth = (window as any).gm_authFailure;
-    (window as any).gm_authFailure = () => {
-      try {
-        prevAuth?.();
-      } catch {
-        // ignore
-      }
-      fail("maps-auth");
-    };
-    const existing = document.querySelector("script[data-pulso-gmaps]");
-    if (existing) {
-      existing.addEventListener("load", () => resolve());
-      existing.addEventListener("error", () => fail("script-error"));
-      return;
-    }
-    const script = document.createElement("script");
-    // loading=async evita el warning de Chrome y deja cargar el loader moderno.
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(API_KEY)}&v=weekly&loading=async`;
-    script.async = true;
-    script.setAttribute("data-pulso-gmaps", "1");
-    script.onload = () => {
+    (window as any).gm_authFailure = () => fail("maps-auth");
+    const ready = () => {
       const maps = (window as any).google?.maps;
       if (maps?.importLibrary) {
         maps
@@ -187,6 +168,22 @@ function loadGoogleMaps(): Promise<void> {
       }
       fail("maps-missing");
     };
+    const existing = document.querySelector("script[data-pulso-gmaps]");
+    if (existing) {
+      if ((window as any).google?.maps?.importLibrary || (window as any).google?.maps?.Map) {
+        ready();
+        return;
+      }
+      existing.addEventListener("load", () => ready());
+      existing.addEventListener("error", () => fail("script-error"));
+      return;
+    }
+    const script = document.createElement("script");
+    // loading=async evita el warning de Chrome y deja cargar el loader moderno.
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(API_KEY)}&v=weekly&loading=async`;
+    script.async = true;
+    script.setAttribute("data-pulso-gmaps", "1");
+    script.onload = () => ready();
     script.onerror = () => fail("script-error");
     document.head.appendChild(script);
   });
@@ -1246,8 +1243,10 @@ const ExpoMapView = forwardRef<MapHandle, MapViewProps>(function ExpoMapView(pro
             finish(false);
           };
           window.setTimeout(() => {
-            finish(!googleMapsAuthBroken(hostRef.current));
-          }, 1200);
+            const msg = hostRef.current?.querySelector(".gm-err-message")?.textContent ?? "";
+            const broken = /can.?t load|no se puede|referer|not activated|invalid/i.test(msg);
+            finish(!broken && !mapsAuthFailed);
+          }, 2000);
         });
 
         if (cancelled) return;
@@ -1315,8 +1314,11 @@ const ExpoMapView = forwardRef<MapHandle, MapViewProps>(function ExpoMapView(pro
       });
 
     const boot = API_KEY
-      ? startGoogle().catch(() => {
+      ? startGoogle().catch((err) => {
           if (cancelled) return;
+          if (typeof window !== "undefined") {
+            (window as any).__pulsoMapFail = String((err as Error)?.message || err);
+          }
           mapsAuthFailed = false;
           mapsLoad = null;
           if (hostRef.current) hostRef.current.innerHTML = "";
