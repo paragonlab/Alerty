@@ -127,11 +127,19 @@ export function Circle(_props: CircleProps) {
 export const PROVIDER_GOOGLE = "google";
 
 let mapsLoad: Promise<void> | null = null;
+let mapsAuthFailed = false;
+
+function googleMapsAuthBroken(host?: HTMLElement | null): boolean {
+  if (mapsAuthFailed) return true;
+  if (!host) return false;
+  return Boolean(host.querySelector(".gm-err-container, .gm-err-message"));
+}
 
 function loadGoogleMaps(): Promise<void> {
   if (typeof window === "undefined") {
     return Promise.reject(new Error("no window"));
   }
+  if (mapsAuthFailed) return Promise.reject(new Error("maps-auth"));
   const g = (window as any).google;
   if (g?.maps?.Map) return Promise.resolve();
   if (!API_KEY) {
@@ -139,19 +147,47 @@ function loadGoogleMaps(): Promise<void> {
   }
   if (mapsLoad) return mapsLoad;
   mapsLoad = new Promise((resolve, reject) => {
+    const fail = (reason: string) => {
+      mapsAuthFailed = reason === "maps-auth" || mapsAuthFailed;
+      mapsLoad = null;
+      reject(new Error(reason));
+    };
+    const prevAuth = (window as any).gm_authFailure;
+    (window as any).gm_authFailure = () => {
+      try {
+        prevAuth?.();
+      } catch {
+        // ignore
+      }
+      fail("maps-auth");
+    };
     const existing = document.querySelector("script[data-pulso-gmaps]");
     if (existing) {
       existing.addEventListener("load", () => resolve());
-      existing.addEventListener("error", () => reject(new Error("script-error")));
+      existing.addEventListener("error", () => fail("script-error"));
       return;
     }
     const script = document.createElement("script");
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(API_KEY)}&v=weekly`;
+    // loading=async evita el warning de Chrome y deja cargar el loader moderno.
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(API_KEY)}&v=weekly&loading=async`;
     script.async = true;
-    script.defer = true;
     script.setAttribute("data-pulso-gmaps", "1");
-    script.onload = () => resolve();
-    script.onerror = () => reject(new Error("script-error"));
+    script.onload = () => {
+      const maps = (window as any).google?.maps;
+      if (maps?.importLibrary) {
+        maps
+          .importLibrary("maps")
+          .then(() => resolve())
+          .catch(() => fail("maps-import"));
+        return;
+      }
+      if (maps?.Map) {
+        resolve();
+        return;
+      }
+      fail("maps-missing");
+    };
+    script.onerror = () => fail("script-error");
     document.head.appendChild(script);
   });
   return mapsLoad;
@@ -1177,7 +1213,7 @@ const ExpoMapView = forwardRef<MapHandle, MapViewProps>(function ExpoMapView(pro
       });
 
     const startGoogle = () =>
-      loadGoogleMaps().then(() => {
+      loadGoogleMaps().then(async () => {
         if (cancelled || !hostRef.current) return;
         ensurePulseStyles();
         const g = (window as any).google;
@@ -1190,6 +1226,36 @@ const ExpoMapView = forwardRef<MapHandle, MapViewProps>(function ExpoMapView(pro
           clickableIcons: false,
           styles: props.userInterfaceStyle === "dark" ? DARK_MAP_STYLE : [],
         });
+
+        // Si la key no admite este dominio, Google pinta el error y no tira excepción.
+        const authOk = await new Promise<boolean>((resolve) => {
+          let settled = false;
+          const finish = (ok: boolean) => {
+            if (settled) return;
+            settled = true;
+            resolve(ok);
+          };
+          const prevAuth = (window as any).gm_authFailure;
+          (window as any).gm_authFailure = () => {
+            try {
+              prevAuth?.();
+            } catch {
+              // ignore
+            }
+            mapsAuthFailed = true;
+            finish(false);
+          };
+          window.setTimeout(() => {
+            finish(!googleMapsAuthBroken(hostRef.current));
+          }, 1200);
+        });
+
+        if (!authOk || cancelled) {
+          mapRef.current = null;
+          if (hostRef.current) hostRef.current.innerHTML = "";
+          throw new Error("maps-auth");
+        }
+
         mapRef.current = map;
         engineRef.current = "google";
 
@@ -1248,7 +1314,10 @@ const ExpoMapView = forwardRef<MapHandle, MapViewProps>(function ExpoMapView(pro
       });
 
     const boot = API_KEY
-      ? startGoogle().catch(() => startLeaflet())
+      ? startGoogle().catch(() => {
+          if (hostRef.current) hostRef.current.innerHTML = "";
+          return startLeaflet();
+        })
       : startLeaflet();
 
     boot.catch(() => {
