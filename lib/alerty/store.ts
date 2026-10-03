@@ -716,6 +716,7 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
         termsAccepted: Boolean(data.terms_accepted_at),
         isModerator: Boolean(data.is_moderator),
       }));
+      persistLastLocation(data.id, get().userCoords, null);
       void get().loadWatchedZones();
       void get().loadBlockedUsers();
       void get().loadModeration();

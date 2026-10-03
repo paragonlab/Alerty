@@ -55,6 +55,8 @@ async function shouldSkipTraffic(): Promise<boolean> {
       .maybeSingle();
     if (data?.is_moderator) {
       await setSkipTraffic();
+      const sessionId = await getVisitSessionId();
+      await supabase.rpc("discard_my_visit_session", { p_session_id: sessionId });
       return true;
     }
   } catch {

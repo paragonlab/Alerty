@@ -1313,13 +1313,12 @@ const ExpoMapView = forwardRef<MapHandle, MapViewProps>(function ExpoMapView(pro
         setReady(true);
       });
 
-    // En web usamos OpenStreetMap primero: la key de Google aún no admite
-    // pulso-ciudadano.com y el error de Maps se ve en iOS Chrome.
-    const boot = startLeaflet().catch(() => {
-      if (!API_KEY) throw new Error("no-map");
-      if (hostRef.current) hostRef.current.innerHTML = "";
-      return startGoogle();
-    });
+    const boot = API_KEY
+      ? startGoogle().catch(() => {
+          if (hostRef.current) hostRef.current.innerHTML = "";
+          return startLeaflet();
+        })
+      : startLeaflet();
 
     boot.catch(() => {
       if (!cancelled) setError("No se pudo cargar el mapa.");
