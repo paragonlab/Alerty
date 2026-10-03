@@ -9,9 +9,58 @@ type EventPayload = {
 
 const VISIT_SESSION_KEY = "alerty_visit_session";
 const VISIT_MARK_KEY = "alerty_visit_marked";
+/** En este dispositivo no sumar visitas al dashboard (admin / moderador). */
+const SKIP_TRAFFIC_KEY = "alerty_skip_traffic";
 
 function newSessionId() {
   return `v_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+async function getSkipTraffic(): Promise<boolean> {
+  if (Platform.OS === "web" && typeof localStorage !== "undefined") {
+    return localStorage.getItem(SKIP_TRAFFIC_KEY) === "1";
+  }
+  try {
+    return (await AsyncStorage.getItem(SKIP_TRAFFIC_KEY)) === "1";
+  } catch {
+    return false;
+  }
+}
+
+async function setSkipTraffic() {
+  if (Platform.OS === "web" && typeof localStorage !== "undefined") {
+    localStorage.setItem(SKIP_TRAFFIC_KEY, "1");
+    return;
+  }
+  try {
+    await AsyncStorage.setItem(SKIP_TRAFFIC_KEY, "1");
+  } catch {
+    // ignore
+  }
+}
+
+/** Moderadores no cuentan; al detectarlo, este navegador/dispositivo queda fuera. */
+async function shouldSkipTraffic(): Promise<boolean> {
+  if (await getSkipTraffic()) return true;
+  if (!supabase) return false;
+  try {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return false;
+    const { data } = await supabase
+      .from("users")
+      .select("is_moderator")
+      .eq("id", user.id)
+      .maybeSingle();
+    if (data?.is_moderator) {
+      await setSkipTraffic();
+      return true;
+    }
+  } catch {
+    // ignore
+  }
+  return false;
 }
 
 async function getVisitSessionId(): Promise<string> {
@@ -78,6 +127,7 @@ export const trackEvent = async ({ event_type, metadata = {} }: EventPayload) =>
 /** Una visita por sesión de app/navegador. Cuenta también sin cuenta. */
 export async function trackVisit() {
   if (!supabase) return;
+  if (await shouldSkipTraffic()) return;
   try {
     const sessionId = await getVisitSessionId();
     if (await visitAlreadyMarked(sessionId)) return;
@@ -99,6 +149,7 @@ export async function trackVisit() {
 /** ~1 ping por minuto en pantalla; el admin suma los pings como minutos aproximados. */
 export async function trackSessionPing() {
   if (!supabase) return;
+  if (await shouldSkipTraffic()) return;
   try {
     const sessionId = await getVisitSessionId();
     const {
