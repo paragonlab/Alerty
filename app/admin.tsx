@@ -100,10 +100,57 @@ type WatchedZone = {
 type Counts = {
   users: number;
   with_location: number;
+  circulo_active: number;
+  aliados_active: number;
   alerts_active: number;
   alerts_total: number;
   watched_zones: number;
   community_posts: number;
+};
+
+type TrafficBucket = {
+  visits: number;
+  guest_visits: number;
+  signed_in_visits: number;
+  minutes: number;
+};
+
+type Traffic = {
+  day: TrafficBucket;
+  week: TrafficBucket;
+  month: TrafficBucket;
+  year: TrafficBucket;
+};
+
+type CirculoSub = {
+  id: string;
+  username: string | null;
+  email: string | null;
+  subscription_status: string | null;
+  subscription_end_date: string | null;
+  premium_source: string | null;
+  created_at: string;
+  zones_count: number;
+};
+
+type AliadoSub = {
+  id: string;
+  name: string;
+  description: string;
+  owner_email: string;
+  type: ZoneType;
+  status: ZoneStatus;
+  lat: number;
+  lng: number;
+  current_period_end: string | null;
+  created_at: string;
+};
+
+const EMPTY_BUCKET: TrafficBucket = {
+  visits: 0,
+  guest_visits: 0,
+  signed_in_visits: 0,
+  minutes: 0,
 };
 
 const ZONE_STATUS: Record<ZoneStatus, string> = {
@@ -140,6 +187,9 @@ export default function AdminScreen() {
   const [zones, setZones] = useState<Zone[]>([]);
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [locations, setLocations] = useState<UserLocation[]>([]);
+  const [circulo, setCirculo] = useState<CirculoSub[]>([]);
+  const [aliados, setAliados] = useState<AliadoSub[]>([]);
+  const [traffic, setTraffic] = useState<Traffic | null>(null);
   const [alerts, setAlerts] = useState<AdminAlert[]>([]);
   const [watched, setWatched] = useState<WatchedZone[]>([]);
   const [counts, setCounts] = useState<Counts | null>(null);
@@ -175,12 +225,18 @@ export default function AdminScreen() {
       const data = overviewRes.data as {
         users?: AdminUser[];
         locations?: UserLocation[];
+        circulo?: CirculoSub[];
+        aliados?: AliadoSub[];
+        traffic?: Traffic;
         alerts?: AdminAlert[];
         watched_zones?: WatchedZone[];
         counts?: Counts;
       };
       setUsers(data.users ?? []);
       setLocations(data.locations ?? []);
+      setCirculo(data.circulo ?? []);
+      setAliados(data.aliados ?? []);
+      setTraffic(data.traffic ?? null);
       setAlerts(data.alerts ?? []);
       setWatched(data.watched_zones ?? []);
       setCounts(data.counts ?? null);
@@ -267,7 +323,6 @@ export default function AdminScreen() {
   };
 
   const nuevas = leads.filter((lead) => lead.status === "new");
-  const enMapa = zones.filter((zone) => zone.status === "active").length;
 
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
@@ -301,28 +356,100 @@ export default function AdminScreen() {
               <Text style={styles.statLabel}>Usuarios</Text>
             </View>
             <View style={styles.stat}>
-              <Text style={styles.statNum}>{counts?.with_location ?? locations.length}</Text>
-              <Text style={styles.statLabel}>Con ubicación</Text>
+              <Text style={styles.statNum}>{counts?.circulo_active ?? circulo.length}</Text>
+              <Text style={styles.statLabel}>Círculo</Text>
             </View>
             <View style={styles.stat}>
-              <Text style={styles.statNum}>{counts?.alerts_active ?? 0}</Text>
-              <Text style={styles.statLabel}>Alertas</Text>
+              <Text style={styles.statNum}>{counts?.aliados_active ?? aliados.length}</Text>
+              <Text style={styles.statLabel}>Aliados</Text>
             </View>
           </View>
           <View style={styles.stats}>
             <View style={styles.stat}>
-              <Text style={styles.statNum}>{nuevas.length}</Text>
-              <Text style={styles.statLabel}>Solicitudes</Text>
+              <Text style={styles.statNum}>{traffic?.day.guest_visits ?? 0}</Text>
+              <Text style={styles.statLabel}>Visitas hoy</Text>
             </View>
             <View style={styles.stat}>
-              <Text style={styles.statNum}>{enMapa}</Text>
-              <Text style={styles.statLabel}>Aliados</Text>
+              <Text style={styles.statNum}>{counts?.alerts_active ?? 0}</Text>
+              <Text style={styles.statLabel}>Alertas</Text>
             </View>
             <Pressable style={styles.stat} onPress={() => router.push("/moderacion")}>
               <Text style={styles.statNum}>{reports}</Text>
               <Text style={styles.statLabel}>Reportes</Text>
             </Pressable>
           </View>
+
+          <Text style={styles.sectionTitle}>Visitas</Text>
+          <Text style={styles.sectionHelp}>
+            Incluye gente sin cuenta. Los minutos son aproximados (1 ping por minuto en pantalla).
+          </Text>
+          {(
+            [
+              ["Hoy", traffic?.day],
+              ["Semana", traffic?.week],
+              ["Mes", traffic?.month],
+              ["Año", traffic?.year],
+            ] as const
+          ).map(([label, bucket]) => {
+            const b = bucket ?? EMPTY_BUCKET;
+            return (
+              <View key={label} style={styles.card}>
+                <Text style={styles.name}>{label}</Text>
+                <Text style={styles.meta}>
+                  {b.visits} visitas · {b.guest_visits} sin cuenta · {b.signed_in_visits} con sesión · ~
+                  {b.minutes} min
+                </Text>
+              </View>
+            );
+          })}
+
+          <Text style={styles.sectionTitle}>Círculo activo</Text>
+          {circulo.length === 0 ? (
+            <View style={styles.emptyInline}>
+              <Text style={styles.emptyText}>Nadie tiene Círculo activo.</Text>
+            </View>
+          ) : (
+            circulo.map((sub) => (
+              <View key={sub.id} style={styles.card}>
+                <View style={styles.cardTop}>
+                  <Text style={styles.name}>{sub.username || "sin nombre"}</Text>
+                  <Text style={styles.meta}>{sub.subscription_status || "active"}</Text>
+                </View>
+                {sub.email ? <Text style={styles.meta}>{sub.email}</Text> : null}
+                <Text style={styles.meta}>
+                  {sub.zones_count} {sub.zones_count === 1 ? "zona" : "zonas"}
+                  {sub.premium_source ? ` · ${sub.premium_source}` : ""}
+                  {sub.subscription_end_date
+                    ? ` · hasta ${new Date(sub.subscription_end_date).toLocaleDateString("es-MX")}`
+                    : ""}
+                </Text>
+              </View>
+            ))
+          )}
+
+          <Text style={styles.sectionTitle}>Aliados activos</Text>
+          {aliados.length === 0 ? (
+            <View style={styles.emptyInline}>
+              <Text style={styles.emptyText}>No hay Aliados activos en el mapa.</Text>
+            </View>
+          ) : (
+            aliados.map((zone) => (
+              <View key={zone.id} style={styles.card}>
+                <View style={styles.cardTop}>
+                  <Text style={styles.kicker}>{zone.type === "refugio" ? "REFUGIO" : "ALIADO"}</Text>
+                  <Text style={styles.meta}>En el mapa</Text>
+                </View>
+                <Text style={styles.name}>{zone.name}</Text>
+                <Text style={styles.meta}>{zone.owner_email}</Text>
+                <Text style={styles.meta}>
+                  {coords(zone.lat, zone.lng)}
+                  {zone.current_period_end
+                    ? ` · hasta ${new Date(zone.current_period_end).toLocaleDateString("es-MX")}`
+                    : ""}
+                </Text>
+              </View>
+            ))
+          )}
 
           <Text style={styles.sectionTitle}>Ubicaciones</Text>
           <Text style={styles.sectionHelp}>

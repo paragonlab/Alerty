@@ -5,7 +5,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 import * as Linking from "expo-linking";
 import { useFonts, SpaceGrotesk_400Regular, SpaceGrotesk_500Medium, SpaceGrotesk_700Bold } from "@expo-google-fonts/space-grotesk";
-import { trackEvent } from "../lib/analytics";
+import { startSessionPings, trackEvent } from "../lib/analytics";
 import { darkHighVisibility, lightTheme } from "../lib/theme";
 import { isSupabaseConfigured, supabase } from "../lib/supabase";
 import { useAlertyStore } from "../lib/alerty/store";
@@ -93,6 +93,11 @@ export default function RootLayout() {
       subscription.remove();
     };
   }, []);
+
+  useEffect(() => {
+    if (!isReady || !isSupabaseConfigured) return;
+    return startSessionPings();
+  }, [isReady]);
 
   const { alerts, currentUser } = useAlertyStore();
   const categoriesConfigured = useAlertyStore((s) => s.categoriesConfigured);
