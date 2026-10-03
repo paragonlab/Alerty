@@ -59,8 +59,20 @@ type AdminUser = {
   is_premium: boolean;
   is_moderator: boolean;
   subscription_status: string | null;
+  last_lat: number | null;
+  last_lng: number | null;
+  last_seen_at: string | null;
   alerts_count: number;
   zones_count: number;
+};
+
+type UserLocation = {
+  id: string;
+  username: string | null;
+  email: string | null;
+  last_lat: number;
+  last_lng: number;
+  last_seen_at: string | null;
 };
 
 type AdminAlert = {
@@ -87,6 +99,7 @@ type WatchedZone = {
 
 type Counts = {
   users: number;
+  with_location: number;
   alerts_active: number;
   alerts_total: number;
   watched_zones: number;
@@ -111,6 +124,10 @@ function coords(lat: number, lng: number) {
   return `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
 }
 
+function mapsUrl(lat: number, lng: number) {
+  return `https://www.google.com/maps?q=${lat},${lng}`;
+}
+
 export default function AdminScreen() {
   const theme = useAlertyTheme();
   const styles = createStyles(theme);
@@ -122,6 +139,7 @@ export default function AdminScreen() {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [zones, setZones] = useState<Zone[]>([]);
   const [users, setUsers] = useState<AdminUser[]>([]);
+  const [locations, setLocations] = useState<UserLocation[]>([]);
   const [alerts, setAlerts] = useState<AdminAlert[]>([]);
   const [watched, setWatched] = useState<WatchedZone[]>([]);
   const [counts, setCounts] = useState<Counts | null>(null);
@@ -156,11 +174,13 @@ export default function AdminScreen() {
     else if (overviewRes.data) {
       const data = overviewRes.data as {
         users?: AdminUser[];
+        locations?: UserLocation[];
         alerts?: AdminAlert[];
         watched_zones?: WatchedZone[];
         counts?: Counts;
       };
       setUsers(data.users ?? []);
+      setLocations(data.locations ?? []);
       setAlerts(data.alerts ?? []);
       setWatched(data.watched_zones ?? []);
       setCounts(data.counts ?? null);
@@ -281,12 +301,12 @@ export default function AdminScreen() {
               <Text style={styles.statLabel}>Usuarios</Text>
             </View>
             <View style={styles.stat}>
-              <Text style={styles.statNum}>{counts?.alerts_active ?? 0}</Text>
-              <Text style={styles.statLabel}>Alertas</Text>
+              <Text style={styles.statNum}>{counts?.with_location ?? locations.length}</Text>
+              <Text style={styles.statLabel}>Con ubicación</Text>
             </View>
             <View style={styles.stat}>
-              <Text style={styles.statNum}>{counts?.watched_zones ?? watched.length}</Text>
-              <Text style={styles.statLabel}>Zonas</Text>
+              <Text style={styles.statNum}>{counts?.alerts_active ?? 0}</Text>
+              <Text style={styles.statLabel}>Alertas</Text>
             </View>
           </View>
           <View style={styles.stats}>
@@ -304,9 +324,37 @@ export default function AdminScreen() {
             </Pressable>
           </View>
 
+          <Text style={styles.sectionTitle}>Ubicaciones</Text>
+          <Text style={styles.sectionHelp}>
+            Última posición cuando alguien abrió el mapa o Avisos con GPS. No es en vivo.
+          </Text>
+          {locations.length === 0 ? (
+            <View style={styles.emptyInline}>
+              <Text style={styles.emptyText}>
+                Todavía no hay ubicaciones. Aparecen cuando un usuario con sesión da permiso de GPS.
+              </Text>
+            </View>
+          ) : (
+            locations.map((loc) => (
+              <View key={loc.id} style={styles.card}>
+                <View style={styles.cardTop}>
+                  <Text style={styles.name}>{loc.username || "sin nombre"}</Text>
+                  <Text style={styles.meta}>
+                    {loc.last_seen_at ? hace(loc.last_seen_at) : "sin fecha"}
+                  </Text>
+                </View>
+                {loc.email ? <Text style={styles.meta}>{loc.email}</Text> : null}
+                <Text style={styles.meta}>{coords(loc.last_lat, loc.last_lng)}</Text>
+                <Pressable onPress={() => void Linking.openURL(mapsUrl(loc.last_lat, loc.last_lng))}>
+                  <Text style={styles.link}>Abrir en Maps</Text>
+                </Pressable>
+              </View>
+            ))
+          )}
+
           <Text style={styles.sectionTitle}>Usuarios</Text>
           <Text style={styles.sectionHelp}>
-            No guardamos la ubicación en vivo. Aquí ves zonas de Círculo y cuántos pulsos llevan.
+            Cuenta, Círculo y cuántos pulsos llevan. La ubicación reciente está arriba.
           </Text>
           {users.length === 0 ? (
             <View style={styles.emptyInline}>
@@ -326,6 +374,14 @@ export default function AdminScreen() {
                   {user.is_premium ? " · Círculo" : ""}
                   {user.is_moderator ? " · admin" : ""}
                 </Text>
+                {user.last_lat != null && user.last_lng != null ? (
+                  <Text style={styles.meta}>
+                    Última ubicación {coords(user.last_lat, user.last_lng)}
+                    {user.last_seen_at ? ` · ${hace(user.last_seen_at)}` : ""}
+                  </Text>
+                ) : (
+                  <Text style={styles.meta}>Sin ubicación guardada</Text>
+                )}
               </View>
             ))
           )}

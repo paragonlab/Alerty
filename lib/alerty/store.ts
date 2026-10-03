@@ -13,7 +13,7 @@ import type {
 import { ALERT_CATEGORIES, REPUTATION_LEVELS, getLevelProgress } from "./constants";
 import { canAddCirculoZone } from "./circulo";
 import { baseAlerts, createRandomAlert, demoCommunityPosts, isDemoEnabled } from "./mock";
-import { matchInboxAlert, type UserCoords } from "./utils";
+import { calculateDistance, matchInboxAlert, type UserCoords } from "./utils";
 import { isOtherSinaloaCityStory } from "./coloniaGeocode";
 import { isSupabaseConfigured, supabase } from "../supabase";
 import { uploadMediaBatch } from "../upload";
@@ -337,6 +337,32 @@ const persistTrustScore = (userId: string, score: number) => {
   void supabase.from("users").update({ trust_score: score }).eq("id", userId);
 };
 
+let lastLocationPersistAt = 0;
+
+/** Guarda la última ubicación para el admin. Como mucho cada 15 min, o si se movió ~200 m. */
+const persistLastLocation = (
+  userId: string | undefined,
+  coords: UserCoords | null,
+  prev: UserCoords | null,
+) => {
+  if (!coords || !isSupabaseConfigured || !supabase) return;
+  if (!userId || userId === "local-user" || !isDbId(userId)) return;
+  const now = Date.now();
+  const movedFar =
+    !prev ||
+    calculateDistance(prev.latitude, prev.longitude, coords.latitude, coords.longitude) > 0.2;
+  if (!movedFar && now - lastLocationPersistAt < 15 * 60_000) return;
+  lastLocationPersistAt = now;
+  void supabase
+    .from("users")
+    .update({
+      last_lat: coords.latitude,
+      last_lng: coords.longitude,
+      last_seen_at: new Date().toISOString(),
+    })
+    .eq("id", userId);
+};
+
 export const useAlertyStore = create<AlertyState>((set, get) => ({
   alerts: [],
   communityPosts: [],
@@ -378,7 +404,11 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
   unreadAlerts: 0,
   clearUnreadAlerts: () => set({ unreadAlerts: 0 }),
   userCoords: null,
-  setUserCoords: (coords) => set({ userCoords: coords }),
+  setUserCoords: (coords) => {
+    const prev = get().userCoords;
+    set({ userCoords: coords });
+    void persistLastLocation(get().currentUser?.id, coords, prev);
+  },
   startDemo: () => {
     if (!isDemoEnabled) return;
 
