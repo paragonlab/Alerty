@@ -47,6 +47,7 @@ import { useNavigation, useRouter } from "expo-router";
 import { GlowMarker } from "../../components/GlowMarker";
 import { DestinationPin } from "../../components/DestinationPin";
 import { SponsorPin } from "../../components/SponsorPin";
+import { SPONSOR_PIN_W, sponsorPinTipX } from "../../lib/alerty/pinArt";
 import { isAboutCuliacan, isCommunityVideo } from "../../lib/alerty/communityLabel";
 import { isCategoryShown } from "../../lib/alerty/utils";
 import { placeIcon, searchCuliacanPlaces, type PlaceResult } from "../../lib/alerty/placeSearch";
@@ -696,7 +697,7 @@ export default function MapScreen() {
               <Marker
                 key={zone.id}
                 coordinate={{ latitude: zone.lat, longitude: zone.lng }}
-                anchor={{ x: 0.5, y: 1 }}
+                anchor={{ x: sponsorPinTipX(zone.pinShape) / SPONSOR_PIN_W, y: 1 }}
                 tracksViewChanges={Boolean(zone.logoUrl)}
                 onPress={() => {
                   void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);

@@ -13,6 +13,7 @@ import type { AlertCategory } from "../lib/alerty/types";
 import { CATEGORY_ICONS } from "../lib/alerty/constants";
 import { heatAppearance, riskColor, type GridCell } from "../lib/alerty/risk";
 import { DARK_MAP_STYLE } from "../lib/theme";
+import { SPONSOR_PIN_H, SPONSOR_PIN_W, sponsorPinSvg, sponsorPinTipX } from "../lib/alerty/pinArt";
 
 const API_KEY = process.env.EXPO_PUBLIC_GOOGLE_MAPS_KEY ?? "";
 
@@ -397,93 +398,22 @@ function ensurePulseStyles() {
 }
 .pulso-sponsor {
   position: relative;
-  width: 44px;
-  height: 52px;
-  margin-left: -22px;
-  margin-top: -52px;
+  width: ${SPONSOR_PIN_W}px;
+  height: ${SPONSOR_PIN_H}px;
+  margin-top: -${SPONSOR_PIN_H}px;
   cursor: pointer;
   pointer-events: auto;
-  color: #fff;
-  filter: drop-shadow(0 2px 4px rgba(0,0,0,0.35));
+  filter: drop-shadow(0 2px 2px rgba(0,0,0,0.3));
 }
-.pulso-sponsor__mark {
-  position: absolute;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-  background: var(--pulso-color);
-  border: 2px solid #fff;
-  color: #fff;
-}
-.pulso-sponsor--pin .pulso-sponsor__mark {
-  left: 5px;
-  top: 0;
-  width: 34px;
-  height: 34px;
-  border-radius: 999px;
-}
-.pulso-sponsor--pin .pulso-sponsor__tip {
-  position: absolute;
-  left: 15px;
-  top: 30px;
-  width: 0;
-  height: 0;
-  border-left: 7px solid transparent;
-  border-right: 7px solid transparent;
-  border-top: 12px solid var(--pulso-color);
-}
-.pulso-sponsor--flag .pulso-sponsor__pole {
-  position: absolute;
-  left: 8px;
-  top: 2px;
-  width: 3px;
-  height: 46px;
-  border-radius: 2px;
-  background: #fff;
-}
-.pulso-sponsor--flag .pulso-sponsor__mark {
-  left: 11px;
-  top: 4px;
-  width: 28px;
-  height: 20px;
-  border-radius: 2px 6px 6px 2px;
-}
-.pulso-sponsor--house .pulso-sponsor__roof {
-  position: absolute;
-  left: 4px;
-  top: 2px;
-  width: 0;
-  height: 0;
-  border-left: 18px solid transparent;
-  border-right: 18px solid transparent;
-  border-bottom: 14px solid var(--pulso-color);
-}
-.pulso-sponsor--house .pulso-sponsor__mark {
-  left: 6px;
-  top: 15px;
-  width: 32px;
-  height: 24px;
-  border-radius: 0 0 3px 3px;
-  border-top: 0;
-}
-.pulso-sponsor--shield .pulso-sponsor__mark {
-  left: 5px;
-  top: 2px;
-  width: 34px;
-  height: 40px;
-  border-radius: 8px 8px 17px 17px;
-}
-.pulso-sponsor svg {
-  width: 16px;
-  height: 16px;
-  fill: currentColor;
-}
-.pulso-sponsor__logo {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
+.pulso-sponsor--flag { margin-left: -${sponsorPinTipX("flag")}px; }
+.pulso-sponsor--pin,
+.pulso-sponsor--house,
+.pulso-sponsor--shield { margin-left: -${sponsorPinTipX("pin")}px; }
+.pulso-sponsor > svg {
+  width: ${SPONSOR_PIN_W}px;
+  height: ${SPONSOR_PIN_H}px;
   display: block;
+  overflow: visible;
 }
 .pulso-pin--calm .pulso-pin__ring,
 .pulso-pin--noglow .pulso-pin__ring,
@@ -1032,15 +962,11 @@ function buildSponsorPinElement(meta: SponsorPinMeta): HTMLDivElement {
   el.setAttribute("role", "button");
   el.setAttribute("tabindex", "0");
   el.setAttribute("aria-label", meta.shape === "shield" ? "Refugio" : "Aliado");
-  const icon =
-    meta.shape === "flag" ? "flag" : meta.shape === "house" ? "home" : meta.shape === "shield" ? "shield" : "star";
-  const inner = meta.logoUrl
-    ? `<img class="pulso-sponsor__logo" src="${escapeAttr(meta.logoUrl)}" alt="" />`
-    : (ICON_SVGS[icon] ?? ICON_SVGS.star);
-  const tip = meta.shape === "pin" ? '<span class="pulso-sponsor__tip"></span>' : "";
-  const pole = meta.shape === "flag" ? '<span class="pulso-sponsor__pole"></span>' : "";
-  const roof = meta.shape === "house" ? '<span class="pulso-sponsor__roof"></span>' : "";
-  el.innerHTML = `${pole}${roof}${tip}<span class="pulso-sponsor__mark">${inner}</span>`;
+  el.innerHTML = sponsorPinSvg({
+    color: meta.color,
+    shape: meta.shape,
+    logoUrl: meta.logoUrl,
+  });
   return el;
 }
 
@@ -1591,8 +1517,12 @@ const ExpoMapView = forwardRef<MapHandle, MapViewProps>(function ExpoMapView(pro
           html: content.outerHTML,
           className: "pulso-leaflet-pin",
           // Destino y aliado apuntan con la base, no con el centro.
-          iconSize: isDest ? [34, 44] : isSponsor ? [44, 52] : [size, size],
-          iconAnchor: isDest ? [17, 44] : isSponsor ? [22, 52] : [size / 2, size / 2],
+          iconSize: isDest ? [34, 44] : isSponsor ? [SPONSOR_PIN_W, SPONSOR_PIN_H] : [size, size],
+          iconAnchor: isDest
+            ? [17, 44]
+            : isSponsor
+              ? [sponsorPinTipX(p.meta.kind === "sponsor" ? p.meta.shape : "pin"), SPONSOR_PIN_H]
+              : [size / 2, size / 2],
         });
         const marker = L.marker([p.coordinate.latitude, p.coordinate.longitude], {
           icon,

@@ -17,6 +17,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
 import MapView, { Marker } from "../components/ExpoMapView";
 import { SponsorPin, type PinShape } from "../components/SponsorPin";
+import { SPONSOR_PIN_W, sponsorPinTipX } from "../lib/alerty/pinArt";
 import { lightTheme as theme } from "../lib/theme";
 import { supabase } from "../lib/supabase";
 import { safeBack } from "../lib/alerty/nav";
@@ -496,7 +497,7 @@ export default function BusinessOnboarding() {
                 onPress={handleMapPress}
               >
                 {point ? (
-                  <Marker coordinate={point} anchor={{ x: 0.5, y: 1 }}>
+                  <Marker coordinate={point} anchor={{ x: sponsorPinTipX(pinShape) / SPONSOR_PIN_W, y: 1 }}>
                     <SponsorPin
                       markerKind="sponsor"
                       color={type === "refugio" ? theme.colors.success : theme.colors.accent}
