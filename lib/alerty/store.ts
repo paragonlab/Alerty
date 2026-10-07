@@ -6,11 +6,12 @@ import type {
   AlertMedia,
   AlertUpdate,
   CommunityPost,
+  PinCategory,
   SponsoredZone,
   TimeFilter,
   WatchedZone,
 } from "./types";
-import { ALERT_CATEGORIES, REPUTATION_LEVELS, getLevelProgress } from "./constants";
+import { PIN_CATEGORIES, REPUTATION_LEVELS, getLevelProgress } from "./constants";
 import { canAddCirculoZone } from "./circulo";
 import { baseAlerts, createRandomAlert, demoCommunityPosts, isDemoEnabled } from "./mock";
 import { calculateDistance, matchInboxAlert, type UserCoords } from "./utils";
@@ -105,7 +106,7 @@ type AlertyState = {
   alertsLoaded: boolean;
   communityLoaded: boolean;
   timeFilter: TimeFilter;
-  activeCategories: AlertCategory[];
+  activeCategories: PinCategory[];
   lowConnection: boolean;
   pushEnabled: boolean;
   demoStarted: boolean;
@@ -126,11 +127,11 @@ type AlertyState = {
   addAlert: (alert: AlertItem) => void;
   voteAlert: (id: string, vote: VoteType) => void;
   setTimeFilter: (filter: TimeFilter) => void;
-  toggleCategory: (category: AlertCategory) => void;
-  setCategoryDefaults: (categories: AlertCategory[]) => void;
+  toggleCategory: (category: PinCategory) => void;
+  setCategoryDefaults: (categories: PinCategory[]) => void;
   /** null hasta cargar el perfil; false = cuenta nueva que aún no elige categorías. */
   categoriesConfigured: boolean | null;
-  completeCategoryOnboarding: (categories: AlertCategory[]) => Promise<void>;
+  completeCategoryOnboarding: (categories: PinCategory[]) => Promise<void>;
   setLowConnection: (value: boolean) => void;
   setPushEnabled: (value: boolean) => void;
   loadAlertsFromSupabase: () => Promise<void>;
@@ -151,6 +152,7 @@ type AlertyState = {
   resetGuest: () => void;
   updateUsername: (newUsername: string) => Promise<{ error: string | null }>;
   updateAvatar: (avatarUrl: string) => Promise<{ error: string | null }>;
+  updateCharacter: (character: string) => Promise<{ error: string | null }>;
   recomputeVerifiedStatus: () => void;
   sponsoredZones: SponsoredZone[];
   loadSponsoredZones: () => Promise<void>;
@@ -210,9 +212,9 @@ const syncPreference = async (key: string, value: any) => {
 // aparece activada para todos en vez de quedar oculta para siempre. El SOS no
 // se puede ocultar.
 const hiddenFrom = (active: readonly string[]) =>
-  ALERT_CATEGORIES.filter((c) => c !== "sos" && !active.includes(c));
-const activeFromHidden = (hidden: string[] | null | undefined): AlertCategory[] =>
-  ALERT_CATEGORIES.filter((c) => c === "sos" || !(hidden ?? []).includes(c));
+  PIN_CATEGORIES.filter((c) => c !== "sos" && !active.includes(c));
+const activeFromHidden = (hidden: string[] | null | undefined): PinCategory[] =>
+  PIN_CATEGORIES.filter((c) => c === "sos" || !(hidden ?? []).includes(c));
 
 // Los IDs de alertas demo/locales (seed-, live-, local-) no son UUID y no
 // existen en la base de datos — sus mutaciones se quedan solo en memoria.
@@ -275,6 +277,7 @@ const mapUserFromRow = (row: any, fallbackId?: string): AlertUser => {
     id: row?.id ?? fallbackId ?? "unknown",
     username: row?.username ?? "@anon",
     avatarUrl: row?.avatar_url ?? null,
+    character: row?.character ?? null,
     isVerified: Boolean(row?.is_verified),
     isPremium: Boolean(row?.is_premium),
     trustScore,
@@ -289,9 +292,9 @@ const mapUserFromRow = (row: any, fallbackId?: string): AlertUser => {
 
 const ALERT_SELECT = `
   id,category,lat,lng,title,description,created_at,status,parent_alert_id,
-  users!alerts_user_id_fkey(id,username,avatar_url,is_verified,is_premium,trust_score,followers_count,reporter_stats(confirmations_received)),
+  users!alerts_user_id_fkey(id,username,avatar_url,character,is_verified,is_premium,trust_score,followers_count,reporter_stats(confirmations_received)),
   media(id,media_url,media_type,update_id),
-  alert_updates(id,content,created_at,user_id,users(id,username,avatar_url,is_verified,is_premium))
+  alert_updates(id,content,created_at,user_id,users(id,username,avatar_url,character,is_verified,is_premium))
 `;
 
 const mapAlertRow = (
@@ -364,7 +367,7 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
   alertsLoaded: false,
   communityLoaded: false,
   timeFilter: "7d",
-  activeCategories: [...ALERT_CATEGORIES],
+  activeCategories: [...PIN_CATEGORIES],
   categoriesConfigured: null,
   blockedUserIds: [],
   termsAccepted: null,
@@ -442,7 +445,7 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
         const row = payload.new as any;
         const { data: userData } = await supabase!
           .from("users")
-          .select("id,username,avatar_url,is_verified,trust_score,followers_count")
+          .select("id,username,avatar_url,character,is_verified,trust_score,followers_count")
           .eq("id", row.user_id)
           .maybeSingle();
 
@@ -504,7 +507,7 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
         const row = payload.new as any;
         const { data: userData } = await supabase!
           .from("users")
-          .select("id,username,avatar_url,is_verified,trust_score,followers_count")
+          .select("id,username,avatar_url,character,is_verified,trust_score,followers_count")
           .eq("id", row.user_id)
           .maybeSingle();
 
@@ -639,7 +642,7 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
       return { activeCategories: newCategories };
     }),
   setCategoryDefaults: (categories) => {
-    const withSos = categories.includes("sos") ? categories : [...categories, "sos" as AlertCategory];
+    const withSos = categories.includes("sos") ? categories : [...categories, "sos" as PinCategory];
     set({ activeCategories: withSos });
     syncPreference("hidden_categories", hiddenFrom(withSos));
   },
@@ -680,7 +683,7 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
         const res = await supabase
           .from("users")
           .select(
-            "id,username,avatar_url,is_verified,trust_score,followers_count,theme_mode,push_enabled,low_connection,hidden_categories,show_heatmap,is_premium,categories_configured,terms_accepted_at,is_moderator",
+            "id,username,avatar_url,character,is_verified,trust_score,followers_count,theme_mode,push_enabled,low_connection,hidden_categories,show_heatmap,is_premium,categories_configured,terms_accepted_at,is_moderator",
           )
           .eq("id", sess.session.user.id)
           .single();
@@ -700,6 +703,7 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
           id: data.id,
           username: data.username,
           avatarUrl: data.avatar_url,
+          character: data.character ?? null,
           isVerified: Boolean(data.is_verified),
           trustScore,
           level: levelFromScore(trustScore),
@@ -1140,6 +1144,22 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
     }));
     return { error: null };
   },
+  updateCharacter: async (character) => {
+    if (!isSupabaseConfigured || !supabase) return { error: "Sin conexión" };
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user) return { error: "No autenticado" };
+
+    const { error } = await supabase
+      .from("users")
+      .update({ character })
+      .eq("id", session.user.id);
+    if (error) return { error: "No se pudo guardar. Intenta de nuevo." };
+
+    set((state) => ({
+      currentUser: { ...state.currentUser, character },
+    }));
+    return { error: null };
+  },
   fetchAlertById: async (id) => {
     if (!isSupabaseConfigured || !supabase || !isDbId(id)) return false;
     try {
@@ -1294,7 +1314,7 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
         user_id: user.id,
         content: content,
       })
-      .select("*, users(id,username,avatar_url,is_verified)")
+      .select("*, users(id,username,avatar_url,character,is_verified)")
       .single();
 
     if (error) {

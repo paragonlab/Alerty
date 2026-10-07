@@ -48,6 +48,7 @@ import { GlowMarker } from "../../components/GlowMarker";
 import { DestinationPin } from "../../components/DestinationPin";
 import { SponsorPin } from "../../components/SponsorPin";
 import {
+  balloonPinAnchor,
   shouldShowSponsorName,
   sponsorPinAnchor,
 } from "../../lib/alerty/pinArt";
@@ -102,7 +103,8 @@ export default function MapScreen() {
   const [pinTracks, setPinTracks] = useState(true);
   const [mapLatitudeDelta, setMapLatitudeDelta] = useState(CULIACAN_CENTER.latitudeDelta);
   const isWeb = Platform.OS === "web";
-  const showSponsorNames = shouldShowSponsorName({ latitudeDelta: mapLatitudeDelta });
+  const showPinNames = shouldShowSponsorName({ latitudeDelta: mapLatitudeDelta });
+  const showSponsorNames = showPinNames;
 
   const {
     alerts,
@@ -647,6 +649,7 @@ export default function MapScreen() {
               <Marker
                 key={alert.id}
                 coordinate={{ latitude: alert.lat, longitude: alert.lng }}
+                anchor={balloonPinAnchor(showPinNames)}
                 tracksViewChanges={Platform.OS === "android" ? pinTracks : !lowConnection}
                 onPress={() => {
                   void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -669,22 +672,29 @@ export default function MapScreen() {
                   isVerified={alert.user.isVerified}
                   lowConnection={lowConnection}
                   avatarUrl={alert.user.avatarUrl}
+                  character={alert.user.character}
+                  userId={alert.user.id}
+                  username={alert.user.username}
+                  showName={showPinNames}
                 />
               </Marker>
             ))}
 
-            {/* Posts de comunidad desde X — pin estático, no GlowMarker; un pin por hecho */}
-            {communityClusters.map(({ post }) => (
+            {/* Posts de comunidad desde X — pin globo Waze; un pin por hecho (+N si hay más fuentes) */}
+            {communityClusters.map(({ post, sources }) => (
               <Marker
                 key={`x-${post.id}`}
                 coordinate={{ latitude: post.lat, longitude: post.lng }}
-                tracksViewChanges={Boolean(post.authorAvatarUrl || post.mediaUrl)}
+                anchor={balloonPinAnchor(showPinNames)}
+                tracksViewChanges={Boolean(post.authorAvatarUrl || post.mediaUrl) || showPinNames}
                 onPress={() => {
                   void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                   setRiskResult(null);
-                  // La noticia se ve donde se lee: con video abre el reel, y
-                  // sin video abre su ficha en Pulsos. Antes se quedaba en una
-                  // tarjeta encima del mapa.
+                  if (sources > 1) {
+                    setSelectedCommunity(post);
+                    setSelectedSources(sources);
+                    return;
+                  }
                   if (isCommunityVideo(post)) openReels(`c-${post.id}`);
                   else focusCommunity(post.id);
                   goToPulsos();
@@ -696,8 +706,11 @@ export default function MapScreen() {
                   categoryGuess={post.categoryGuess}
                   color={getCategoryPinColor(post.categoryGuess)}
                   authorAvatarUrl={post.authorAvatarUrl}
+                  authorName={post.authorName || post.authorHandle}
                   mediaUrl={post.mediaUrl}
                   source={post.source}
+                  extraSources={Math.max(0, sources - 1)}
+                  showName={showPinNames}
                   intensity={glowIntensity(post.categoryGuess, post.createdAt)}
                   showGlow={showHeatmap}
                 />

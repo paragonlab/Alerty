@@ -1,7 +1,20 @@
 import type { PinGiro, PinShape } from "./types";
+import {
+  CHARACTER_SVG,
+  getCitizenCharacter,
+  type CitizenCharacterId,
+} from "./characters";
+import {
+  CATEGORY_BADGE_SVG,
+  CATEGORY_MAIN_SVG,
+  PIN_CATEGORY_COLORS,
+  isPinCategoryId,
+  type PinCategoryId,
+} from "./categoryIcons";
 
 export type { PinGiro };
 export type SponsorZoneType = "refugio" | "anuncio";
+export type CommunitySourceKind = "x" | "rss";
 
 /** Lienzo fuente del globo (pins.py). La punta está en (60, 124). */
 const SRC_W = 120;
@@ -114,9 +127,13 @@ export function girosForZoneType(zoneType: SponsorZoneType): PinGiro[] {
     : ["tienda", "farmacia", "cafe", "generico"];
 }
 
-export function truncateSponsorName(name: string, maxW = SPONSOR_NAME_MAX_W): string {
+export function truncateSponsorName(
+  name: string,
+  maxW = SPONSOR_NAME_MAX_W,
+  emptyFallback = "Aliado",
+): string {
   const cleaned = name.trim().replace(/\s+/g, " ");
-  if (!cleaned) return "Aliado";
+  if (!cleaned) return emptyFallback;
   const maxChars = Math.max(4, Math.floor(maxW / NAME_CHAR_W));
   if (cleaned.length <= maxChars) return cleaned;
   return `${cleaned.slice(0, Math.max(1, maxChars - 1)).trimEnd()}…`;
@@ -258,16 +275,23 @@ function badge(kind: SponsorZoneType): string {
   return `<circle cx="${bx}" cy="${by}" r="${BADGE_R}" fill="${col}" ${S}/>${glyph}`;
 }
 
-function nameTag(text: string): string {
-  const label = truncateSponsorName(text);
+function nameTag(
+  text: string,
+  emptyFallback = "Aliado",
+  tone: "light" | "dark" = "light",
+): string {
+  const label = truncateSponsorName(text, SPONSOR_NAME_MAX_W, emptyFallback);
   const tw = Math.min(SPONSOR_NAME_MAX_W, Math.max(36, label.length * NAME_CHAR_W));
   const w = tw + 22;
   const h = 23;
   const cx = TAG_SRC_W / 2;
   const y = 131;
+  const fill = tone === "dark" ? INK : WHITE;
+  const stroke = tone === "dark" ? INK : INK;
+  const fg = tone === "dark" ? WHITE : INK;
   return (
-    `<rect x="${(cx - w / 2).toFixed(1)}" y="${y}" width="${w.toFixed(1)}" height="${h}" rx="${h / 2}" fill="#fff" stroke="${INK}" stroke-width="2.5"/>` +
-    `<text x="${cx}" y="${(y + h / 2 + 4.4).toFixed(1)}" text-anchor="middle" font-family="Space Grotesk, system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="700" font-size="${NAME_FONT_SIZE}" fill="${INK}">${esc(label)}</text>`
+    `<rect x="${(cx - w / 2).toFixed(1)}" y="${y}" width="${w.toFixed(1)}" height="${h}" rx="${h / 2}" fill="${fill}" stroke="${stroke}" stroke-width="2.5"/>` +
+    `<text x="${cx}" y="${(y + h / 2 + 4.4).toFixed(1)}" text-anchor="middle" font-family="Space Grotesk, system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="700" font-size="${NAME_FONT_SIZE}" fill="${fg}">${esc(label)}</text>`
   );
 }
 
@@ -333,3 +357,158 @@ export function sponsorPinSvg(opts: {
   ${body}
 </svg>`;
 }
+
+function categoryBadge(cat: PinCategoryId): string {
+  const col = PIN_CATEGORY_COLORS[cat];
+  const { x: bx, y: by } = BADGE;
+  const k = BADGE_R / 37;
+  const id = `bdg${Math.random().toString(36).slice(2, 8)}`;
+  const glyph = CATEGORY_BADGE_SVG[cat] ?? CATEGORY_MAIN_SVG[cat] ?? "";
+  return (
+    `<circle cx="${bx}" cy="${by}" r="${BADGE_R}" fill="${col}"/>` +
+    `<clipPath id="${id}"><circle cx="${bx}" cy="${by}" r="${BADGE_R - SW / 2}"/></clipPath>` +
+    `<g clip-path="url(#${id})"><g transform="translate(${bx},${by + 0.5}) scale(${k.toFixed(4)})">${glyph}</g></g>` +
+    `<circle cx="${bx}" cy="${by}" r="${BADGE_R}" fill="none" stroke="${INK}" stroke-width="${SW}"/>`
+  );
+}
+
+function sourceChip(kind: CommunitySourceKind): string {
+  const { x: bx, y: by } = BADGE;
+  const r = BADGE_R;
+  const base = `<circle cx="${bx}" cy="${by}" r="${r}" fill="${WHITE}" ${S}/>`;
+  if (kind === "rss") {
+    return (
+      base +
+      `<path d="M${bx - 8},${by - 7} H${bx + 5} L${bx + 8},${by - 4} V${by + 7} H${bx - 8} Z" fill="${WHITE}" stroke="${INK}" stroke-width="2" stroke-linejoin="round"/>` +
+      `<path d="M${bx - 5},${by - 2.5} H${bx + 5} M${bx - 5},${by + 1} H${bx + 5} M${bx - 5},${by + 4.3} H${bx + 2}" stroke="${INK}" stroke-width="1.7" stroke-linecap="round"/>`
+    );
+  }
+  return (
+    base +
+    `<path d="M${bx - 9},${by - 5} Q${bx - 9},${by - 9} ${bx - 5},${by - 9} H${bx + 5} Q${bx + 9},${by - 9} ${bx + 9},${by - 5} V${by + 1} Q${bx + 9},${by + 5} ${bx + 5},${by + 5} H${bx - 1} L${bx - 6},${by + 9} V${by + 5} Q${bx - 9},${by + 5} ${bx - 9},${by + 1} Z" fill="${INK}"/>` +
+    `<circle cx="${bx - 4}" cy="${by - 2}" r="1.5" fill="${WHITE}"/><circle cx="${bx}" cy="${by - 2}" r="1.5" fill="${WHITE}"/><circle cx="${bx + 4}" cy="${by - 2}" r="1.5" fill="${WHITE}"/>`
+  );
+}
+
+function countChip(n: number): string {
+  const bx = 24;
+  const by = 22;
+  const r = 15;
+  const label = `+${Math.max(1, Math.floor(n))}`;
+  return (
+    `<circle cx="${bx}" cy="${by}" r="${r}" fill="${INK}" stroke="${WHITE}" stroke-width="2.4"/>` +
+    `<text x="${bx}" y="${by + 5.2}" text-anchor="middle" font-family="Space Grotesk, system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="800" font-size="14.5" fill="${WHITE}">${esc(label)}</text>`
+  );
+}
+
+function wrapBalloonSvg(
+  balloonInner: string,
+  showName: boolean,
+  name?: string | null,
+  emptyNameFallback = "Pulso",
+  nameTone: "light" | "dark" = "dark",
+): string {
+  const balloon = `${shadow()}
+    <path d="${balloonPath()}" fill="${WHITE}" ${S}/>
+    ${balloonInner}`;
+  const vbW = showName ? TAG_SRC_W : SRC_W;
+  const vbH = showName ? TAG_SRC_H : SRC_H;
+  const { w: outW, h: outH } = sponsorPinDisplaySize(showName);
+  const body = showName
+    ? `<g transform="translate(${TAG_PAD_X},0)">${balloon}</g>${nameTag(name ?? "", emptyNameFallback, nameTone)}`
+    : balloon;
+  return `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 ${vbW} ${vbH}" width="${outW}" height="${outH}">
+  <defs></defs>
+  ${body}
+</svg>`;
+}
+
+/**
+ * Pin ciudadano estilo Waze.
+ * A = personaje. B = personaje + insignia de categoría. C = foto + insignia (fallback a personaje).
+ */
+export function citizenPinSvg(opts: {
+  characterId: CitizenCharacterId;
+  category?: string | null;
+  photoUrl?: string | null;
+  name?: string | null;
+  showName?: boolean;
+  showBadge?: boolean;
+}): string {
+  const showName = Boolean(opts.showName);
+  const showBadge = opts.showBadge !== false && Boolean(opts.category);
+  const photoUrl = opts.photoUrl && opts.photoUrl.length < 2000 ? opts.photoUrl : null;
+  const char = getCitizenCharacter(opts.characterId);
+  const id = `c${Math.random().toString(36).slice(2, 8)}`;
+  const cat = opts.category && isPinCategoryId(opts.category) ? opts.category : null;
+
+  let face: string;
+  if (photoUrl) {
+    face = `
+      <clipPath id="${id}-ph"><circle cx="${CX}" cy="${CY}" r="${R_IN}"/></clipPath>
+      <circle cx="${CX}" cy="${CY}" r="${R_IN}" fill="#ccc"/>
+      <g clip-path="url(#${id}-ph)">
+        <image href="${esc(photoUrl)}" xlink:href="${esc(photoUrl)}" x="${CX - R_IN}" y="${CY - R_IN}" width="${R_IN * 2}" height="${R_IN * 2}" preserveAspectRatio="xMidYMid slice"/>
+      </g>`;
+  } else {
+    face = `
+      <clipPath id="${id}-ch"><circle cx="${CX}" cy="${CY}" r="${R_IN}"/></clipPath>
+      <circle cx="${CX}" cy="${CY}" r="${R_IN}" fill="${char.bg}"/>
+      <g clip-path="url(#${id}-ch)">${CHARACTER_SVG[opts.characterId]}</g>`;
+  }
+
+  const badge = showBadge && cat ? categoryBadge(cat) : "";
+  return wrapBalloonSvg(`${face}${badge}`, showName, opts.name, "Vecino");
+}
+
+/**
+ * Pin Pulso (community_posts) estilo Waze.
+ * A = logo + aro de categoría + insignia. B = ícono de categoría + chip de fuente.
+ * C = A + contador +N (fuentes adicionales).
+ */
+export function pulsoPinSvg(opts: {
+  category?: string | null;
+  logoUrl?: string | null;
+  source?: CommunitySourceKind | null;
+  extraSources?: number;
+  name?: string | null;
+  showName?: boolean;
+}): string {
+  const showName = Boolean(opts.showName);
+  const logoUrl = opts.logoUrl && opts.logoUrl.length < 2000 ? opts.logoUrl : null;
+  const cat: PinCategoryId =
+    opts.category && isPinCategoryId(opts.category) ? opts.category : "alerta";
+  const color = PIN_CATEGORY_COLORS[cat];
+  const id = `u${Math.random().toString(36).slice(2, 8)}`;
+  const extras = Math.max(0, Math.floor(opts.extraSources ?? 0));
+
+  let inner: string;
+  if (logoUrl) {
+    const rLogo = R_IN - 5;
+    inner = `
+      <circle cx="${CX}" cy="${CY}" r="${R_IN}" fill="${color}"/>
+      <clipPath id="${id}-lg"><circle cx="${CX}" cy="${CY}" r="${rLogo}"/></clipPath>
+      <g clip-path="url(#${id}-lg)">
+        <image href="${esc(logoUrl)}" xlink:href="${esc(logoUrl)}" x="${CX - rLogo}" y="${CY - rLogo}" width="${rLogo * 2}" height="${rLogo * 2}" preserveAspectRatio="xMidYMid slice"/>
+      </g>
+      <circle cx="${CX}" cy="${CY}" r="${rLogo}" fill="none" stroke="${WHITE}" stroke-width="1.6"/>
+      ${categoryBadge(cat)}
+      ${extras > 0 ? countChip(extras) : ""}`;
+  } else {
+    const main = CATEGORY_MAIN_SVG[cat] ?? "";
+    inner = `
+      <circle cx="${CX}" cy="${CY}" r="${R_IN}" fill="${color}"/>
+      <g transform="translate(${CX},${CY})">${main}</g>
+      ${opts.source ? sourceChip(opts.source) : ""}
+      ${extras > 0 ? countChip(extras) : ""}`;
+  }
+
+  return wrapBalloonSvg(inner, showName, opts.name);
+}
+
+/** Alias de tamaño/ancla compartido por las tres familias de globo. */
+export const balloonPinDisplaySize = sponsorPinDisplaySize;
+export const balloonPinTipX = sponsorPinTipX;
+export const balloonPinTipY = sponsorPinTipY;
+export const balloonPinAnchor = sponsorPinAnchor;
+export const shouldShowPinName = shouldShowSponsorName;

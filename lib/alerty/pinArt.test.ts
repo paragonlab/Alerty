@@ -4,8 +4,10 @@
 import {
   SPONSOR_PIN_H,
   SPONSOR_PIN_W,
+  citizenPinSvg,
   giroFromPinShape,
   girosForZoneType,
+  pulsoPinSvg,
   shouldShowSponsorName,
   sponsorPinAnchor,
   sponsorPinDisplaySize,
@@ -109,6 +111,35 @@ function run() {
     const svg = sponsorPinSvg({ shape, zoneType: "anuncio", name: "X", showName: false });
     assert(svg.includes("<path"), `${shape} still renders via legacy mapping`);
   }
+
+  const citizen = citizenPinSvg({
+    characterId: "vecina",
+    category: "balacera",
+    showBadge: true,
+    showName: false,
+  });
+  assert(citizen.includes("#FF9EB5"), "vecina bg");
+  assert(citizen.includes("#D9342B"), "balacera badge color");
+  assert(citizen.includes("A51,51"), "citizen balloon");
+
+  const pulsoA = pulsoPinSvg({
+    category: "incendio",
+    logoUrl: "https://cdn.example/ln.png",
+    showName: false,
+  });
+  assert(pulsoA.includes("<image"), "pulso A logo");
+  assert(pulsoA.includes("#EF4B23"), "incendio color");
+
+  const pulsoB = pulsoPinSvg({ category: "robo", source: "rss", showName: false });
+  assert(!pulsoB.includes("<image"), "pulso B no logo");
+  assert(pulsoB.includes("#C79A1E"), "robo color");
+
+  const pulsoC = pulsoPinSvg({
+    category: "detonaciones",
+    logoUrl: "https://cdn.example/x.png",
+    extraSources: 3,
+  });
+  assert(pulsoC.includes("+3"), "cluster counter");
 
   console.log("pinArt tests ok");
 }

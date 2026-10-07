@@ -1,10 +1,8 @@
 import { useEffect, useRef, useMemo } from "react";
-import { StyleSheet, View, Animated, Easing, Image, Text } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
-import { useAlertyStore } from "../lib/alerty/store";
+import { StyleSheet, View, Animated, Easing } from "react-native";
 import type { AlertCategory } from "../lib/alerty/types";
-import { CATEGORY_ICONS } from "../lib/alerty/constants";
-import { isHttpAvatar, presetFromUrl } from "../lib/alerty/avatars";
+import { balloonPinDisplaySize } from "../lib/alerty/pinArt";
+import { CitizenPin } from "./CitizenPin";
 
 type GlowMarkerProps = {
   category: AlertCategory;
@@ -13,42 +11,52 @@ type GlowMarkerProps = {
   hasMedia: boolean;
   isVerified: boolean;
   lowConnection?: boolean;
-  /** Foto del reportero; si falta, icono de categoría. */
   avatarUrl?: string | null;
-  /** 0.35–1: tamaño y brillo del halo. Solo lo intenso lleva anillo que late. */
+  character?: string | null;
+  userId: string;
+  username?: string | null;
+  showName?: boolean;
+  /** 0.35–1: brillo del halo SOS. */
   intensity?: number;
-  /** false = pin sin glow (botón de brillo apagado). */
+  /** false = sin glow. */
   showGlow?: boolean;
+  markerKind?: "citizen";
 };
 
+/**
+ * Pin de alerta ciudadana (globo Waze) + énfasis de pulso para SOS.
+ */
 export function GlowMarker({
   category,
   color,
   duration,
-  hasMedia,
-  isVerified,
+  hasMedia: _hasMedia,
+  isVerified: _isVerified,
   lowConnection,
   avatarUrl,
+  character,
+  userId,
+  username,
+  showName = false,
   intensity = 1,
   showGlow = true,
+  markerKind = "citizen",
 }: GlowMarkerProps) {
-  const glow = showGlow && !lowConnection;
+  const isSos = category === "sos";
+  const glow = showGlow && !lowConnection && isSos;
   const rings = glow && intensity >= 0.8;
-  const haloSize = Math.round(28 + 16 * intensity);
-  const themeMode = useAlertyStore((s) => s.themeMode);
-  const isDark = themeMode === "darkHighVisibility";
+  const haloSize = Math.round(40 + 20 * intensity);
+  const { w, h } = balloonPinDisplaySize(showName);
 
   const haloAnim = useMemo(() => new Animated.Value(0), []);
   const ring1Anim = useMemo(() => new Animated.Value(0), []);
   const ring2Anim = useMemo(() => new Animated.Value(0), []);
-  const heartbeatAnim = useMemo(() => new Animated.Value(0), []);
-
   const ring2LoopRef = useRef<Animated.CompositeAnimation | null>(null);
   const isMounted = useRef(true);
 
   useEffect(() => {
     isMounted.current = true;
-    if (lowConnection) return;
+    if (!glow) return;
 
     const haloDur = Math.round(duration * 1.6);
     const haloLoop = Animated.loop(
@@ -65,7 +73,7 @@ export function GlowMarker({
           easing: Easing.inOut(Easing.ease),
           useNativeDriver: true,
         }),
-      ])
+      ]),
     );
 
     const makeRingLoop = (anim: Animated.Value) =>
@@ -78,23 +86,11 @@ export function GlowMarker({
             useNativeDriver: true,
           }),
           Animated.timing(anim, { toValue: 0, duration: 0, useNativeDriver: true }),
-        ])
+        ]),
       );
-
-    const beatDur = Math.round(duration * 0.1);
-    const heartbeatLoop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(heartbeatAnim, { toValue: 0.55, duration: beatDur, useNativeDriver: true }),
-        Animated.timing(heartbeatAnim, { toValue: 0, duration: beatDur, useNativeDriver: true }),
-        Animated.timing(heartbeatAnim, { toValue: 0.25, duration: beatDur, useNativeDriver: true }),
-        Animated.timing(heartbeatAnim, { toValue: 0, duration: beatDur, useNativeDriver: true }),
-        Animated.delay(Math.round(duration * 0.6)),
-      ])
-    );
 
     haloLoop.start();
     makeRingLoop(ring1Anim).start();
-    heartbeatLoop.start();
 
     const t = setTimeout(() => {
       if (!isMounted.current) return;
@@ -108,35 +104,25 @@ export function GlowMarker({
       haloLoop.stop();
       ring1Anim.stopAnimation();
       ring2Anim.stopAnimation();
-      heartbeatLoop.stop();
       clearTimeout(t);
       ring2LoopRef.current?.stop();
       ring2LoopRef.current = null;
     };
-  }, [duration, lowConnection]);
+  }, [duration, glow, haloAnim, ring1Anim, ring2Anim]);
 
-  const haloScale = haloAnim.interpolate({ inputRange: [0, 1], outputRange: [0.85, 1.1] });
+  const haloScale = haloAnim.interpolate({ inputRange: [0, 1], outputRange: [0.85, 1.15] });
   const haloOpacity = haloAnim.interpolate({
     inputRange: [0, 1],
-    outputRange: [(isDark ? 0.45 : 0.3) * intensity, (isDark ? 0.8 : 0.6) * intensity],
+    outputRange: [0.25 * intensity, 0.55 * intensity],
   });
-
-  const r1Scale = ring1Anim.interpolate({ inputRange: [0, 1], outputRange: [0.7, 2.4] });
-  const r1Opacity = ring1Anim.interpolate({ inputRange: [0, 0.6, 1], outputRange: [0.9, 0.25, 0] });
-  const r2Scale = ring2Anim.interpolate({ inputRange: [0, 1], outputRange: [0.7, 2.4] });
-  const r2Opacity = ring2Anim.interpolate({ inputRange: [0, 0.6, 1], outputRange: [0.9, 0.25, 0] });
-
-  const mediaColor = isDark ? "#FF00FF" : "#5A4C3B";
-  const verifiedColor = isDark ? "#00E0FF" : "#2C7BE5";
-  const badgeBg = isDark ? "#000000" : "#FFFFFF";
-  const preset = presetFromUrl(avatarUrl);
-  const httpAvatar = isHttpAvatar(avatarUrl);
-  const showAvatar = Boolean(preset || httpAvatar);
+  const r1Scale = ring1Anim.interpolate({ inputRange: [0, 1], outputRange: [0.7, 2.2] });
+  const r1Opacity = ring1Anim.interpolate({ inputRange: [0, 0.6, 1], outputRange: [0.85, 0.25, 0] });
+  const r2Scale = ring2Anim.interpolate({ inputRange: [0, 1], outputRange: [0.7, 2.2] });
+  const r2Opacity = ring2Anim.interpolate({ inputRange: [0, 0.6, 1], outputRange: [0.85, 0.25, 0] });
 
   return (
-    <View style={styles.container}>
-      {/* Layer 1: Halo ambient bloom */}
-      {glow && (
+    <View style={[styles.container, { width: Math.max(w, haloSize), height: Math.max(h, haloSize) }]}>
+      {glow ? (
         <Animated.View
           style={[
             styles.halo,
@@ -149,90 +135,41 @@ export function GlowMarker({
             },
           ]}
         />
-      )}
-
-      {/* Layer 2: Staggered expanding rings */}
-      {rings && (
+      ) : null}
+      {rings ? (
         <Animated.View
           style={[
             styles.ring,
             {
               borderColor: color,
-              borderWidth: isDark ? 1.5 : 2,
               transform: [{ scale: r1Scale }],
               opacity: r1Opacity,
             },
           ]}
         />
-      )}
-      {rings && (
+      ) : null}
+      {rings ? (
         <Animated.View
           style={[
             styles.ring,
             {
               borderColor: color,
-              borderWidth: isDark ? 1.5 : 2,
               transform: [{ scale: r2Scale }],
               opacity: r2Opacity,
             },
           ]}
         />
-      )}
-
-      {/* Layer 3: Core dot — avatar o icono de categoría */}
-      <View
-        style={[
-          styles.dot,
-          {
-            backgroundColor: preset ? preset.color : showAvatar ? "#111" : color,
-            borderColor: isDark ? "rgba(255,255,255,0.92)" : "#FFFFFF",
-            shadowColor: color,
-            shadowOpacity: isDark ? 0.9 : 0.55,
-            shadowRadius: isDark ? 14 : 7,
-            shadowOffset: { width: 0, height: 2 },
-            elevation: isDark ? 12 : 5,
-          },
-        ]}
-      >
-        {preset ? (
-          <Text style={styles.presetEmoji}>{preset.emoji}</Text>
-        ) : httpAvatar ? (
-          <Image source={{ uri: avatarUrl! }} style={styles.avatar} />
-        ) : (
-          <>
-            <View style={styles.dotHighlight} />
-            {!lowConnection && (
-              <Animated.View
-                style={[StyleSheet.absoluteFill, styles.dotHeartbeat, { opacity: heartbeatAnim }]}
-              />
-            )}
-            <Ionicons
-              name={CATEGORY_ICONS[category] as any}
-              size={10}
-              color="#fff"
-              style={styles.dotIcon}
-            />
-          </>
-        )}
-        {/* Anillo de color de riesgo sobre avatar */}
-        {showAvatar ? (
-          <View style={[styles.avatarRing, { borderColor: color }]} pointerEvents="none" />
-        ) : null}
-      </View>
-
-      {/* Badges */}
-      <View style={styles.badgeRow}>
-        {hasMedia && (
-          <View style={[styles.badge, { backgroundColor: badgeBg }]}>
-            <Ionicons name="camera" size={9} color={mediaColor} />
-          </View>
-        )}
-        {isVerified && (
-          <View style={[styles.badge, { backgroundColor: badgeBg }]}>
-            <Ionicons name="checkmark-circle" size={9} color={verifiedColor} />
-          </View>
-        )}
-      </View>
+      ) : null}
+      <CitizenPin
+        markerKind={markerKind}
+        userId={userId}
+        character={character}
+        avatarUrl={avatarUrl}
+        category={category}
+        username={username}
+        showName={showName}
+        showBadge
+      />
     </View>
   );
 }
@@ -241,8 +178,6 @@ const styles = StyleSheet.create({
   container: {
     alignItems: "center",
     justifyContent: "center",
-    width: 72,
-    height: 72,
   },
   halo: {
     position: "absolute",
@@ -250,67 +185,10 @@ const styles = StyleSheet.create({
   },
   ring: {
     position: "absolute",
-    width: 22,
-    height: 22,
-    borderRadius: 999,
-    backgroundColor: "transparent",
-  },
-  dot: {
-    width: 22,
-    height: 22,
-    borderRadius: 999,
-    borderWidth: 2.5,
-    alignItems: "center",
-    justifyContent: "center",
-    zIndex: 3,
-    overflow: "hidden",
-  },
-  avatar: {
-    width: "100%",
-    height: "100%",
-    borderRadius: 999,
-  },
-  presetEmoji: {
-    fontSize: 11,
-    lineHeight: 13,
-  },
-  avatarRing: {
-    ...StyleSheet.absoluteFillObject,
+    width: 44,
+    height: 44,
     borderRadius: 999,
     borderWidth: 2,
-  },
-  dotHighlight: {
-    position: "absolute",
-    top: 2,
-    left: "16%",
-    right: "16%",
-    height: 7,
-    backgroundColor: "rgba(255,255,255,0.5)",
-    borderRadius: 999,
-  },
-  dotHeartbeat: {
-    backgroundColor: "#ffffff",
-    borderRadius: 999,
-  },
-  dotIcon: {
-    position: "relative",
-    zIndex: 2,
-  },
-  badgeRow: {
-    position: "absolute",
-    top: 2,
-    right: 0,
-    flexDirection: "row",
-    gap: 2,
-    zIndex: 4,
-  },
-  badge: {
-    width: 14,
-    height: 14,
-    borderRadius: 999,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: "rgba(0,0,0,0.1)",
+    backgroundColor: "transparent",
   },
 });

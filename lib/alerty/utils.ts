@@ -3,7 +3,7 @@ import {
   AVISOS_RADIUS_KM,
   CATEGORY_PIN_COLORS,
   COMMUNITY_DEFAULT_PIN_COLOR,
-  ALERT_CATEGORIES,
+  PIN_CATEGORIES,
   TIME_FILTER_WINDOW_LABEL,
 } from "./constants";
 import type { AlertItem, CommunityPost, TimeFilter } from "./types";
@@ -23,10 +23,10 @@ export const formatRelativeTime = (createdAt: string) => {
 
 /**
  * Filtro por categoría para noticias de X/RSS: se muestran si su categoría
- * detectada está activa, o si no es una de las categorías de Pulso.
+ * detectada está activa, o si no es una categoría canónica de pin.
  */
 export const isCategoryShown = (guess: string | null | undefined, active: readonly string[]) =>
-  !guess || !(ALERT_CATEGORIES as readonly string[]).includes(guess) || active.includes(guess);
+  !guess || !(PIN_CATEGORIES as readonly string[]).includes(guess) || active.includes(guess);
 
 export const isCreatedAtInWindow = (createdAt: string, filter: TimeFilter) => {
   const minutes = getAlertAgeMinutes(createdAt);

@@ -11,6 +11,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.97.0";
 import { resolveCommunityGeo } from "../_shared/culiacanPlaces.ts";
+import { guessCategory } from "../_shared/guessCategory.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -147,20 +148,6 @@ function resolveFeeds(): Array<{ name: string; handle: string; url: string; logo
         logoUrl,
       };
     });
-}
-
-function guessCategory(text: string): string | null {
-  if (/\bbalacera\b|\btiroteo\b/i.test(text)) return "balacera";
-  if (/\bnarcobloqueo\b/i.test(text)) return "narcobloqueo";
-  if (/\benfrentamiento\b/i.test(text)) return "enfrentamiento";
-  if (/\bdetonaci/i.test(text)) return "detonaciones";
-  if (/\bbloqueo\b/i.test(text)) return "bloqueo";
-  if (/\brobo\b|\basalto\b/i.test(text)) return "robo";
-  if (/\baccidente\b|\bchoque\b/i.test(text)) return "accidente";
-  if (/\bincendio\b|\bconflagraci/i.test(text)) return "incendio";
-  if (/\binundaci|\bencharcamiento|\bdesborde\b/i.test(text)) return "inundacion";
-  if (/\balerta\b/i.test(text)) return "alerta";
-  return null;
 }
 
 Deno.serve(async (req) => {

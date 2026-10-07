@@ -4,7 +4,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import {
-  ALERT_CATEGORIES,
+  PIN_CATEGORIES,
   CATEGORY_ICONS,
   CATEGORY_LABELS,
   INFO_DISCLAIMER,
@@ -12,7 +12,7 @@ import {
 import { useAlertyStore } from "../lib/alerty/store";
 import { consumeAuthNext } from "../lib/alerty/session";
 import { useAlertyTheme } from "../lib/useAlertyTheme";
-import type { AlertCategory } from "../lib/alerty/types";
+import type { PinCategory } from "../lib/alerty/types";
 
 /**
  * Primer paso de una cuenta nueva: elegir qué categorías ver. Aplica al mapa,
@@ -23,10 +23,10 @@ export default function OnboardingScreen() {
   const styles = createStyles(theme);
   const router = useRouter();
   const completeCategoryOnboarding = useAlertyStore((s) => s.completeCategoryOnboarding);
-  const [selected, setSelected] = useState<AlertCategory[]>([...ALERT_CATEGORIES]);
+  const [selected, setSelected] = useState<PinCategory[]>([...PIN_CATEGORIES]);
   const [saving, setSaving] = useState(false);
 
-  const toggle = (category: AlertCategory) => {
+  const toggle = (category: PinCategory) => {
     if (category === "sos") return;
     setSelected((prev) =>
       prev.includes(category) ? prev.filter((c) => c !== category) : [...prev, category],
@@ -51,7 +51,7 @@ export default function OnboardingScreen() {
         </Text>
 
         <View style={styles.grid}>
-          {ALERT_CATEGORIES.map((category) => {
+          {PIN_CATEGORIES.map((category) => {
             const on = selected.includes(category);
             const locked = category === "sos";
             return (

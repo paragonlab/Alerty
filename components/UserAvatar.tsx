@@ -1,36 +1,38 @@
-import { Image, StyleSheet, Text, View } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
-import { isHttpAvatar, presetFromUrl } from "../lib/alerty/avatars";
+import { Image, StyleSheet, View } from "react-native";
+import { SvgXml } from "react-native-svg";
+import { isHttpAvatar } from "../lib/alerty/avatars";
+import {
+  CHARACTER_SVG,
+  getCitizenCharacter,
+  resolveCitizenCharacter,
+} from "../lib/alerty/characters";
 
 type Props = {
   url?: string | null;
+  character?: string | null;
+  userId?: string | null;
   size?: number;
   muted?: string;
   border?: string;
 };
 
-export function UserAvatar({ url, size = 52, muted = "#6A6257", border = "#E1D4C2" }: Props) {
-  const preset = presetFromUrl(url);
+/**
+ * Avatar de perfil / listas: foto o personaje ilustrado (sin insignia).
+ */
+export function UserAvatar({
+  url,
+  character,
+  userId,
+  size = 52,
+  border = "#E1D4C2",
+}: Props) {
   const radius = size / 2;
-
-  if (preset) {
-    return (
-      <View
-        style={[
-          styles.circle,
-          {
-            width: size,
-            height: size,
-            borderRadius: radius,
-            backgroundColor: preset.color,
-            borderColor: border,
-          },
-        ]}
-      >
-        <Text style={{ fontSize: size * 0.46 }}>{preset.emoji}</Text>
-      </View>
-    );
-  }
+  const characterId = resolveCitizenCharacter({
+    userId: userId || "anon",
+    character,
+    avatarUrl: url,
+  });
+  const bg = getCitizenCharacter(characterId).bg;
 
   if (isHttpAvatar(url)) {
     return (
@@ -41,6 +43,11 @@ export function UserAvatar({ url, size = 52, muted = "#6A6257", border = "#E1D4C
     );
   }
 
+  const xml = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="19 15 82 82" width="${size}" height="${size}">
+    <circle cx="60" cy="56" r="41" fill="${bg}"/>
+    <g>${CHARACTER_SVG[characterId]}</g>
+  </svg>`;
+
   return (
     <View
       style={[
@@ -49,12 +56,12 @@ export function UserAvatar({ url, size = 52, muted = "#6A6257", border = "#E1D4C
           width: size,
           height: size,
           borderRadius: radius,
-          backgroundColor: "#EFE6D7",
+          backgroundColor: bg,
           borderColor: border,
         },
       ]}
     >
-      <Ionicons name="person" size={size * 0.5} color={muted} />
+      <SvgXml xml={xml} width={size} height={size} />
     </View>
   );
 }
