@@ -106,12 +106,12 @@ supabase secrets set REVENUECAT_WEBHOOK_AUTH=<el token random del paso 2.5>
 ```bash
 supabase functions deploy revenuecat-webhook --no-verify-jwt
 supabase functions deploy stripe-webhook --no-verify-jwt
-supabase functions deploy stripe-checkout-b2b --no-verify-jwt
+supabase functions deploy stripe-checkout-b2b
 supabase functions deploy stripe-checkout-plus
 supabase functions deploy stripe-customer-portal
 ```
 
-`stripe-customer-portal` y `stripe-checkout-plus` verifican JWT.
+`stripe-customer-portal`, `stripe-checkout-plus` y `stripe-checkout-b2b` verifican JWT.
 
 Antes de usar el Customer Portal, en Stripe Dashboard (test mode) ve a
 **Settings → Billing → Customer portal** y activa la configuración (define qué puede

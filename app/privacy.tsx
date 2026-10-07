@@ -21,7 +21,7 @@ export default function PrivacyScreen() {
       </View>
       <ScrollView contentContainerStyle={styles.body}>
         <Text style={styles.title}>Política de privacidad</Text>
-        <Text style={styles.meta}>Última actualización: 2 de octubre de 2026</Text>
+        <Text style={styles.meta}>Última actualización: 7 de octubre de 2026</Text>
         <Text style={styles.p}>
           Pulso (la app también aparece como Alerty) es un mapa de alertas ciudadanas para
           Culiacán. Esta política describe qué datos recabamos, para qué los usamos y con
@@ -36,7 +36,9 @@ export default function PrivacyScreen() {
         <Text style={styles.p}>
           Ubicación: si das permiso, usamos tu ubicación precisa para mostrar alertas
           cercanas, colocar un reporte o un SOS, y vigilar colonias en Círculo. Las zonas
-          que guardas incluyen un punto y un radio.
+          que guardas incluyen un punto y un radio. También guardamos tu última ubicación
+          conocida (coordenadas y momento) para funciones de la cuenta; esa ubicación solo
+          es visible para ti, no para otros usuarios.
         </Text>
         <Text style={styles.p}>
           Contenido que publicas: textos, fotos, videos o audio de reportes y publicaciones
@@ -91,6 +93,8 @@ export default function PrivacyScreen() {
 
         <Text style={styles.h}>6. Contacto</Text>
         <Text style={styles.p}>Pulso Ciudadano.</Text>
+        {/* TODO: reemplazar con el correo real del titular antes de la revisión de tienda */}
+        <Text style={styles.p}>Correo: TODO_OWNER_EMAIL@example.com</Text>
         <Text style={styles.p}>Sitio: https://pulso-ciudadano.com</Text>
       </ScrollView>
     </SafeAreaView>

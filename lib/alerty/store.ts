@@ -332,11 +332,6 @@ const mapAlertRow = (
   user: mapUserFromRow(row.users),
 });
 
-const persistTrustScore = (userId: string, score: number) => {
-  if (!isSupabaseConfigured || !supabase || userId === "local-user" || !isDbId(userId)) return;
-  void supabase.from("users").update({ trust_score: score }).eq("id", userId);
-};
-
 let lastLocationPersistAt = 0;
 
 /** Guarda la última ubicación para el admin. Como mucho cada 15 min, o si se movió ~200 m. */
@@ -597,12 +592,10 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
       (a) => new Date(a.createdAt) > thirtyDaysAgo && a.downvotes > a.upvotes,
     );
 
+    // La persistencia de is_verified la hace el servidor (trigger en verifications/alerts).
     const isVerified = ratio >= 0.7 && !recentFalse;
     if (isVerified !== currentUser.isVerified) {
       set((state) => ({ currentUser: { ...state.currentUser, isVerified } }));
-      if (isSupabaseConfigured && supabase && currentUser.id !== "local-user") {
-        void supabase.from("users").update({ is_verified: isVerified }).eq("id", currentUser.id);
-      }
     }
   },
   voteAlert: (id, vote) => {
@@ -677,12 +670,23 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
     try {
       const { data: sess } = await supabase.auth.getSession();
       if (!sess?.session?.user) return;
-      const res = await supabase
-        .from("users")
-        .select("*")
-        .eq("id", sess.session.user.id)
-        .single();
-      data = res.data;
+      // get_my_profile incluye subscription_* del propio usuario sin abrir
+      // esas columnas a SELECT de authenticated sobre users.
+      const { data: rpcData, error: rpcError } = await supabase.rpc("get_my_profile");
+      if (!rpcError && rpcData) {
+        data = rpcData;
+      } else {
+        // Fallback mientras get_my_profile no esté en prod (o no hay fila).
+        const res = await supabase
+          .from("users")
+          .select(
+            "id,username,avatar_url,is_verified,trust_score,followers_count,theme_mode,push_enabled,low_connection,hidden_categories,show_heatmap,is_premium,categories_configured,terms_accepted_at,is_moderator",
+          )
+          .eq("id", sess.session.user.id)
+          .single();
+        if (res.error) throw res.error;
+        data = res.data;
+      }
     } catch (err) {
       console.warn("loadUserProfile failed", err);
       return;
@@ -699,13 +703,13 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
           isVerified: Boolean(data.is_verified),
           trustScore,
           level: levelFromScore(trustScore),
-          followersCount: Number(data.followers_count),
+          followersCount: Number(data.followers_count ?? 0),
           themeMode: data.theme_mode,
           pushEnabled: data.push_enabled,
           lowConnection: data.low_connection,
           activeCategories: activeFromHidden(data.hidden_categories),
           showHeatmap: data.show_heatmap,
-          isPremium: data.is_premium,
+          isPremium: Boolean(data.is_premium),
         },
         themeMode: data.theme_mode ?? state.themeMode,
         pushEnabled: data.push_enabled ?? state.pushEnabled,
@@ -1413,13 +1417,13 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
     syncPreference("theme_mode", mode);
   },
   updateUserScore: (score) => {
+    // Optimista en UI; la persistencia la hace el servidor al insertar alerta/voto.
     const state = get();
     const newScore = Math.max(0, Math.min(100, state.currentUser.trustScore + score));
     const newLevel = levelFromScore(newScore);
     set({
       currentUser: { ...state.currentUser, trustScore: newScore, level: newLevel },
     });
-    persistTrustScore(state.currentUser.id, newScore);
   },
   getReportingRange: () => {
     const { currentUser } = get();
