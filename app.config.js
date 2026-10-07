@@ -25,16 +25,12 @@ module.exports = {
     infoPlist: {
       NSLocationWhenInUseUsageDescription:
         "Necesitamos tu ubicación para mostrar alertas cercanas y ubicar reportes.",
-      NSLocationAlwaysAndWhenInUseUsageDescription:
-        "Permite alertas críticas cerca de tus zonas guardadas.",
       NSPhotoLibraryUsageDescription:
         "Permite adjuntar fotos y videos a tus reportes.",
       NSCameraUsageDescription:
         "Permite capturar evidencia para tus reportes.",
       NSMicrophoneUsageDescription:
         "Permite grabar audio como evidencia en tus reportes.",
-      NSLocationAlwaysUsageDescription:
-        "Permite alertas críticas cerca de tus zonas guardadas incluso con la app en segundo plano.",
       ITSAppUsesNonExemptEncryption: false,
       CFBundleDisplayName: "Pulso",
     },
@@ -75,8 +71,8 @@ module.exports = {
     [
       "expo-location",
       {
-        locationAlwaysAndWhenInUsePermission:
-          "Permite alertas críticas cerca de tus zonas guardadas.",
+        locationWhenInUsePermission:
+          "Necesitamos tu ubicación para mostrar alertas cercanas y ubicar reportes.",
       },
     ],
     "expo-image-picker",

@@ -1,5 +1,5 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { View, Text, StyleSheet, Pressable, ScrollView, Alert, ActivityIndicator, Platform } from "react-native";
+import { View, Text, StyleSheet, Pressable, ScrollView, Alert, ActivityIndicator, Platform, Linking } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useAlertyTheme } from "../lib/useAlertyTheme";
@@ -18,6 +18,15 @@ import {
 import { supabase } from "../lib/supabase";
 import { safeBack } from "../lib/alerty/nav";
 import { CIRCULO_PRICE_LABEL } from "../lib/alerty/circulo";
+
+const TERMS_URL = "https://pulso-ciudadano.com/terms";
+const PRIVACY_URL = "https://pulso-ciudadano.com/privacy";
+
+const unlockCirculoFromEntitlement = () => {
+  useAlertyStore.setState((state) => ({
+    currentUser: { ...state.currentUser, isPremium: true },
+  }));
+};
 
 export default function PremiumScreen() {
   const router = useRouter();
@@ -101,16 +110,21 @@ export default function PremiumScreen() {
 
       // En mobile, RevenueCat ya marcó la compra como exitosa.
       // El webhook actualizará users.is_premium en Supabase de forma asíncrona.
-      // Refrescamos el perfil tras un breve delay para reflejar el cambio.
+      // Si el entitlement "plus" ya está activo, desbloqueamos YA (no esperamos al DB).
       if (Platform.OS !== "web") {
+        if (customerInfo && hasActivePlus(customerInfo)) {
+          unlockCirculoFromEntitlement();
+        }
         await new Promise((resolve) => setTimeout(resolve, 1500));
         await useAlertyStore.getState().loadUserProfile();
+        if (customerInfo && hasActivePlus(customerInfo) && !useAlertyStore.getState().currentUser.isPremium) {
+          unlockCirculoFromEntitlement();
+        }
         Alert.alert("Listo", "Círculo está activo. Ya puedes vigilar más zonas.", [
           { text: "Mis zonas", onPress: () => router.replace("/circulo") },
         ]);
       }
       // En web no llegamos aquí — purchasePlus redirige fuera de la app.
-      void customerInfo;
     } catch (e: any) {
       Alert.alert("Error", "No se pudo procesar el pago: " + (e?.message ?? "desconocido"));
     } finally {
@@ -123,7 +137,11 @@ export default function PremiumScreen() {
     try {
       const info = await restorePurchases();
       if (info && hasActivePlus(info)) {
+        unlockCirculoFromEntitlement();
         await useAlertyStore.getState().loadUserProfile();
+        if (!useAlertyStore.getState().currentUser.isPremium) {
+          unlockCirculoFromEntitlement();
+        }
         Alert.alert("Listo", "Tu suscripción de Círculo se restauró.");
       } else {
         Alert.alert("Sin compras", "No encontramos una suscripción activa para restaurar.");
@@ -260,18 +278,35 @@ export default function PremiumScreen() {
             </Pressable>
           )}
 
-          {Platform.OS !== "web" && !isAlreadyPremium && isRevenueCatConfigured && (
+          {!isAlreadyPremium && (
             <>
-              <Pressable
-                style={styles.restoreButton}
-                onPress={handleRestore}
-                disabled={loading}
-              >
-                <Text style={styles.restoreText}>Restaurar compras</Text>
-              </Pressable>
+              {Platform.OS !== "web" && isRevenueCatConfigured && (
+                <Pressable
+                  style={styles.restoreButton}
+                  onPress={handleRestore}
+                  disabled={loading}
+                >
+                  <Text style={styles.restoreText}>Restaurar compras</Text>
+                </Pressable>
+              )}
               <Text style={styles.legalText}>
-                Pago y renovación por la tienda de tu teléfono. Cancela en Ajustes.
+                Pulso Círculo cuesta {priceLabel}. La suscripción se renueva automáticamente
+                cada mes salvo que la canceles al menos 24 horas antes del fin del periodo.
+                {Platform.OS === "ios"
+                  ? " El pago se carga a tu cuenta de Apple ID. Gestiona o cancela en Ajustes → Apple ID → Suscripciones."
+                  : Platform.OS === "android"
+                    ? " El pago se carga a tu cuenta de Google Play. Gestiona o cancela en Play Store → Pagos y suscripciones."
+                    : " En la web el pago lo procesa Stripe; puedes cancelar desde Gestionar suscripción."}
               </Text>
+              <View style={styles.legalLinks}>
+                <Pressable onPress={() => void Linking.openURL(TERMS_URL)} hitSlop={8}>
+                  <Text style={styles.legalLink}>Términos de uso (EULA)</Text>
+                </Pressable>
+                <Text style={styles.legalSep}>·</Text>
+                <Pressable onPress={() => void Linking.openURL(PRIVACY_URL)} hitSlop={8}>
+                  <Text style={styles.legalLink}>Política de privacidad</Text>
+                </Pressable>
+              </View>
             </>
           )}
         </View>
@@ -421,6 +456,26 @@ const createStyles = (theme: any) => StyleSheet.create({
     textAlign: "center",
     lineHeight: 16,
     paddingHorizontal: 12,
+    marginTop: 4,
+  },
+  legalLinks: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "center",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 4,
+    paddingHorizontal: 12,
+  },
+  legalLink: {
+    color: theme.colors.accent,
+    fontSize: 12,
+    fontFamily: theme.fonts.body,
+    textDecorationLine: "underline",
+  },
+  legalSep: {
+    color: theme.colors.textMuted,
+    fontSize: 12,
   },
   subscribeButton: {
     backgroundColor: theme.colors.accent,

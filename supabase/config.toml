@@ -1,0 +1,29 @@
+# Configuración local / de referencia para edge functions.
+# Los webhooks y sync externos siguen sin JWT; el checkout B2B exige sesión.
+
+[functions.stripe-checkout-b2b]
+verify_jwt = true
+
+[functions.stripe-checkout-plus]
+verify_jwt = true
+
+[functions.stripe-customer-portal]
+verify_jwt = true
+
+[functions.stripe-webhook]
+verify_jwt = false
+
+[functions.revenuecat-webhook]
+verify_jwt = false
+
+[functions.notify-on-alert]
+verify_jwt = false
+
+[functions.sync-x-community]
+verify_jwt = false
+
+[functions.sync-news-rss]
+verify_jwt = false
+
+[functions.delete-account]
+verify_jwt = true
