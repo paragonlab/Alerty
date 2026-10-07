@@ -16,8 +16,41 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
 import MapView, { Marker } from "../components/ExpoMapView";
-import { SponsorPin, type PinShape } from "../components/SponsorPin";
-import { SPONSOR_PIN_W, sponsorPinTipX } from "../lib/alerty/pinArt";
+import { SponsorPin, type PinGiro } from "../components/SponsorPin";
+import { girosForZoneType, sponsorPinAnchor } from "../lib/alerty/pinArt";
+import type { PinShape } from "../lib/alerty/types";
+
+/** Placeholder local para la vista previa “con logo” antes de subir uno. */
+const LOGO_PLACEHOLDER =
+  "data:image/svg+xml," +
+  encodeURIComponent(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128"><rect fill="#2459C4" width="128" height="128"/><text x="64" y="74" text-anchor="middle" fill="#fff" font-size="28" font-family="sans-serif" font-weight="700">Logo</text></svg>`,
+  );
+
+const GIRO_LABEL: Record<PinGiro, string> = {
+  tienda: "Tienda",
+  farmacia: "Farmacia",
+  cafe: "Café",
+  generico: "Genérico",
+  casa: "Casa",
+  escudo: "Escudo",
+};
+
+const GIRO_ICON: Record<PinGiro, keyof typeof Ionicons.glyphMap> = {
+  tienda: "storefront-outline",
+  farmacia: "medkit-outline",
+  cafe: "cafe-outline",
+  generico: "bag-handle-outline",
+  casa: "home-outline",
+  escudo: "shield-checkmark-outline",
+};
+
+function shapeFromGiro(giro: PinGiro): PinShape {
+  if (giro === "tienda") return "flag";
+  if (giro === "casa") return "house";
+  if (giro === "escudo") return "shield";
+  return "pin";
+}
 import { lightTheme as theme } from "../lib/theme";
 import { supabase } from "../lib/supabase";
 import { safeBack } from "../lib/alerty/nav";
@@ -68,8 +101,11 @@ export default function BusinessOnboarding() {
   const [description, setDescription] = useState("");
   const [email, setEmail] = useState("");
   const [type, setType] = useState<ZoneType>("refugio");
-  const [pinShape, setPinShape] = useState<PinShape>("pin");
+  const [pinGiro, setPinGiro] = useState<PinGiro>("casa");
   const [logoUri, setLogoUri] = useState<string | null>(null);
+  const pinShape = shapeFromGiro(pinGiro);
+  const pinColor = type === "refugio" ? theme.colors.success : theme.colors.accent;
+  const previewName = name.trim() || "Tu negocio";
   const [loading, setLoading] = useState(false);
   const [locationLoading, setLocationLoading] = useState(false);
 
@@ -238,6 +274,7 @@ export default function BusinessOnboarding() {
       contact_email: email.trim(),
       type,
       pin_shape: pinShape,
+      pin_giro: pinGiro,
       logo_url: logoUrl,
       lat: point.latitude,
       lng: point.longitude,
@@ -291,6 +328,7 @@ export default function BusinessOnboarding() {
           lat: point.latitude,
           lng: point.longitude,
           pin_shape: pinShape,
+          pin_giro: pinGiro,
           logo_url: guardado.logoUrl,
         },
       });
@@ -333,7 +371,10 @@ export default function BusinessOnboarding() {
             <View style={styles.typeRow}>
               <Pressable
                 style={[styles.typeButton, type === "refugio" && styles.typeButtonActive]}
-                onPress={() => setType("refugio")}
+                onPress={() => {
+                  setType("refugio");
+                  setPinGiro("casa");
+                }}
               >
                 <Ionicons
                   name="shield-checkmark"
@@ -346,7 +387,10 @@ export default function BusinessOnboarding() {
               </Pressable>
               <Pressable
                 style={[styles.typeButton, type === "anuncio" && styles.typeButtonActive]}
-                onPress={() => setType("anuncio")}
+                onPress={() => {
+                  setType("anuncio");
+                  setPinGiro("tienda");
+                }}
               >
                 <Ionicons
                   name="star"
@@ -371,41 +415,64 @@ export default function BusinessOnboarding() {
 
             <Text style={styles.label}>Cómo se ve tu pin</Text>
             <Text style={styles.help}>
-              Elige el icono. El nombre aparece en la etiqueta; el logotipo es opcional.
+              Elige el giro. Sin logo se ve el icono; con logo, tu marca y una insignia de tipo.
+              El nombre aparece cerca en el mapa.
             </Text>
-            <View style={styles.shapeRow}>
-              <SponsorPin
-                markerKind="sponsor"
-                color={type === "refugio" ? theme.colors.success : theme.colors.accent}
-                shape={pinShape}
-                logoUrl={logoUri}
-                name={name.trim() || "Tu negocio"}
-              />
-              <View style={styles.shapeChoices}>
-                {(
-                  [
-                    ["pin", "Pin", "location"],
-                    ["flag", "Bandera", "flag"],
-                    ["house", "Casa", "home"],
-                    ["shield", "Escudo", "shield"],
-                  ] as const
-                ).map(([id, label, icon]) => (
-                  <Pressable
-                    key={id}
-                    style={[styles.shapeButton, pinShape === id && styles.typeButtonActive]}
-                    onPress={() => setPinShape(id)}
-                  >
-                    <Ionicons
-                      name={icon}
-                      size={14}
-                      color={pinShape === id ? "#fff" : theme.colors.accent}
-                    />
-                    <Text style={[styles.typeText, pinShape === id && styles.typeTextActive]}>
-                      {label}
-                    </Text>
-                  </Pressable>
-                ))}
+            <View style={styles.previewRow}>
+              <View style={styles.previewItem}>
+                <SponsorPin
+                  markerKind="sponsor"
+                  color={pinColor}
+                  zoneType={type}
+                  shape={pinShape}
+                  giro={pinGiro}
+                  name={previewName}
+                />
+                <Text style={styles.previewCap}>Sin logo</Text>
               </View>
+              <View style={styles.previewItem}>
+                <SponsorPin
+                  markerKind="sponsor"
+                  color={pinColor}
+                  zoneType={type}
+                  shape={pinShape}
+                  giro={pinGiro}
+                  logoUrl={logoUri || LOGO_PLACEHOLDER}
+                  name={previewName}
+                />
+                <Text style={styles.previewCap}>Con logo</Text>
+              </View>
+              <View style={styles.previewItem}>
+                <SponsorPin
+                  markerKind="sponsor"
+                  color={pinColor}
+                  zoneType={type}
+                  shape={pinShape}
+                  giro={pinGiro}
+                  logoUrl={logoUri}
+                  name={previewName}
+                  showName
+                />
+                <Text style={styles.previewCap}>Zoom cerca</Text>
+              </View>
+            </View>
+            <View style={styles.shapeChoices}>
+              {girosForZoneType(type).map((id) => (
+                <Pressable
+                  key={id}
+                  style={[styles.shapeButton, pinGiro === id && styles.typeButtonActive]}
+                  onPress={() => setPinGiro(id)}
+                >
+                  <Ionicons
+                    name={GIRO_ICON[id]}
+                    size={14}
+                    color={pinGiro === id ? "#fff" : theme.colors.accent}
+                  />
+                  <Text style={[styles.typeText, pinGiro === id && styles.typeTextActive]}>
+                    {GIRO_LABEL[id]}
+                  </Text>
+                </Pressable>
+              ))}
             </View>
             <Pressable style={styles.proofOption} onPress={handlePickLogo}>
               <Ionicons
@@ -416,7 +483,9 @@ export default function BusinessOnboarding() {
               <View style={{ flex: 1 }}>
                 <Text style={styles.proofTitle}>Subir logotipo</Text>
                 <Text style={styles.proofHelp}>
-                  {logoUri ? "Listo. Toca para cambiarlo." : "Una imagen cuadrada de tu marca. No es obligatorio."}
+                  {logoUri
+                    ? "Listo. Toca para cambiarlo."
+                    : "Opcional. Si lo subes, reemplaza el icono del giro."}
                 </Text>
               </View>
             </Pressable>
@@ -498,13 +567,16 @@ export default function BusinessOnboarding() {
                 onPress={handleMapPress}
               >
                 {point ? (
-                  <Marker coordinate={point} anchor={{ x: sponsorPinTipX(pinShape) / SPONSOR_PIN_W, y: 1 }}>
+                  <Marker coordinate={point} anchor={sponsorPinAnchor(true)}>
                     <SponsorPin
                       markerKind="sponsor"
-                      color={type === "refugio" ? theme.colors.success : theme.colors.accent}
+                      color={pinColor}
+                      zoneType={type}
                       shape={pinShape}
+                      giro={pinGiro}
                       logoUrl={logoUri}
-                      name={name.trim() || "Tu negocio"}
+                      name={previewName}
+                      showName
                     />
                   </Marker>
                 ) : null}
@@ -710,13 +782,25 @@ const createStyles = () => StyleSheet.create({
     lineHeight: 17,
     marginTop: -4,
   },
-  shapeRow: {
+  previewRow: {
     flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 12,
+    alignItems: "flex-end",
+    justifyContent: "space-between",
+    gap: 8,
+    marginBottom: 4,
+  },
+  previewItem: {
+    flex: 1,
+    alignItems: "center",
+    gap: 6,
+  },
+  previewCap: {
+    color: theme.colors.textMuted,
+    fontSize: 11,
+    fontFamily: theme.fonts.body,
+    textAlign: "center",
   },
   shapeChoices: {
-    flex: 1,
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 8,

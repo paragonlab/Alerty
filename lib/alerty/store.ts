@@ -732,28 +732,49 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
     try {
       const res = await supabase
         .from("sponsored_zones")
-        .select("id,name,description,lat,lng,type,logo_url,pin_shape")
+        .select("id,name,description,lat,lng,type,logo_url,pin_shape,pin_giro")
         .eq("status", "active");
-      if (res.error || !res.data) return;
-      data = res.data;
+      if (res.error || !res.data) {
+        // pin_giro puede no existir aún; reintenta sin esa columna.
+        const fallback = await supabase
+          .from("sponsored_zones")
+          .select("id,name,description,lat,lng,type,logo_url,pin_shape")
+          .eq("status", "active");
+        if (fallback.error || !fallback.data) return;
+        data = fallback.data;
+      } else {
+        data = res.data;
+      }
     } catch (err) {
       console.warn("loadSponsoredZones failed", err);
       return;
     }
     if (!data) return;
-    const zones: SponsoredZone[] = data.map((row: any) => ({
-      id: row.id,
-      name: row.name,
-      description: row.description,
-      lat: row.lat,
-      lng: row.lng,
-      type: row.type,
-      logoUrl: row.logo_url ?? undefined,
-      pinShape:
-        row.pin_shape === "flag" || row.pin_shape === "house" || row.pin_shape === "shield"
-          ? row.pin_shape
-          : "pin",
-    }));
+    const zones: SponsoredZone[] = data.map((row: any) => {
+      const giro =
+        row.pin_giro === "tienda" ||
+        row.pin_giro === "farmacia" ||
+        row.pin_giro === "cafe" ||
+        row.pin_giro === "generico" ||
+        row.pin_giro === "casa" ||
+        row.pin_giro === "escudo"
+          ? row.pin_giro
+          : undefined;
+      return {
+        id: row.id,
+        name: row.name,
+        description: row.description,
+        lat: row.lat,
+        lng: row.lng,
+        type: row.type,
+        logoUrl: row.logo_url ?? undefined,
+        pinShape:
+          row.pin_shape === "flag" || row.pin_shape === "house" || row.pin_shape === "shield"
+            ? row.pin_shape
+            : "pin",
+        pinGiro: giro,
+      };
+    });
     set({ sponsoredZones: zones });
   },
   loadWatchedZones: async () => {

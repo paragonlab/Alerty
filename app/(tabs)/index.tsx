@@ -47,7 +47,10 @@ import { useNavigation, useRouter } from "expo-router";
 import { GlowMarker } from "../../components/GlowMarker";
 import { DestinationPin } from "../../components/DestinationPin";
 import { SponsorPin } from "../../components/SponsorPin";
-import { SPONSOR_PIN_W, sponsorPinTipX } from "../../lib/alerty/pinArt";
+import {
+  shouldShowSponsorName,
+  sponsorPinAnchor,
+} from "../../lib/alerty/pinArt";
 import { isAboutCuliacan, isCommunityVideo } from "../../lib/alerty/communityLabel";
 import { isCategoryShown } from "../../lib/alerty/utils";
 import { placeIcon, searchCuliacanPlaces, type PlaceResult } from "../../lib/alerty/placeSearch";
@@ -97,7 +100,9 @@ export default function MapScreen() {
   const [selectedSources, setSelectedSources] = useState(1);
   const [timeMenuOpen, setTimeMenuOpen] = useState(false);
   const [pinTracks, setPinTracks] = useState(true);
+  const [mapLatitudeDelta, setMapLatitudeDelta] = useState(CULIACAN_CENTER.latitudeDelta);
   const isWeb = Platform.OS === "web";
+  const showSponsorNames = shouldShowSponsorName({ latitudeDelta: mapLatitudeDelta });
 
   const {
     alerts,
@@ -629,6 +634,13 @@ export default function MapScreen() {
             customMapStyle={isDark ? DARK_MAP_STYLE : []}
             onPress={handleMapPick}
             onLongPress={handleMapPick}
+            onRegionChangeComplete={(region: {
+              latitudeDelta?: number;
+            }) => {
+              if (typeof region?.latitudeDelta === "number" && region.latitudeDelta > 0) {
+                setMapLatitudeDelta(region.latitudeDelta);
+              }
+            }}
           >
             {showGrid && <RiskGrid cells={riskGrid} />}
             {filteredAlerts.map((alert) => (
@@ -697,8 +709,8 @@ export default function MapScreen() {
               <Marker
                 key={zone.id}
                 coordinate={{ latitude: zone.lat, longitude: zone.lng }}
-                anchor={{ x: sponsorPinTipX(zone.pinShape) / SPONSOR_PIN_W, y: 1 }}
-                tracksViewChanges={Boolean(zone.logoUrl)}
+                anchor={sponsorPinAnchor(showSponsorNames)}
+                tracksViewChanges={Boolean(zone.logoUrl) || showSponsorNames}
                 onPress={() => {
                   void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                   Alert.alert(
@@ -710,9 +722,12 @@ export default function MapScreen() {
                 <SponsorPin
                   markerKind="sponsor"
                   color={zone.type === "refugio" ? theme.colors.success : theme.colors.accent}
+                  zoneType={zone.type}
                   shape={zone.pinShape}
+                  giro={zone.pinGiro}
                   logoUrl={zone.logoUrl}
                   name={zone.name}
+                  showName={showSponsorNames}
                 />
               </Marker>
             ))}

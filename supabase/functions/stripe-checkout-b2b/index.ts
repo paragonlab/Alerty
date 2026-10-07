@@ -51,6 +51,7 @@ Deno.serve(async (req) => {
     type?: "refugio" | "anuncio";
     owner_email?: string;
     pin_shape?: string;
+    pin_giro?: string | null;
     logo_url?: string | null;
   };
 
@@ -71,7 +72,7 @@ Deno.serve(async (req) => {
     const { data: { user }, error: userErr } = await userClient.auth.getUser();
     if (userErr || !user) return fail("Tu sesión no es válida. Entra de nuevo.", 401);
 
-    const { name, description, lat, lng, type, owner_email, pin_shape, logo_url } = body;
+    const { name, description, lat, lng, type, owner_email, pin_shape, pin_giro, logo_url } = body;
     if (!name || !description || typeof lat !== "number" || typeof lng !== "number"
         || !type || !owner_email) {
       return fail("Faltan campos.", 400);
@@ -90,6 +91,15 @@ Deno.serve(async (req) => {
       pin_shape === "flag" || pin_shape === "house" || pin_shape === "shield" || pin_shape === "pin"
         ? pin_shape
         : "pin";
+    const giro =
+      pin_giro === "tienda" ||
+      pin_giro === "farmacia" ||
+      pin_giro === "cafe" ||
+      pin_giro === "generico" ||
+      pin_giro === "casa" ||
+      pin_giro === "escudo"
+        ? pin_giro
+        : null;
     const logo =
       typeof logo_url === "string" &&
       logo_url.startsWith("https://") &&
@@ -109,6 +119,7 @@ Deno.serve(async (req) => {
         owner_email,
         owner_user_id: user.id,
         pin_shape: shape,
+        pin_giro: giro,
         logo_url: logo,
         status: "pending",
       })

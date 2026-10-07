@@ -1,33 +1,53 @@
 import { View } from "react-native";
 import { SvgXml } from "react-native-svg";
-import type { PinShape } from "../lib/alerty/types";
-import { SPONSOR_PIN_H, SPONSOR_PIN_W, sponsorPinSvg } from "../lib/alerty/pinArt";
+import type { PinGiro, PinShape } from "../lib/alerty/types";
+import {
+  sponsorPinDisplaySize,
+  sponsorPinSvg,
+  type SponsorZoneType,
+} from "../lib/alerty/pinArt";
 
-export type { PinShape };
+export type { PinShape, PinGiro };
 
 /**
- * Pin de un Aliado. `markerKind` lo lee el mapa web para dibujar el mismo
- * SVG. El punto de suelo marca el lugar (anchor abajo, al centro).
+ * Pin de un Aliado / Refugio estilo Waze.
+ * `markerKind` lo lee el mapa web. La punta del globo es el ancla.
  */
 export function SponsorPin({
   color,
   shape,
+  giro,
+  zoneType,
   logoUrl,
   name,
+  showName = false,
   markerKind: _markerKind,
 }: {
   color: string;
-  shape: PinShape;
+  shape?: PinShape;
+  giro?: PinGiro | null;
+  zoneType?: SponsorZoneType;
   logoUrl?: string | null;
   name?: string | null;
+  /** Etiqueta de nombre debajo de la punta (solo zoom cercano). */
+  showName?: boolean;
   markerKind?: "sponsor";
 }) {
+  const { w, h } = sponsorPinDisplaySize(showName);
   return (
-    <View style={{ width: SPONSOR_PIN_W, height: SPONSOR_PIN_H }}>
+    <View style={{ width: w, height: h }}>
       <SvgXml
-        xml={sponsorPinSvg({ color, shape, logoUrl, name })}
-        width={SPONSOR_PIN_W}
-        height={SPONSOR_PIN_H}
+        xml={sponsorPinSvg({
+          color,
+          shape,
+          giro,
+          zoneType,
+          logoUrl,
+          name,
+          showName,
+        })}
+        width={w}
+        height={h}
       />
     </View>
   );

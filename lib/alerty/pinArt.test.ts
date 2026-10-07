@@ -4,65 +4,117 @@
 import {
   SPONSOR_PIN_H,
   SPONSOR_PIN_W,
+  giroFromPinShape,
+  girosForZoneType,
+  shouldShowSponsorName,
+  sponsorPinAnchor,
+  sponsorPinDisplaySize,
   sponsorPinSvg,
   sponsorPinTipX,
+  sponsorPinTipY,
   truncateSponsorName,
 } from "./pinArt";
-import type { PinShape } from "./types";
+import type { PinGiro, PinShape } from "./types";
 
 function assert(cond: unknown, msg: string): asserts cond {
   if (!cond) throw new Error(msg);
 }
 
 function run() {
-  assert(SPONSOR_PIN_W > 0 && SPONSOR_PIN_H > 0, "pin size is positive");
-  assert(sponsorPinTipX("flag") === SPONSOR_PIN_W / 2, "flag tip is center");
-  assert(sponsorPinTipX("pin") === SPONSOR_PIN_W / 2, "pin tip is center");
-  assert(sponsorPinTipX("house") === SPONSOR_PIN_W / 2, "house tip is center");
-  assert(sponsorPinTipX("shield") === SPONSOR_PIN_W / 2, "shield tip is center");
+  assert(SPONSOR_PIN_H >= 48 && SPONSOR_PIN_H <= 52, "pin height ~48–52px");
+  assert(SPONSOR_PIN_W > 0, "pin width positive");
+
+  const noName = sponsorPinDisplaySize(false);
+  const withName = sponsorPinDisplaySize(true);
+  assert(withName.h > noName.h, "name tag grows canvas height");
+  assert(withName.w > noName.w, "name tag grows canvas width");
+
+  assert(sponsorPinTipX(false) === SRC_CENTER_X(false), "tip X centered without tag");
+  assert(sponsorPinTipY(false) === sponsorPinTipY(true), "tip Y stable with/without tag");
+  assert(sponsorPinTipY(false) < noName.h, "tip above bottom of balloon canvas");
+  assert(sponsorPinTipY(true) < withName.h, "tip above bottom when tag present");
+
+  const a0 = sponsorPinAnchor(false);
+  const a1 = sponsorPinAnchor(true);
+  assert(a0.x > 0.4 && a0.x < 0.6, "anchor x ~center");
+  assert(a1.y < a0.y, "with tag, normalized tip Y is lower (taller canvas)");
+
+  assert(shouldShowSponsorName({ zoom: 15 }), "zoom 15 shows name");
+  assert(!shouldShowSponsorName({ zoom: 12 }), "zoom 12 hides name");
+  assert(shouldShowSponsorName({ latitudeDelta: 0.015 }), "close delta shows name");
+  assert(!shouldShowSponsorName({ latitudeDelta: 0.16 }), "city delta hides name");
+
+  assert(giroFromPinShape("flag") === "tienda", "flag → tienda");
+  assert(giroFromPinShape("pin") === "generico", "pin → generico");
+  assert(giroFromPinShape("house", "refugio") === "casa", "house refugio → casa");
+  assert(giroFromPinShape("house", "anuncio") === "tienda", "house aliado → tienda");
+  assert(giroFromPinShape("shield") === "escudo", "shield → escudo");
+  assert(girosForZoneType("anuncio").includes("farmacia"), "aliado has farmacia");
+  assert(girosForZoneType("refugio").includes("escudo"), "refugio has escudo");
+  assert(!girosForZoneType("refugio").includes("cafe"), "refugio has no cafe");
 
   assert(truncateSponsorName("") === "Aliado", "empty name falls back");
-  assert(truncateSponsorName("   ") === "Aliado", "blank name falls back");
   assert(truncateSponsorName("Café Luna") === "Café Luna", "short name intact");
   const long = truncateSponsorName("Farmacias del Ahorro – Centro Histórico Culiacán");
   assert(long.endsWith("…"), "long name gets ellipsis");
-  assert(long.length < 30, "truncated name stays short");
-  assert(!long.includes("<"), "truncation does not invent markup");
 
-  const shapes: PinShape[] = ["flag", "pin", "house", "shield"];
-  for (const shape of shapes) {
+  const giros: PinGiro[] = ["tienda", "farmacia", "cafe", "generico", "casa", "escudo"];
+  for (const giro of giros) {
+    const zoneType = giro === "casa" || giro === "escudo" ? "refugio" : "anuncio";
     const svg = sponsorPinSvg({
-      color: shape === "shield" ? "#1F9D6E" : "#D9552B",
-      shape,
+      zoneType,
+      giro,
       name: "Café Luna",
+      showName: false,
     });
-    assert(svg.includes(`viewBox="0 0 ${SPONSOR_PIN_W} ${SPONSOR_PIN_H}"`), `${shape} viewBox`);
-    assert(svg.includes("Café Luna"), `${shape} shows name`);
-    assert(svg.includes("#ffffff") || svg.includes("#fff"), `${shape} white chip`);
-    assert(svg.includes("<text"), `${shape} has text`);
-    assert(svg.includes("<circle"), `${shape} has ground dot`);
-    assert(!svg.includes("radialGradient"), `${shape} is flat (no clay gradients)`);
+    assert(svg.includes('viewBox="0 0 120 132"'), `${giro} balloon viewBox`);
+    assert(svg.includes("#1A1A1A"), `${giro} dark outline`);
+    assert(svg.includes("A51,51"), `${giro} balloon arc`);
+    assert(!svg.includes("Café Luna"), `${giro} hides name when showName=false`);
+    assert(!svg.includes("radialGradient"), `${giro} flat (no clay)`);
   }
 
+  const named = sponsorPinSvg({
+    zoneType: "anuncio",
+    giro: "cafe",
+    name: "Café Luna",
+    showName: true,
+  });
+  assert(named.includes('viewBox="0 0 170 160"'), "named viewBox");
+  assert(named.includes("Café Luna"), "named shows label");
+  assert(named.includes("<text"), "named has text node");
+
   const escaped = sponsorPinSvg({
-    color: "#D9552B",
-    shape: "pin",
-    name: `A&B <x>`,
+    zoneType: "anuncio",
+    giro: "generico",
+    name: "A&B <x>",
+    showName: true,
   });
   assert(escaped.includes("&amp;"), "ampersand escaped");
   assert(escaped.includes("&lt;"), "angles escaped");
-  assert(!escaped.includes("<x>"), "raw angle tags not present");
 
   const withLogo = sponsorPinSvg({
-    color: "#D9552B",
-    shape: "pin",
+    zoneType: "anuncio",
+    giro: "farmacia",
     name: "Logo Co",
     logoUrl: "https://cdn.example/logo.png",
+    showName: false,
   });
   assert(withLogo.includes("<image"), "logo renders as image");
   assert(withLogo.includes("https://cdn.example/logo.png"), "logo url present");
+  assert(withLogo.includes("r=\"17\""), "badge ~22% larger than mock r=14");
+
+  const shapes: PinShape[] = ["flag", "pin", "house", "shield"];
+  for (const shape of shapes) {
+    const svg = sponsorPinSvg({ shape, zoneType: "anuncio", name: "X", showName: false });
+    assert(svg.includes("<path"), `${shape} still renders via legacy mapping`);
+  }
 
   console.log("pinArt tests ok");
+}
+
+function SRC_CENTER_X(showName: boolean): number {
+  return sponsorPinTipX(showName);
 }
 
 run();

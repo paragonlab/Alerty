@@ -13,7 +13,15 @@ import type { AlertCategory } from "../lib/alerty/types";
 import { CATEGORY_ICONS } from "../lib/alerty/constants";
 import { heatAppearance, riskColor, type GridCell } from "../lib/alerty/risk";
 import { DARK_MAP_STYLE } from "../lib/theme";
-import { SPONSOR_PIN_H, SPONSOR_PIN_W, sponsorPinSvg, sponsorPinTipX } from "../lib/alerty/pinArt";
+import {
+  shouldShowSponsorName,
+  sponsorPinDisplaySize,
+  sponsorPinSvg,
+  sponsorPinTipX,
+  sponsorPinTipY,
+  type PinGiro,
+  type SponsorZoneType,
+} from "../lib/alerty/pinArt";
 
 const API_KEY = process.env.EXPO_PUBLIC_GOOGLE_MAPS_KEY ?? "";
 
@@ -55,8 +63,11 @@ type SponsorPinMeta = {
   kind: "sponsor";
   color: string;
   shape: "pin" | "flag" | "house" | "shield";
+  giro?: PinGiro | null;
+  zoneType?: SponsorZoneType;
   logoUrl?: string | null;
   name?: string | null;
+  showName?: boolean;
 };
 
 type CommunityPinMeta = {
@@ -399,16 +410,11 @@ function ensurePulseStyles() {
 }
 .pulso-sponsor {
   position: relative;
-  width: ${SPONSOR_PIN_W}px;
-  height: ${SPONSOR_PIN_H}px;
-  margin-top: -${SPONSOR_PIN_H}px;
-  margin-left: -${sponsorPinTipX()}px;
   cursor: pointer;
   pointer-events: auto;
+  /* Ancla = punta del globo; tipY/tipX se fijan por inline style. */
 }
 .pulso-sponsor > svg {
-  width: ${SPONSOR_PIN_W}px;
-  height: ${SPONSOR_PIN_H}px;
   display: block;
   overflow: visible;
 }
@@ -645,19 +651,38 @@ function findSponsorMeta(node: React.ReactNode): SponsorPinMeta | null {
         markerKind?: string;
         color?: string;
         shape?: string;
+        giro?: string | null;
+        zoneType?: string;
         logoUrl?: string | null;
+        showName?: boolean;
       };
       if (props.markerKind === "sponsor") {
         const shape =
           props.shape === "flag" || props.shape === "house" || props.shape === "shield"
             ? props.shape
             : "pin";
+        const giro =
+          props.giro === "tienda" ||
+          props.giro === "farmacia" ||
+          props.giro === "cafe" ||
+          props.giro === "generico" ||
+          props.giro === "casa" ||
+          props.giro === "escudo"
+            ? props.giro
+            : null;
+        const zoneType: SponsorZoneType | undefined =
+          props.zoneType === "refugio" || props.zoneType === "anuncio"
+            ? props.zoneType
+            : undefined;
         explicit = {
           kind: "sponsor",
-          color: typeof props.color === "string" ? props.color : "#E9792F",
+          color: typeof props.color === "string" ? props.color : "#D9552B",
           shape,
+          giro,
+          zoneType,
           logoUrl: typeof props.logoUrl === "string" ? props.logoUrl : null,
           name: typeof props.name === "string" ? props.name : null,
+          showName: Boolean(props.showName),
         };
       }
       const bg = readBackgroundColor(props.style);
@@ -670,7 +695,14 @@ function findSponsorMeta(node: React.ReactNode): SponsorPinMeta | null {
 
   if (explicit) return explicit;
   if (!color) return null;
-  return { kind: "sponsor", color, shape: sawShield ? "shield" : "pin", logoUrl: null, name: null };
+  return {
+    kind: "sponsor",
+    color,
+    shape: sawShield ? "shield" : "pin",
+    logoUrl: null,
+    name: null,
+    showName: false,
+  };
 }
 
 /** Detecta CommunityMarker vía markerKind / isDemo en props del elemento. */
@@ -953,19 +985,30 @@ function escapeAttr(value: string): string {
     .replace(/>/g, "&gt;");
 }
 
-function buildSponsorPinElement(meta: SponsorPinMeta): HTMLDivElement {
+function buildSponsorPinElement(meta: SponsorPinMeta, mapShowName?: boolean): HTMLDivElement {
+  const showName = mapShowName ?? Boolean(meta.showName);
+  const { w, h } = sponsorPinDisplaySize(showName);
+  const tipX = sponsorPinTipX(showName);
+  const tipY = sponsorPinTipY(showName);
   const el = document.createElement("div");
   el.className = "pulso-sponsor";
+  el.style.width = `${w}px`;
+  el.style.height = `${h}px`;
+  el.style.marginTop = `${-tipY}px`;
+  el.style.marginLeft = `${-tipX}px`;
   el.style.setProperty("--pulso-color", meta.color);
   el.setAttribute("role", "button");
   el.setAttribute("tabindex", "0");
-  const label = meta.name?.trim() || (meta.shape === "shield" ? "Refugio" : "Aliado");
+  const label = meta.name?.trim() || (meta.zoneType === "refugio" ? "Refugio" : "Aliado");
   el.setAttribute("aria-label", label);
   el.innerHTML = sponsorPinSvg({
     color: meta.color,
     shape: meta.shape,
+    giro: meta.giro,
+    zoneType: meta.zoneType,
     logoUrl: meta.logoUrl,
     name: meta.name,
+    showName,
   });
   return el;
 }
@@ -1110,6 +1153,8 @@ type MapViewProps = {
   customMapStyle?: unknown;
   onPress?: (e: { nativeEvent: { coordinate: { latitude: number; longitude: number } } }) => void;
   onLongPress?: (e: { nativeEvent: { coordinate: { latitude: number; longitude: number } } }) => void;
+  /** Nativo: el web ignora esto y usa su propio zoom para la etiqueta. */
+  onRegionChangeComplete?: (region: Region) => void;
   showsUserLocation?: boolean;
   showsMyLocationButton?: boolean;
   pitchEnabled?: boolean;
@@ -1118,9 +1163,9 @@ type MapViewProps = {
   provider?: unknown;
 };
 
-function pinElement(meta: PinMeta, simplify: boolean): HTMLDivElement {
+function pinElement(meta: PinMeta, simplify: boolean, mapShowName?: boolean): HTMLDivElement {
   if (meta.kind === "destination") return buildDestinationPinElement(meta);
-  if (meta.kind === "sponsor") return buildSponsorPinElement(meta);
+  if (meta.kind === "sponsor") return buildSponsorPinElement(meta, mapShowName);
   if (meta.kind === "community") return buildCommunityPinElement(meta);
   return buildAlertPinElement(meta, simplify);
 }
@@ -1152,8 +1197,18 @@ const ExpoMapView = forwardRef<MapHandle, MapViewProps>(function ExpoMapView(pro
   const [error, setError] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
   const [mapEpoch, setMapEpoch] = useState(0);
+  /** Bandera de zoom para etiquetas de Aliado (ciudad vs cerca). */
+  const [sponsorNamesOn, setSponsorNamesOn] = useState(false);
+  const sponsorNamesOnRef = useRef(false);
   const overlaySigRef = useRef("");
   const overlayEpochRef = useRef(-1);
+
+  const syncSponsorNameZoom = (zoom: number) => {
+    const next = shouldShowSponsorName({ zoom });
+    if (next === sponsorNamesOnRef.current) return;
+    sponsorNamesOnRef.current = next;
+    setSponsorNamesOn(next);
+  };
 
   useImperativeHandle(ref, () => ({
     animateToRegion: (region: Region) => {
@@ -1193,6 +1248,8 @@ const ExpoMapView = forwardRef<MapHandle, MapViewProps>(function ExpoMapView(pro
         map.setView([region.latitude, region.longitude], regionToZoom(region.latitudeDelta));
         mapRef.current = map;
         engineRef.current = "leaflet";
+        syncSponsorNameZoom(map.getZoom());
+        map.on("zoomend", () => syncSponsorNameZoom(map.getZoom()));
 
         map.on("contextmenu", (e: any) => {
           if (!e?.latlng) return;
@@ -1291,6 +1348,10 @@ const ExpoMapView = forwardRef<MapHandle, MapViewProps>(function ExpoMapView(pro
 
         mapRef.current = map;
         engineRef.current = "google";
+        syncSponsorNameZoom(map.getZoom?.() ?? regionToZoom(region.latitudeDelta));
+        map.addListener("zoom_changed", () => {
+          syncSponsorNameZoom(map.getZoom?.() ?? 13);
+        });
 
         const emitLongPress = (latLng: any) => {
           longPressFiredRef.current = true;
@@ -1412,9 +1473,17 @@ const ExpoMapView = forwardRef<MapHandle, MapViewProps>(function ExpoMapView(pro
     const heat = collectHeatmap(props.children);
     const overlaySig = [
       isDark ? "dark" : "light",
+      sponsorNamesOn ? "sn1" : "sn0",
       ...markers.map((m) => {
-        const look = m.meta as { intensity?: number; glow?: boolean };
-        return `${m.meta.kind}:${m.coordinate.latitude.toFixed(5)}:${m.coordinate.longitude.toFixed(5)}:${m.meta.color}:${look.intensity ?? ""}:${look.glow === false ? "0" : "1"}`;
+        const look = m.meta as {
+          intensity?: number;
+          glow?: boolean;
+          name?: string | null;
+          giro?: string | null;
+          logoUrl?: string | null;
+          showName?: boolean;
+        };
+        return `${m.meta.kind}:${m.coordinate.latitude.toFixed(5)}:${m.coordinate.longitude.toFixed(5)}:${m.meta.color}:${look.intensity ?? ""}:${look.glow === false ? "0" : "1"}:${look.name ?? ""}:${look.giro ?? ""}:${look.logoUrl ? "L" : ""}:${look.showName ? "1" : "0"}`;
       }),
       ...polygons.map((p) => `p:${p.coordinates.length}`),
       ...circles.map(
@@ -1509,19 +1578,21 @@ const ExpoMapView = forwardRef<MapHandle, MapViewProps>(function ExpoMapView(pro
       });
 
       markers.forEach((p) => {
-        const content = pinElement(p.meta, simplify);
         const isDest = p.meta.kind === "destination";
         const isSponsor = p.meta.kind === "sponsor";
+        const showName = isSponsor ? sponsorNamesOn : false;
+        const content = pinElement(p.meta, simplify, showName);
         const size = p.meta.kind === "alert" ? 48 : p.meta.kind === "community" ? 40 : 32;
+        const sponsorSize = sponsorPinDisplaySize(showName);
         const icon = L.divIcon({
           html: content.outerHTML,
           className: "pulso-leaflet-pin",
-          // Destino y aliado apuntan con la base, no con el centro.
-          iconSize: isDest ? [34, 44] : isSponsor ? [SPONSOR_PIN_W, SPONSOR_PIN_H] : [size, size],
+          // Destino y aliado apuntan con la punta, no con el centro.
+          iconSize: isDest ? [34, 44] : isSponsor ? [sponsorSize.w, sponsorSize.h] : [size, size],
           iconAnchor: isDest
             ? [17, 44]
             : isSponsor
-              ? [sponsorPinTipX(), SPONSOR_PIN_H]
+              ? [sponsorPinTipX(showName), sponsorPinTipY(showName)]
               : [size / 2, size / 2],
         });
         const marker = L.marker([p.coordinate.latitude, p.coordinate.longitude], {
@@ -1545,11 +1616,12 @@ const ExpoMapView = forwardRef<MapHandle, MapViewProps>(function ExpoMapView(pro
     if (!g?.maps) return;
 
     markers.forEach((p) => {
+      const showName = p.meta.kind === "sponsor" ? sponsorNamesOn : false;
       const overlay = createHtmlOverlay(
         g,
         map,
         { lat: p.coordinate.latitude, lng: p.coordinate.longitude },
-        pinElement(p.meta, simplify),
+        pinElement(p.meta, simplify, showName),
         p.onPress,
         () => cancelLongPressRef.current(),
       );
@@ -1603,7 +1675,7 @@ const ExpoMapView = forwardRef<MapHandle, MapViewProps>(function ExpoMapView(pro
       });
       heatCirclesRef.current.push(shape);
     });
-  }, [props.children, ready, mapEpoch]);
+  }, [props.children, ready, mapEpoch, sponsorNamesOn]);
 
   if (error) {
     return (
