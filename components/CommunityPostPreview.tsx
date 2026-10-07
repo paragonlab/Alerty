@@ -15,6 +15,7 @@ import { formatRelativeTime } from "../lib/alerty/utils";
 import { isCityApproxLabel } from "../lib/alerty/coloniaGeocode";
 import type { CommunityPost } from "../lib/alerty/types";
 import { communitySourceLabel, isNewsPost } from "../lib/alerty/communityLabel";
+import { CATEGORY_LABELS } from "../lib/alerty/constants";
 import { useAlertyTheme } from "../lib/useAlertyTheme";
 import { CommunityVoteBar } from "./CommunityVoteBar";
 
@@ -22,19 +23,6 @@ const X_ACCENT = "#1D9BF0";
 const NEWS_ACCENT = "#0D9488";
 /** Ignore backdrop dismiss right after open (ghost click from map pin on web). */
 const BACKDROP_GUARD_MS = 450;
-
-const CATEGORY_GUESS_LABELS: Record<string, string> = {
-  balacera: "Balacera",
-  narcobloqueo: "Narcobloqueo",
-  enfrentamiento: "Enfrentamiento",
-  detonaciones: "Detonaciones",
-  bloqueo: "Bloqueo",
-  robo: "Robo",
-  accidente: "Accidente",
-  incendio: "Incendio",
-  inundacion: "Inundación",
-  alerta: "Alerta",
-};
 
 function isVideoUrl(url: string): boolean {
   return /\.(mp4|mov|m4v|webm)(\?|$)/i.test(url) || /\/video\//i.test(url);
@@ -64,7 +52,7 @@ export function CommunityPostPreview({ post, sourceCount = 1, onClose }: Communi
   };
 
   const categoryLabel = post.categoryGuess
-    ? CATEGORY_GUESS_LABELS[post.categoryGuess] ?? post.categoryGuess
+    ? (CATEGORY_LABELS as Record<string, string>)[post.categoryGuess] ?? post.categoryGuess
     : null;
 
   const mediaUrl = post.mediaUrl && !mediaFailed ? post.mediaUrl : null;

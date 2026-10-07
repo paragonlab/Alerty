@@ -16,6 +16,9 @@
     "test:summary": "npx --yes tsx lib/alerty/daySummary.test.ts",
     "test:circulo": "npx --yes tsx lib/alerty/circulo.test.ts",
     "test:pinArt": "npx --yes tsx lib/alerty/pinArt.test.ts",
+    "test:characters": "npx --yes tsx lib/alerty/characters.test.ts",
+    "test:avatars": "npx --yes tsx lib/alerty/avatars.test.ts",
+    "test:guessCategory": "npx --yes tsx scripts/guessCategoryParity.test.ts",
     "supabase:db:push": "npx supabase db push"
   },
   "dependencies": {

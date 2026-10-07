@@ -1,6 +1,4 @@
-import { Image, StyleSheet, Text, View } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
-import { getCategoryPinColor } from "../lib/alerty/utils";
+import { PulsoPin } from "./PulsoPin";
 import type { CommunitySource } from "../lib/alerty/types";
 
 type CommunityMarkerProps = {
@@ -8,143 +6,42 @@ type CommunityMarkerProps = {
   /** Sentinel para el colector del mapa web (ExpoMapView.web). */
   markerKind?: "community";
   categoryGuess?: string | null;
-  /** Color explícito; si falta, se deriva de categoryGuess. */
+  /** Color explícito; si falta, se deriva de categoryGuess en el SVG. */
   color?: string;
   authorAvatarUrl?: string | null;
   mediaUrl?: string | null;
+  authorName?: string | null;
   source?: CommunitySource;
-  /** 0.35–1: tamaño y brillo del halo. */
+  /** Fuentes adicionales del cluster (+N en el pin). */
+  extraSources?: number;
+  showName?: boolean;
   intensity?: number;
-  /** false = pin sin glow (botón de brillo apagado). */
   showGlow?: boolean;
 };
 
 /**
- * Pin estático cuadrado para X / RSS — distinto de GlowMarker (circular + pulso).
- * Color por categoryGuess / riesgo; avatar → media → icono de fuente.
+ * Pin Pulso (X / RSS) estilo Waze — distinto del pin ciudadano.
  */
 export function CommunityMarker({
   isDemo,
   markerKind = "community",
   categoryGuess,
-  color,
   authorAvatarUrl,
-  mediaUrl,
+  authorName,
   source = "x",
-  intensity = 0.6,
-  showGlow = true,
+  extraSources = 0,
+  showName = false,
 }: CommunityMarkerProps) {
-  const pinColor = color ?? getCategoryPinColor(categoryGuess);
-  const imageUrl = authorAvatarUrl || mediaUrl || null;
-  const fallbackIcon =
-    source === "rss" ? ("newspaper-outline" as const) : ("logo-twitter" as const);
-
   return (
-    <View style={styles.wrap} accessibilityLabel={markerKind}>
-      {showGlow ? (
-        <View
-          pointerEvents="none"
-          style={[
-            styles.glow,
-            {
-              width: Math.round(28 + 16 * intensity),
-              height: Math.round(28 + 16 * intensity),
-              backgroundColor: pinColor,
-              opacity: 0.12 + 0.3 * intensity,
-            },
-          ]}
-        />
-      ) : null}
-      <View
-        style={[
-          styles.pin,
-          {
-            backgroundColor: imageUrl ? "#111" : pinColor,
-            borderColor: pinColor,
-          },
-        ]}
-      >
-        {imageUrl ? (
-          <Image source={{ uri: imageUrl }} style={styles.avatar} />
-        ) : (
-          <Ionicons name={fallbackIcon} size={12} color="#fff" />
-        )}
-      </View>
-      {isDemo ? (
-        <View style={styles.demoBadge}>
-          <Text style={styles.demoText}>D</Text>
-        </View>
-      ) : null}
-      {/* Chip de fuente para no confundir con alerta ciudadana */}
-      <View style={[styles.sourceChip, { backgroundColor: pinColor }]}>
-        <Ionicons
-          name={source === "rss" ? "newspaper" : "logo-twitter"}
-          size={7}
-          color="#fff"
-        />
-      </View>
-    </View>
+    <PulsoPin
+      markerKind={markerKind}
+      isDemo={isDemo}
+      categoryGuess={categoryGuess}
+      authorAvatarUrl={authorAvatarUrl}
+      authorName={authorName}
+      source={source}
+      extraSources={extraSources}
+      showName={showName}
+    />
   );
 }
-
-const styles = StyleSheet.create({
-  wrap: {
-    width: 40,
-    height: 40,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  glow: {
-    position: "absolute",
-    borderRadius: 999,
-  },
-  pin: {
-    width: 26,
-    height: 26,
-    borderRadius: 6,
-    borderWidth: 2.5,
-    alignItems: "center",
-    justifyContent: "center",
-    overflow: "hidden",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.35,
-    shadowRadius: 3,
-    elevation: 4,
-  },
-  avatar: {
-    width: "100%",
-    height: "100%",
-  },
-  demoBadge: {
-    position: "absolute",
-    top: 0,
-    right: 0,
-    width: 14,
-    height: 14,
-    borderRadius: 7,
-    backgroundColor: "#F59E0B",
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: "#fff",
-    zIndex: 2,
-  },
-  demoText: {
-    color: "#fff",
-    fontSize: 8,
-    fontWeight: "700",
-  },
-  sourceChip: {
-    position: "absolute",
-    bottom: 0,
-    left: 0,
-    width: 12,
-    height: 12,
-    borderRadius: 3,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: "#fff",
-  },
-});

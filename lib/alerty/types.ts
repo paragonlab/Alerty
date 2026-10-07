@@ -1,6 +1,7 @@
-import type { ALERT_CATEGORIES, TIME_FILTERS } from "./constants";
+import type { ALERT_CATEGORIES, PIN_CATEGORIES, TIME_FILTERS } from "./constants";
 
 export type AlertCategory = (typeof ALERT_CATEGORIES)[number];
+export type PinCategory = (typeof PIN_CATEGORIES)[number];
 export type TimeFilter = (typeof TIME_FILTERS)[number];
 
 export type AlertMedia = {
@@ -13,6 +14,8 @@ export type AlertUser = {
   id: string;
   username: string;
   avatarUrl?: string | null;
+  /** Personaje ilustrado (users.character); null → hash estable. */
+  character?: string | null;
   isVerified: boolean;
   trustScore: number;
   level: string;

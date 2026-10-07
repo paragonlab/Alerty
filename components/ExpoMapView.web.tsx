@@ -14,6 +14,11 @@ import { CATEGORY_ICONS } from "../lib/alerty/constants";
 import { heatAppearance, riskColor, type GridCell } from "../lib/alerty/risk";
 import { DARK_MAP_STYLE } from "../lib/theme";
 import {
+  balloonPinDisplaySize,
+  balloonPinTipX,
+  balloonPinTipY,
+  citizenPinSvg,
+  pulsoPinSvg,
   shouldShowSponsorName,
   sponsorPinDisplaySize,
   sponsorPinSvg,
@@ -22,6 +27,8 @@ import {
   type PinGiro,
   type SponsorZoneType,
 } from "../lib/alerty/pinArt";
+import { resolveCitizenCharacter } from "../lib/alerty/characters";
+import { isHttpAvatar } from "../lib/alerty/avatars";
 
 const API_KEY = process.env.EXPO_PUBLIC_GOOGLE_MAPS_KEY ?? "";
 
@@ -55,6 +62,10 @@ type AlertPinMeta = {
   isVerified?: boolean;
   lowConnection?: boolean;
   avatarUrl?: string | null;
+  character?: string | null;
+  userId?: string | null;
+  username?: string | null;
+  showName?: boolean;
   intensity?: number;
   glow?: boolean;
 };
@@ -74,9 +85,13 @@ type CommunityPinMeta = {
   kind: "community";
   isDemo: boolean;
   color: string;
+  categoryGuess?: string | null;
   avatarUrl?: string | null;
   mediaUrl?: string | null;
+  authorName?: string | null;
   source?: "x" | "rss";
+  extraSources?: number;
+  showName?: boolean;
   intensity?: number;
   glow?: boolean;
 };
@@ -418,6 +433,24 @@ function ensurePulseStyles() {
   display: block;
   overflow: visible;
 }
+.pulso-citizen-halo {
+  position: absolute;
+  left: 50%;
+  top: 42%;
+  width: 56px;
+  height: 56px;
+  margin: -28px 0 0 -28px;
+  border-radius: 999px;
+  background: var(--pulso-color, #E0115F);
+  opacity: 0.35;
+  pointer-events: none;
+  z-index: -1;
+  animation: pulso-citizen-pulse 1.4s ease-in-out infinite;
+}
+@keyframes pulso-citizen-pulse {
+  0%, 100% { transform: scale(0.85); opacity: 0.25; }
+  50% { transform: scale(1.15); opacity: 0.5; }
+}
 .pulso-pin--calm .pulso-pin__ring,
 .pulso-pin--noglow .pulso-pin__ring,
 .pulso-pin--noglow .pulso-pin__halo {
@@ -624,6 +657,10 @@ function findGlowProps(node: React.ReactNode): AlertPinMeta | null {
         isVerified: Boolean(props.isVerified),
         lowConnection: Boolean(props.lowConnection),
         avatarUrl: typeof props.avatarUrl === "string" ? props.avatarUrl : null,
+        character: typeof props.character === "string" ? props.character : null,
+        userId: typeof props.userId === "string" ? props.userId : null,
+        username: typeof props.username === "string" ? props.username : null,
+        showName: Boolean(props.showName),
         intensity: typeof props.intensity === "number" ? props.intensity : 1,
         glow: props.showGlow !== false,
       };
@@ -716,8 +753,11 @@ function findCommunityMeta(node: React.ReactNode): CommunityPinMeta | null {
       color?: string;
       categoryGuess?: string | null;
       authorAvatarUrl?: string | null;
+      authorName?: string | null;
       mediaUrl?: string | null;
       source?: "x" | "rss";
+      extraSources?: number;
+      showName?: boolean;
       intensity?: number;
       showGlow?: boolean;
     };
@@ -725,10 +765,14 @@ function findCommunityMeta(node: React.ReactNode): CommunityPinMeta | null {
       found = {
         kind: "community",
         isDemo: Boolean(props.isDemo),
-        color: typeof props.color === "string" ? props.color : "#1D9BF0",
+        color: typeof props.color === "string" ? props.color : "#6B7280",
+        categoryGuess: typeof props.categoryGuess === "string" ? props.categoryGuess : null,
         avatarUrl: typeof props.authorAvatarUrl === "string" ? props.authorAvatarUrl : null,
+        authorName: typeof props.authorName === "string" ? props.authorName : null,
         mediaUrl: typeof props.mediaUrl === "string" ? props.mediaUrl : null,
         source: props.source === "rss" ? "rss" : "x",
+        extraSources: typeof props.extraSources === "number" ? props.extraSources : 0,
+        showName: Boolean(props.showName),
         intensity: typeof props.intensity === "number" ? props.intensity : 0.6,
         glow: props.showGlow !== false,
       };
@@ -927,51 +971,50 @@ function categoryIconSvg(category?: AlertCategory): string {
   return ICON_SVGS[name] ?? ICON_SVGS["alert-circle"];
 }
 
-function buildAlertPinElement(meta: AlertPinMeta, simplify: boolean): HTMLDivElement {
+function buildAlertPinElement(meta: AlertPinMeta, simplify: boolean, mapShowName?: boolean): HTMLDivElement {
+  const showName = mapShowName ?? Boolean(meta.showName);
+  const { w, h } = balloonPinDisplaySize(showName);
+  const tipX = balloonPinTipX(showName);
+  const tipY = balloonPinTipY(showName);
   const el = document.createElement("div");
-  const staticPulse = Boolean(meta.lowConnection);
-  const showAvatar = Boolean(meta.avatarUrl);
-  const intensity = meta.intensity ?? 1;
-  el.className = `pulso-pin${staticPulse ? " pulso-pin--static" : ""}${simplify && !staticPulse ? " pulso-pin--simple" : ""}${intensity < 0.8 ? " pulso-pin--calm" : ""}${meta.glow === false ? " pulso-pin--noglow" : ""}`;
+  const isSos = meta.category === "sos";
+  const pulse = isSos && meta.glow !== false && !meta.lowConnection && !simplify;
+  el.className = `pulso-sponsor${pulse ? " pulso-citizen--sos" : ""}`;
+  el.style.width = `${w}px`;
+  el.style.height = `${h}px`;
+  el.style.marginTop = `${-tipY}px`;
+  el.style.marginLeft = `${-tipX}px`;
   el.style.setProperty("--pulso-color", meta.color);
-  el.style.setProperty("--pulso-halo-size", `${Math.round(28 + 16 * intensity)}px`);
-  el.style.setProperty("--pulso-halo-min", String(0.07 + 0.18 * intensity));
-  el.style.setProperty("--pulso-halo-max", String(0.1 + 0.3 * intensity));
-  el.style.setProperty("--pulso-duration", `${Math.max(700, meta.duration)}ms`);
   el.setAttribute("role", "button");
   el.setAttribute("tabindex", "0");
   el.setAttribute("aria-label", meta.category ? `Alerta ${meta.category}` : "Alerta");
 
-  const coreInner = showAvatar
-    ? `<img class="pulso-pin__avatar" src="${escapeAttr(meta.avatarUrl!)}" alt="" /><span class="pulso-pin__avatar-ring"></span>`
-    : `
-        <div class="pulso-pin__highlight"></div>
-        ${simplify || staticPulse ? "" : '<div class="pulso-pin__heartbeat"></div>'}
-        <span class="pulso-pin__icon">${categoryIconSvg(meta.category)}</span>
-      `;
+  const characterId = resolveCitizenCharacter({
+    userId: meta.userId || "anon",
+    character: meta.character,
+    avatarUrl: meta.avatarUrl,
+  });
+  const photoUrl = isHttpAvatar(meta.avatarUrl) ? meta.avatarUrl : null;
+  const name =
+    meta.username && meta.username.trim()
+      ? meta.username.startsWith("@")
+        ? meta.username.trim()
+        : `@${meta.username.trim()}`
+      : null;
 
-  if (simplify || staticPulse) {
-    el.innerHTML = `<div class="pulso-pin__dot">${coreInner}</div>`;
-  } else {
-    el.innerHTML = `
-      <div class="pulso-pin__halo"></div>
-      <div class="pulso-pin__ring"></div>
-      <div class="pulso-pin__dot">${coreInner}</div>
-    `;
-  }
+  el.innerHTML = citizenPinSvg({
+    characterId,
+    category: meta.category,
+    photoUrl,
+    name,
+    showName,
+    showBadge: true,
+  });
 
-  const badges: string[] = [];
-  if (meta.hasMedia) {
-    badges.push(`<span class="pulso-pin__badge">${ICON_SVGS.camera}</span>`);
-  }
-  if (meta.isVerified) {
-    badges.push(`<span class="pulso-pin__badge pulso-pin__badge--verified">${ICON_SVGS["checkmark-circle"]}</span>`);
-  }
-  if (badges.length) {
-    const row = document.createElement("div");
-    row.className = "pulso-pin__badges";
-    row.innerHTML = badges.join("");
-    el.appendChild(row);
+  if (pulse) {
+    const halo = document.createElement("span");
+    halo.className = "pulso-citizen-halo";
+    el.appendChild(halo);
   }
 
   return el;
@@ -1013,9 +1056,17 @@ function buildSponsorPinElement(meta: SponsorPinMeta, mapShowName?: boolean): HT
   return el;
 }
 
-function buildCommunityPinElement(meta: CommunityPinMeta): HTMLDivElement {
+function buildCommunityPinElement(meta: CommunityPinMeta, mapShowName?: boolean): HTMLDivElement {
+  const showName = mapShowName ?? Boolean(meta.showName);
+  const { w, h } = balloonPinDisplaySize(showName);
+  const tipX = balloonPinTipX(showName);
+  const tipY = balloonPinTipY(showName);
   const el = document.createElement("div");
-  el.className = "pulso-community";
+  el.className = "pulso-sponsor";
+  el.style.width = `${w}px`;
+  el.style.height = `${h}px`;
+  el.style.marginTop = `${-tipY}px`;
+  el.style.marginLeft = `${-tipX}px`;
   el.style.setProperty("--pulso-color", meta.color);
   el.setAttribute("role", "button");
   el.setAttribute("tabindex", "0");
@@ -1030,21 +1081,16 @@ function buildCommunityPinElement(meta: CommunityPinMeta): HTMLDivElement {
         ? "Noticia / Comunidad"
         : "Post de X / Comunidad",
   );
-  const imageUrl = meta.avatarUrl || meta.mediaUrl || null;
-  const fallback = isRss ? ICON_SVGS.newspaper : ICON_SVGS.twitter;
-  const sourceIcon = isRss ? ICON_SVGS.newspaper : ICON_SVGS.twitter;
-  const pinInner = imageUrl
-    ? `<img class="pulso-community__avatar" src="${escapeAttr(imageUrl)}" alt="" />`
-    : fallback;
-  const intensity = meta.intensity ?? 0.6;
-  el.style.setProperty("--pulso-glow-size", `${Math.round(28 + 16 * intensity)}px`);
-  el.style.setProperty("--pulso-glow-op", String(0.12 + 0.3 * intensity));
-  el.innerHTML = `
-    ${meta.glow === false ? "" : '<span class="pulso-community__glow"></span>'}
-    <div class="pulso-community__pin">${pinInner}</div>
-    <span class="pulso-community__source">${sourceIcon}</span>
-    ${meta.isDemo ? '<span class="pulso-community__demo">D</span>' : ""}
-  `;
+  const logoUrl =
+    meta.avatarUrl && /^https?:\/\//i.test(meta.avatarUrl) ? meta.avatarUrl : null;
+  el.innerHTML = pulsoPinSvg({
+    category: meta.categoryGuess,
+    logoUrl,
+    source: meta.source ?? "x",
+    extraSources: meta.extraSources ?? 0,
+    name: meta.authorName,
+    showName,
+  });
   return el;
 }
 
@@ -1166,8 +1212,8 @@ type MapViewProps = {
 function pinElement(meta: PinMeta, simplify: boolean, mapShowName?: boolean): HTMLDivElement {
   if (meta.kind === "destination") return buildDestinationPinElement(meta);
   if (meta.kind === "sponsor") return buildSponsorPinElement(meta, mapShowName);
-  if (meta.kind === "community") return buildCommunityPinElement(meta);
-  return buildAlertPinElement(meta, simplify);
+  if (meta.kind === "community") return buildCommunityPinElement(meta, mapShowName);
+  return buildAlertPinElement(meta, simplify, mapShowName);
 }
 
 const ExpoMapView = forwardRef<MapHandle, MapViewProps>(function ExpoMapView(props, ref) {
@@ -1482,8 +1528,16 @@ const ExpoMapView = forwardRef<MapHandle, MapViewProps>(function ExpoMapView(pro
           giro?: string | null;
           logoUrl?: string | null;
           showName?: boolean;
+          avatarUrl?: string | null;
+          character?: string | null;
+          userId?: string | null;
+          username?: string | null;
+          categoryGuess?: string | null;
+          authorName?: string | null;
+          extraSources?: number;
+          category?: string;
         };
-        return `${m.meta.kind}:${m.coordinate.latitude.toFixed(5)}:${m.coordinate.longitude.toFixed(5)}:${m.meta.color}:${look.intensity ?? ""}:${look.glow === false ? "0" : "1"}:${look.name ?? ""}:${look.giro ?? ""}:${look.logoUrl ? "L" : ""}:${look.showName ? "1" : "0"}`;
+        return `${m.meta.kind}:${m.coordinate.latitude.toFixed(5)}:${m.coordinate.longitude.toFixed(5)}:${m.meta.color}:${look.intensity ?? ""}:${look.glow === false ? "0" : "1"}:${look.name ?? ""}:${look.giro ?? ""}:${look.logoUrl || look.avatarUrl ? "L" : ""}:${look.showName ? "1" : "0"}:${look.character ?? ""}:${look.userId ?? ""}:${look.username ?? ""}:${look.categoryGuess ?? look.category ?? ""}:${look.authorName ?? ""}:${look.extraSources ?? 0}`;
       }),
       ...polygons.map((p) => `p:${p.coordinates.length}`),
       ...circles.map(
@@ -1579,21 +1633,21 @@ const ExpoMapView = forwardRef<MapHandle, MapViewProps>(function ExpoMapView(pro
 
       markers.forEach((p) => {
         const isDest = p.meta.kind === "destination";
-        const isSponsor = p.meta.kind === "sponsor";
-        const showName = isSponsor ? sponsorNamesOn : false;
+        const isBalloon =
+          p.meta.kind === "sponsor" || p.meta.kind === "alert" || p.meta.kind === "community";
+        const showName = isBalloon ? sponsorNamesOn : false;
         const content = pinElement(p.meta, simplify, showName);
-        const size = p.meta.kind === "alert" ? 48 : p.meta.kind === "community" ? 40 : 32;
-        const sponsorSize = sponsorPinDisplaySize(showName);
+        const balloonSize = balloonPinDisplaySize(showName);
         const icon = L.divIcon({
           html: content.outerHTML,
           className: "pulso-leaflet-pin",
-          // Destino y aliado apuntan con la punta, no con el centro.
-          iconSize: isDest ? [34, 44] : isSponsor ? [sponsorSize.w, sponsorSize.h] : [size, size],
+          // Destino y globos apuntan con la punta, no con el centro.
+          iconSize: isDest ? [34, 44] : isBalloon ? [balloonSize.w, balloonSize.h] : [32, 32],
           iconAnchor: isDest
             ? [17, 44]
-            : isSponsor
-              ? [sponsorPinTipX(showName), sponsorPinTipY(showName)]
-              : [size / 2, size / 2],
+            : isBalloon
+              ? [balloonPinTipX(showName), balloonPinTipY(showName)]
+              : [16, 16],
         });
         const marker = L.marker([p.coordinate.latitude, p.coordinate.longitude], {
           icon,
@@ -1616,7 +1670,10 @@ const ExpoMapView = forwardRef<MapHandle, MapViewProps>(function ExpoMapView(pro
     if (!g?.maps) return;
 
     markers.forEach((p) => {
-      const showName = p.meta.kind === "sponsor" ? sponsorNamesOn : false;
+      const showName =
+        p.meta.kind === "sponsor" || p.meta.kind === "alert" || p.meta.kind === "community"
+          ? sponsorNamesOn
+          : false;
       const overlay = createHtmlOverlay(
         g,
         map,

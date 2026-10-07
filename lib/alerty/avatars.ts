@@ -1,3 +1,11 @@
+import {
+  CITIZEN_CHARACTERS,
+  getCitizenCharacter,
+  isCitizenCharacterId,
+  resolveCitizenCharacter,
+  type CitizenCharacterId,
+} from "./characters";
+
 export type ProfilePreset = {
   id: string;
   emoji: string;
@@ -5,6 +13,7 @@ export type ProfilePreset = {
   color: string;
 };
 
+/** @deprecated Prefer CITIZEN_CHARACTERS; se mantiene para lectura de preset:* legado. */
 export const PROFILE_PRESETS: ProfilePreset[] = [
   { id: "radar", emoji: "📡", label: "Radar", color: "#D9552B" },
   { id: "owl", emoji: "🦉", label: "Búho", color: "#2E7D32" },
@@ -28,4 +37,17 @@ export function presetFromUrl(url?: string | null): ProfilePreset | null {
 
 export function isHttpAvatar(url?: string | null): boolean {
   return Boolean(url && /^https?:\/\//i.test(url));
+}
+
+export {
+  CITIZEN_CHARACTERS,
+  getCitizenCharacter,
+  isCitizenCharacterId,
+  resolveCitizenCharacter,
+};
+export type { CitizenCharacterId };
+
+/** Color de fondo del personaje para chips / avatares sin foto. */
+export function characterBg(characterId: CitizenCharacterId): string {
+  return getCitizenCharacter(characterId).bg;
 }

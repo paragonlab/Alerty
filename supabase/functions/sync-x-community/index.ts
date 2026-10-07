@@ -11,6 +11,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.97.0";
 import { resolveCommunityGeo } from "../_shared/culiacanPlaces.ts";
+import { guessCategory } from "../_shared/guessCategory.ts";
 import {
   mergeAllowlist,
   trustForHandle,
@@ -45,19 +46,6 @@ if (X_QUERY_GEO.length > 512 || X_QUERY_FEED.length > 512) {
   );
 }
 
-const CATEGORY_KEYWORDS: Array<{ guess: string; pattern: RegExp }> = [
-  { guess: "balacera", pattern: /\bbalacera\b|\btiroteo\b|\bdisparos?\b/i },
-  { guess: "narcobloqueo", pattern: /\bnarcobloqueo\b/i },
-  { guess: "enfrentamiento", pattern: /\benfrentamiento\b|\bgrupo armado\b|\belementos armados\b/i },
-  { guess: "detonaciones", pattern: /\bdetonaciones?\b/i },
-  { guess: "bloqueo", pattern: /\bbloqueo\b|\bbloqueos\b|\btoma de\b/i },
-  { guess: "robo", pattern: /\brobo\b|\basalto\b/i },
-  { guess: "accidente", pattern: /\baccidente\b|\bchoque\b|\bvolcadura\b/i },
-  { guess: "incendio", pattern: /\bincendio\b|\bse quema\b|\bconflagraci[oó]n\b|\blamas\b/i },
-  { guess: "inundacion", pattern: /\binundaci[oó]n\b|\binundad[oa]s?\b|\bencharcamiento\b|\bdesborde\b/i },
-  { guess: "alerta", pattern: /\balerta\b|\balertan\b|\breportan\b|\bzona de riesgo\b/i },
-];
-
 const SOFT_NOISE = [
   /\bestoy en\b/i,
   /\bpaseando\b/i,
@@ -76,13 +64,6 @@ function json(payload: unknown, status = 200) {
     status,
     headers: { ...corsHeaders, "content-type": "application/json" },
   });
-}
-
-function guessCategory(text: string): string | null {
-  for (const entry of CATEGORY_KEYWORDS) {
-    if (entry.pattern.test(text)) return entry.guess;
-  }
-  return null;
 }
 
 function isSoftNoise(text: string): boolean {

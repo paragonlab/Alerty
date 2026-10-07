@@ -12,10 +12,10 @@ import {
   View,
 } from "react-native";
 import { UserAvatar } from "../../components/UserAvatar";
-import { PROFILE_PRESETS, presetAvatarUrl } from "../../lib/alerty/avatars";
+import { CITIZEN_CHARACTERS } from "../../lib/alerty/avatars";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { ALERT_CATEGORIES, CATEGORY_LABELS, getLevelProgress } from "../../lib/alerty/constants";
+import { PIN_CATEGORIES, CATEGORY_LABELS, getLevelProgress } from "../../lib/alerty/constants";
 import { ALIADO_PRICE_LABEL, CIRCULO_PRICE_LABEL, circuloZoneLimit } from "../../lib/alerty/circulo";
 import { needsReview, useAlertyStore } from "../../lib/alerty/store";
 import { useAlertyTheme } from "../../lib/useAlertyTheme";
@@ -44,7 +44,7 @@ export default function SettingsScreen() {
     setShowHeatmap,
     currentUser,
     updateUsername,
-    updateAvatar,
+    updateCharacter,
     watchedZones,
     resetGuest,
     isModerator,
@@ -73,7 +73,7 @@ export default function SettingsScreen() {
   const [deletingAccount, setDeletingAccount] = useState(false);
 
   const allSelected = useMemo(
-    () => activeCategories.length === ALERT_CATEGORIES.length,
+    () => activeCategories.length === PIN_CATEGORIES.length,
     [activeCategories],
   );
 
@@ -82,7 +82,7 @@ export default function SettingsScreen() {
       setCategoryDefaults([]);
       return;
     }
-    setCategoryDefaults([...ALERT_CATEGORIES]);
+    setCategoryDefaults([...PIN_CATEGORIES]);
   };
 
   const handleSignOut = async () => {
@@ -161,9 +161,9 @@ export default function SettingsScreen() {
     );
   };
 
-  const handlePickAvatar = async (id: string) => {
+  const handlePickCharacter = async (id: string) => {
     setSavingAvatar(true);
-    const { error } = await updateAvatar(presetAvatarUrl(id));
+    const { error } = await updateCharacter(id);
     setSavingAvatar(false);
     if (!error) setPickingAvatar(false);
   };
@@ -199,6 +199,8 @@ export default function SettingsScreen() {
               >
                 <UserAvatar
                   url={currentUser.avatarUrl}
+                  character={currentUser.character}
+                  userId={currentUser.id}
                   muted={theme.colors.textMuted}
                   border={theme.colors.border}
                 />
@@ -301,19 +303,26 @@ export default function SettingsScreen() {
 
           {!isGuest && pickingAvatar && (
             <View style={styles.avatarPicker}>
-              <Text style={styles.helperText}>Elige un personaje. Se ve en el mapa cuando reportas.</Text>
+              <Text style={styles.helperText}>
+                Elige un personaje. Se ve en el mapa cuando reportas (sin insignia en tu perfil).
+              </Text>
               <View style={styles.avatarGrid}>
-                {PROFILE_PRESETS.map((preset) => {
-                  const selected = currentUser.avatarUrl === presetAvatarUrl(preset.id);
+                {CITIZEN_CHARACTERS.map((char) => {
+                  const selected = currentUser.character === char.id;
                   return (
                     <Pressable
-                      key={preset.id}
+                      key={char.id}
                       style={[styles.avatarOption, selected && styles.avatarOptionActive]}
-                      onPress={() => void handlePickAvatar(preset.id)}
+                      onPress={() => void handlePickCharacter(char.id)}
                       disabled={savingAvatar}
                     >
-                      <Text style={styles.avatarEmoji}>{preset.emoji}</Text>
-                      <Text style={styles.avatarOptionLabel}>{preset.label}</Text>
+                      <UserAvatar
+                        character={char.id}
+                        userId={currentUser.id}
+                        size={44}
+                        border={selected ? theme.colors.accent : theme.colors.border}
+                      />
+                      <Text style={styles.avatarOptionLabel}>{char.label}</Text>
                     </Pressable>
                   );
                 })}
@@ -546,7 +555,7 @@ export default function SettingsScreen() {
             </Pressable>
           </View>
           <View style={styles.categoryWrap}>
-            {ALERT_CATEGORIES.map((category) => {
+            {PIN_CATEGORIES.map((category) => {
               const active = activeCategories.includes(category);
               return (
                 <Pressable

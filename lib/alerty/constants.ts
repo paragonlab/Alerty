@@ -5,6 +5,7 @@ export const CULIACAN_CENTER = {
   longitudeDelta: 0.16,
 };
 
+/** Categorías que un ciudadano puede reportar (alerts.category). */
 export const ALERT_CATEGORIES = [
   "balacera",
   "narcobloqueo",
@@ -18,9 +19,20 @@ export const ALERT_CATEGORIES = [
   "inundacion",
   "zona segura",
   "sos",
+  "desaparecida",
+  "operativo",
 ] as const;
 
-export const CATEGORY_LABELS: Record<(typeof ALERT_CATEGORIES)[number], string> = {
+/** Categorías solo de Pulsos (community_posts.category_guess). */
+export const COMMUNITY_EXTRA_CATEGORIES = ["alerta", "otro"] as const;
+
+/** Todas las categorías de pin / filtro (alertas + pulsos). */
+export const PIN_CATEGORIES = [
+  ...ALERT_CATEGORIES,
+  ...COMMUNITY_EXTRA_CATEGORIES,
+] as const;
+
+export const CATEGORY_LABELS: Record<(typeof PIN_CATEGORIES)[number], string> = {
   balacera: "Balacera",
   narcobloqueo: "Narcobloqueo",
   enfrentamiento: "Enfrentamiento",
@@ -28,14 +40,18 @@ export const CATEGORY_LABELS: Record<(typeof ALERT_CATEGORIES)[number], string> 
   bloqueo: "Bloqueo Vial",
   captura: "Captura",
   robo: "Robo",
-  accidente: "Accidente",
+  accidente: "Accidente vial",
   incendio: "Incendio",
   inundacion: "Inundación",
   "zona segura": "Zona segura",
   sos: "EMERGENCIA SOS",
+  desaparecida: "Persona desaparecida",
+  operativo: "Operativo",
+  alerta: "Alerta",
+  otro: "Otro / noticia",
 };
 
-export const CATEGORY_ICONS: Record<(typeof ALERT_CATEGORIES)[number], string> = {
+export const CATEGORY_ICONS: Record<(typeof PIN_CATEGORIES)[number], string> = {
   balacera: "warning",
   narcobloqueo: "car-outline",
   enfrentamiento: "warning-outline",
@@ -48,13 +64,17 @@ export const CATEGORY_ICONS: Record<(typeof ALERT_CATEGORIES)[number], string> =
   inundacion: "water",
   "zona segura": "shield-checkmark-outline",
   sos: "alert-circle",
+  desaparecida: "search",
+  operativo: "shield",
+  alerta: "alert",
+  otro: "newspaper-outline",
 };
 
 export const REPUTATION_LEVELS = {
-  CIUDADANO: { label: "Ciudadano", minScore: 0, range: 2.0, color: "#666666", icon: "person" },
-  VIGIA: { label: "Vigía", minScore: 20, range: 5.0, color: "#2E7D32", icon: "eye" },
-  PROTECTOR: { label: "Protector", minScore: 50, range: 10.0, color: "#1565C0", icon: "shield" },
-  HEROE: { label: "Héroe Local", minScore: 80, range: 25.0, color: "#C62828", icon: "star" },
+  CIUDADANO: { label: "Ciudadano", minScore: 0, radius: 2.0, color: "#666666", icon: "person" },
+  VIGIA: { label: "Vigía", minScore: 20, radius: 5.0, color: "#2E7D32", icon: "eye" },
+  PROTECTOR: { label: "Protector", minScore: 50, radius: 10.0, color: "#1565C0", icon: "shield" },
+  HEROE: { label: "Héroe Local", minScore: 80, radius: 25.0, color: "#C62828", icon: "star" },
 } as const;
 
 export type ReputationLevel = keyof typeof REPUTATION_LEVELS;
@@ -132,27 +152,30 @@ export const TIME_FILTER_PILL_LABEL: Record<(typeof TIME_FILTERS)[number], strin
 };
 
 /**
- * Colores de pin por categoría / riesgo (misma familia que mapRed/Orange/Yellow).
- * Usado en GlowMarker (consistencia) y CommunityMarker (categoryGuess).
+ * Colores de pin por categoría (tabla aprobada en board de Pulsos).
+ * Usado en GlowMarker, CommunityMarker, badges, cards y filtros.
  */
 export const CATEGORY_PIN_COLORS: Record<string, string> = {
   balacera: "#D9342B",
-  narcobloqueo: "#D9342B",
-  enfrentamiento: "#D9342B",
-  sos: "#D9342B",
+  enfrentamiento: "#A31D24",
   detonaciones: "#E9792F",
-  bloqueo: "#E9792F",
-  captura: "#E9792F",
-  alerta: "#E9792F",
-  robo: "#E5C548",
-  accidente: "#E5C548",
-  incendio: "#D9342B",
+  narcobloqueo: "#74203F",
+  bloqueo: "#F4A11D",
+  captura: "#B5561F",
+  robo: "#C79A1E",
+  accidente: "#F2C83A",
+  incendio: "#EF4B23",
   inundacion: "#2E7DD1",
   "zona segura": "#1F9D6E",
+  sos: "#E0115F",
+  alerta: "#FF7A59",
+  desaparecida: "#8A4FD6",
+  operativo: "#26418F",
+  otro: "#6B7280",
 };
 
 /** Fallback para posts de comunidad sin categoryGuess. */
-export const COMMUNITY_DEFAULT_PIN_COLOR = "#1D9BF0";
+export const COMMUNITY_DEFAULT_PIN_COLOR = "#6B7280";
 
 export const CULIACAN_NEIGHBORHOODS = [
   { name: "Las Quintas", latitude: 24.8099, longitude: -107.3874 },

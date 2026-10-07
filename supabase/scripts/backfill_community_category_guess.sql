@@ -1,0 +1,19 @@
+-- Re-ejecutable: mismo backfill que
+-- supabase/migrations/20261007120000_community_category_guess_backfill.sql
+--
+-- NO correr contra producción desde CI/agente. Tras review:
+--   psql "$DATABASE_URL" -f supabase/migrations/20261007120000_community_category_guess_backfill.sql
+--
+-- Antes/después:
+--   select coalesce(category_guess, '(null)') as cat, count(*)
+--   from public.community_posts
+--   group by 1 order by 2 desc;
+--
+-- Revertir desde backup (solo filas respaldadas):
+--   update public.community_posts p
+--   set category_guess = b.old_category_guess
+--   from public.community_posts_category_backup b
+--   where p.id = b.id;
+--
+-- Paridad TS/SQL (local):
+--   npx --yes tsx scripts/guessCategoryParity.test.ts
