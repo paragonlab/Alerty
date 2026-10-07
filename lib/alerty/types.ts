@@ -55,6 +55,9 @@ export type AlertItem = {
 
 export type PinShape = "pin" | "flag" | "house" | "shield";
 
+/** Categoría visual del pin Waze (opción A). Nullable en DB. */
+export type PinGiro = "tienda" | "farmacia" | "cafe" | "generico" | "casa" | "escudo";
+
 export type SponsoredZone = {
   id: string;
   name: string;
@@ -63,6 +66,7 @@ export type SponsoredZone = {
   lng: number;
   logoUrl?: string;
   pinShape: PinShape;
+  pinGiro?: PinGiro;
   type: "refugio" | "anuncio";
 };
 

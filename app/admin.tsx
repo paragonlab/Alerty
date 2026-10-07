@@ -36,6 +36,7 @@ type Lead = {
   proof_kind: string | null;
   location_distance_m: number | null;
   pin_shape: string | null;
+  pin_giro: string | null;
   logo_url: string | null;
   status: LeadStatus;
   zone_id: string | null;
@@ -208,7 +209,7 @@ export default function AdminScreen() {
       supabase
         .from("aliado_leads")
         .select(
-          "id,name,description,contact_email,type,lat,lng,address,proof_url,proof_kind,location_distance_m,pin_shape,logo_url,status,zone_id,created_at",
+          "id,name,description,contact_email,type,lat,lng,address,proof_url,proof_kind,location_distance_m,pin_shape,pin_giro,logo_url,status,zone_id,created_at",
         )
         .order("created_at", { ascending: false }),
       supabase
@@ -275,6 +276,15 @@ export default function AdminScreen() {
           lead.pin_shape === "flag" || lead.pin_shape === "house" || lead.pin_shape === "shield"
             ? lead.pin_shape
             : "pin",
+        pin_giro:
+          lead.pin_giro === "tienda" ||
+          lead.pin_giro === "farmacia" ||
+          lead.pin_giro === "cafe" ||
+          lead.pin_giro === "generico" ||
+          lead.pin_giro === "casa" ||
+          lead.pin_giro === "escudo"
+            ? lead.pin_giro
+            : null,
         logo_url: lead.logo_url,
         status: "active",
       })
