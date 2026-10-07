@@ -361,13 +361,114 @@ export default function BusinessOnboarding() {
             </View>
             <Text style={styles.title}>Aliado en el mapa</Text>
             <Text style={styles.subtitle}>
-              Farmacia abierta, gasolinera, clínica u OXXO. Un pin útil: aquí hay gente,
-              puedes parar. No es un anuncio en la lista de Pulsos.
+              Un Aliado es un negocio con pin propio en el mapa de Pulso: la gente ve
+              dónde hay un lugar abierto o un punto donde puede parar. No es un anuncio
+              en la lista de Pulsos.
             </Text>
+          </View>
+
+          <View style={styles.infoCard}>
+            <Text style={styles.infoTitle}>Aliado o Refugio</Text>
+            <Text style={styles.infoLead}>
+              Los dos se ven en el mapa con pines estilo Waze. Mismo precio; cambia el
+              significado y el color del pin.
+            </Text>
+
+            <View style={styles.compareBlock}>
+              <View style={styles.compareHead}>
+                <Ionicons name="star" size={16} color={theme.colors.accent} />
+                <Text style={styles.compareName}>Aliado</Text>
+              </View>
+              <Text style={styles.compareLine}>
+                Para el ciudadano: un comercio útil (farmacia, tienda, café, gasolinera…)
+                como referencia en el mapa.
+              </Text>
+              <Text style={styles.compareLine}>
+                Para tu negocio: pin con estrella; al tocarlo se lee tu nombre y
+                descripción. Opcional: logo y giro (tienda, farmacia, café u otro).
+              </Text>
+            </View>
+
+            <View style={styles.compareDivider} />
+
+            <View style={styles.compareBlock}>
+              <View style={styles.compareHead}>
+                <Ionicons name="shield-checkmark" size={16} color={theme.colors.success} />
+                <Text style={styles.compareName}>Refugio</Text>
+              </View>
+              <Text style={styles.compareLine}>
+                Para el ciudadano: un lugar que se ofrece como punto más seguro donde
+                acercarse o parar.
+              </Text>
+              <Text style={styles.compareLine}>
+                Para tu negocio: pin verde con insignia de corazón o escudo; misma
+                ficha al tocarlo. Giros: casa o escudo.
+              </Text>
+            </View>
+
+            <Text style={styles.priceNote}>
+              {isStore
+                ? "En la app envías solicitud; Pulso te contacta por correo. Ambos tipos siguen el mismo proceso."
+                : `${ALIADO_PRICE_LABEL} por sucursal, igual para Aliado o Refugio. Cancela cuando quieras.`}
+            </Text>
+          </View>
+
+          <View style={styles.infoCard}>
+            <Text style={styles.infoTitle}>Cómo funciona</Text>
+            {[
+              "Elige Aliado o Refugio, marca la puerta en el mapa y describe el lugar.",
+              "Comprueba que es tuyo: estando ahí, o con foto de fachada o recibo.",
+              isStore
+                ? "Envías la solicitud. Pulso revisa y, si procede, publica el pin."
+                : "Pagas la suscripción. Pulso revisa y el pin se publica si está activo.",
+            ].map((step, i) => (
+              <View key={step} style={styles.stepRow}>
+                <View style={styles.stepNum}>
+                  <Text style={styles.stepNumText}>{i + 1}</Text>
+                </View>
+                <Text style={styles.stepText}>{step}</Text>
+              </View>
+            ))}
+          </View>
+
+          <View style={styles.infoCard}>
+            <Text style={styles.infoTitle}>Preguntas frecuentes</Text>
+            {(
+              [
+                {
+                  q: "¿Aliado y Refugio cuestan distinto?",
+                  a: isStore
+                    ? "No. Ambos tipos siguen el mismo proceso de solicitud."
+                    : `No. Ambos cuestan ${ALIADO_PRICE_LABEL} por sucursal.`,
+                },
+                {
+                  q: "¿Aparezco de inmediato en el mapa?",
+                  a: "No. Pulso revisa cada solicitud o pago antes de publicar el pin.",
+                },
+                {
+                  q: "¿Es un anuncio en la lista de Pulsos?",
+                  a: "No. Solo un pin en el mapa. Quien lo toca ve tu nombre y descripción.",
+                },
+                {
+                  q: "¿Puedo cancelar?",
+                  a: isStore
+                    ? "Si llegas a tener un pin activo, puedes pedir que lo quiten; te lo explicamos por correo."
+                    : "Sí. Cancela cuando quieras; el pin deja de mostrarse cuando la suscripción ya no está activa.",
+                },
+              ] as const
+            ).map((item) => (
+              <View key={item.q} style={styles.faqItem}>
+                <Text style={styles.faqQ}>{item.q}</Text>
+                <Text style={styles.faqA}>{item.a}</Text>
+              </View>
+            ))}
           </View>
 
           <View style={styles.card}>
             <Text style={styles.label}>Tipo de pin</Text>
+            <Text style={styles.help}>
+              Elige cómo quieres aparecer. Puedes cambiar la vista previa abajo.
+            </Text>
             <View style={styles.typeRow}>
               <Pressable
                 style={[styles.typeButton, type === "refugio" && styles.typeButtonActive]}
@@ -691,8 +792,8 @@ export default function BusinessOnboarding() {
 
             <Text style={styles.legalText}>
               {isStore
-                ? "Pulso revisa cada Aliado antes de publicarlo. Te contactamos por correo para ver los detalles."
-                : "El pin aparece en el mapa mientras la suscripción esté activa. Pulso revisa cada Aliado antes de publicarlo."}
+                ? "Pulso revisa cada pin antes de publicarlo. Te contactamos por correo para ver los detalles."
+                : "El pin aparece en el mapa mientras la suscripción esté activa. Pulso revisa cada pin antes de publicarlo."}
             </Text>
           </View>
         </ScrollView>
@@ -745,6 +846,99 @@ const createStyles = () => StyleSheet.create({
     textAlign: "center",
     lineHeight: 19,
     paddingHorizontal: 16,
+  },
+  infoCard: {
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.radius.xxl,
+    padding: 18,
+    gap: 10,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+  },
+  infoTitle: {
+    color: theme.colors.text,
+    fontSize: 15,
+    fontFamily: theme.fonts.heading,
+  },
+  infoLead: {
+    color: theme.colors.textMuted,
+    fontSize: 13,
+    fontFamily: theme.fonts.body,
+    lineHeight: 19,
+  },
+  compareBlock: { gap: 6 },
+  compareHead: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  compareName: {
+    color: theme.colors.text,
+    fontSize: 14,
+    fontFamily: theme.fonts.heading,
+  },
+  compareLine: {
+    color: theme.colors.textMuted,
+    fontSize: 12,
+    fontFamily: theme.fonts.body,
+    lineHeight: 17,
+  },
+  compareDivider: {
+    height: 1,
+    backgroundColor: theme.colors.border,
+    marginVertical: 4,
+  },
+  priceNote: {
+    color: theme.colors.text,
+    fontSize: 12,
+    fontFamily: theme.fonts.heading,
+    lineHeight: 17,
+    marginTop: 2,
+  },
+  stepRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+  },
+  stepNum: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: theme.colors.accent + "18",
+    borderWidth: 1,
+    borderColor: theme.colors.accent + "40",
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 1,
+  },
+  stepNumText: {
+    color: theme.colors.accent,
+    fontSize: 11,
+    fontFamily: theme.fonts.heading,
+  },
+  stepText: {
+    flex: 1,
+    color: theme.colors.textMuted,
+    fontSize: 13,
+    fontFamily: theme.fonts.body,
+    lineHeight: 19,
+  },
+  faqItem: {
+    gap: 3,
+    paddingTop: 4,
+    borderTopWidth: 1,
+    borderTopColor: theme.colors.border,
+  },
+  faqQ: {
+    color: theme.colors.text,
+    fontSize: 13,
+    fontFamily: theme.fonts.heading,
+  },
+  faqA: {
+    color: theme.colors.textMuted,
+    fontSize: 12,
+    fontFamily: theme.fonts.body,
+    lineHeight: 17,
   },
   card: {
     backgroundColor: theme.colors.surface,
