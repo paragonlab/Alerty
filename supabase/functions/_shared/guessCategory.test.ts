@@ -23,3 +23,11 @@ Deno.test("null when empty / noise", () => {
   assertEquals(guessCategory(""), null);
   assertEquals(guessCategory("partido de fútbol y turismo"), null);
 });
+
+Deno.test("sos requires whole words (no substring hits)", () => {
+  for (const word of ["dolosos", "casos", "pesos", "recursos", "procesos", "sostuvo", "diversos"]) {
+    assertEquals(guessCategory(word), null);
+  }
+  assertEquals(guessCategory("homicidios dolosos en la colonia"), null);
+  assertEquals(guessCategory("cuesta 50 pesos el trámite"), null);
+});
