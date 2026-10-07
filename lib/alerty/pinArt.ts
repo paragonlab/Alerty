@@ -1,155 +1,119 @@
 import type { PinShape } from "./types";
 
-/** Tamaño del pin en el mapa. La punta toca el suelo en (tipX, height). */
-export const SPONSOR_PIN_W = 64;
-export const SPONSOR_PIN_H = 76;
+/**
+ * Etiqueta de negocio: chip blanco con icono, nombre, cola y punto de suelo.
+ * El ancla del mapa es el centro del punto de suelo (abajo al centro).
+ */
+export const SPONSOR_PIN_W = 152;
+export const SPONSOR_PIN_H = 52;
 
-export function sponsorPinTipX(shape: PinShape): number {
-  return shape === "flag" ? 16 : 32;
-}
+/** Ancho máximo del texto del nombre (px SVG). Más largo → ellipsis. */
+export const SPONSOR_NAME_MAX_W = 108;
 
-function clamp(n: number): number {
-  return Math.max(0, Math.min(255, Math.round(n)));
-}
+const NAME_FONT_SIZE = 12;
+/** Ancho medio aproximado de Space Grotesk Bold a 12px. */
+const NAME_CHAR_W = 6.5;
 
-function rgb(hexColor: string): [number, number, number] {
-  const h = hexColor.replace("#", "").trim();
-  const full = h.length === 3 ? h.split("").map((c) => c + c).join("") : h;
-  const n = Number.parseInt(full, 16);
-  if (!Number.isFinite(n) || full.length !== 6) return [217, 85, 43];
-  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
-}
-
-function hex(r: number, g: number, b: number): string {
-  return `#${[r, g, b].map((v) => clamp(v).toString(16).padStart(2, "0")).join("")}`;
-}
-
-function mix(hexColor: string, toward: [number, number, number], t: number): string {
-  const [r, g, b] = rgb(hexColor);
-  return hex(r + (toward[0] - r) * t, g + (toward[1] - g) * t, b + (toward[2] - b) * t);
+export function sponsorPinTipX(_shape?: PinShape): number {
+  return SPONSOR_PIN_W / 2;
 }
 
 function esc(value: string): string {
-  return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }
 
-const DEPTH = 4;
+/** Trunca el nombre para que quepa en el chip con ellipsis. */
+export function truncateSponsorName(name: string, maxW = SPONSOR_NAME_MAX_W): string {
+  const cleaned = name.trim().replace(/\s+/g, " ");
+  if (!cleaned) return "Aliado";
+  const maxChars = Math.max(4, Math.floor(maxW / NAME_CHAR_W));
+  if (cleaned.length <= maxChars) return cleaned;
+  return `${cleaned.slice(0, Math.max(1, maxChars - 1)).trimEnd()}…`;
+}
 
-/** Pieza de plastilina: canto oscuro debajo, cara con volumen y brillo suave. */
-function clay(d: string, face: string, edge: string): string {
+function estimateTextWidth(label: string): number {
+  return Math.min(SPONSOR_NAME_MAX_W, Math.max(28, label.length * NAME_CHAR_W));
+}
+
+function shapeGlyph(shape: PinShape, color: string): string {
+  if (shape === "flag") {
+    return `
+      <rect x="6" y="4" width="2.2" height="15" rx="1.1" fill="#fff"/>
+      <path d="M8.2 5.2 H17.5 L15.8 8.6 L17.5 12 H8.2 Z" fill="#fff"/>
+    `;
+  }
+  if (shape === "house") {
+    return `
+      <path d="M4.5 10.5 L11 5.2 L17.5 10.5 V17 H13.2 V13.2 H8.8 V17 H4.5 Z" fill="#fff"/>
+    `;
+  }
+  if (shape === "shield") {
+    return `
+      <path d="M11 3.8 C13.2 5.2 15.4 5.6 17.2 5.6 C17.7 5.6 18 5.9 18 6.3 C17.7 12.2 15.2 15.8 11.4 18.2 C11.15 18.35 10.85 18.35 10.6 18.2 C6.8 15.8 4.3 12.2 4 6.3 C4 5.9 4.3 5.6 4.8 5.6 C6.6 5.6 8.8 5.2 11 3.8 Z" fill="#fff"/>
+      <path d="M8.2 11.1 L10.2 13.1 L14.2 8.8" fill="none" stroke="${esc(color)}" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+    `;
+  }
   return `
-    <path d="${d}" fill="${edge}" transform="translate(0 ${DEPTH})"/>
-    <path d="${d}" fill="${edge}" transform="translate(0 ${DEPTH / 2})"/>
-    <path d="${d}" fill="${face}"/>
+    <path d="M11 18.2 C10.2 16.8 5.8 12.4 5.8 8.6 A5.2 5.2 0 0 1 16.2 8.6 C16.2 12.4 11.8 16.8 11 18.2 Z" fill="#fff"/>
+    <circle cx="11" cy="8.5" r="2.1" fill="${esc(color)}"/>
   `;
 }
 
-function shadow(cx: number, rx: number): string {
-  return `<ellipse cx="${cx}" cy="73" rx="${rx}" ry="2.6" fill="rgba(0,0,0,0.22)"/>`;
-}
-
-function logo(id: string, url: string, cx: number, cy: number, r: number): string {
-  return `
-    <circle cx="${cx}" cy="${cy + 1.2}" r="${r + 1.6}" fill="rgba(0,0,0,0.18)"/>
-    <circle cx="${cx}" cy="${cy}" r="${r + 1.6}" fill="#fff"/>
-    <clipPath id="${id}-clip"><circle cx="${cx}" cy="${cy}" r="${r}"/></clipPath>
-    <image href="${esc(url)}" xlink:href="${esc(url)}" x="${cx - r}" y="${cy - r}" width="${r * 2}" height="${r * 2}" clip-path="url(#${id}-clip)" preserveAspectRatio="xMidYMid slice"/>
-  `;
-}
-
-/** Pin de Aliado con look 3D tipo plastilina. La punta es el lugar. */
+/**
+ * Pin de Aliado / Refugio: etiqueta plana legible en mapas claros y oscuros.
+ * La punta (punto de suelo) es el lugar.
+ */
 export function sponsorPinSvg(opts: {
   color: string;
   shape: PinShape;
   logoUrl?: string | null;
+  name?: string | null;
 }): string {
   const { color, shape } = opts;
-  const id = `p${Math.random().toString(36).slice(2, 8)}`;
-  const light = mix(color, [255, 255, 255], 0.38);
-  const dark = mix(color, [30, 18, 14], 0.38);
   const logoUrl = opts.logoUrl && opts.logoUrl.length < 2000 ? opts.logoUrl : null;
-  const face = `url(#${id}-face)`;
-  const gloss = `url(#${id}-gloss)`;
+  const id = logoUrl ? `p${Math.random().toString(36).slice(2, 8)}` : "";
+  const label = truncateSponsorName(opts.name ?? "");
 
-  const defs = `
-    <radialGradient id="${id}-face" cx="38%" cy="28%" r="80%">
-      <stop offset="0" stop-color="${light}"/>
-      <stop offset="0.55" stop-color="${color}"/>
-      <stop offset="1" stop-color="${mix(color, [30, 18, 14], 0.18)}"/>
-    </radialGradient>
-    <radialGradient id="${id}-gloss" cx="50%" cy="50%" r="50%">
-      <stop offset="0" stop-color="#fff" stop-opacity="0.75"/>
-      <stop offset="1" stop-color="#fff" stop-opacity="0"/>
-    </radialGradient>
-    <linearGradient id="${id}-cream" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0" stop-color="#fffdf8"/>
-      <stop offset="1" stop-color="#e3d7c4"/>
-    </linearGradient>
-  `;
-
-  let body: string;
-  if (shape === "flag") {
-    const cloth = "M19 9 C30 4 40 13 56 8 C58 8 59 10 58 12 L52 21 L58 30 C59 32 58 34 56 34 C40 38 30 29 19 34 Z";
-    body = `
-      ${shadow(17, 9)}
-      <ellipse cx="16" cy="70" rx="8.5" ry="3.6" fill="${dark}"/>
-      <ellipse cx="16" cy="68" rx="8.5" ry="3.6" fill="${color}"/>
-      <ellipse cx="14" cy="67" rx="4" ry="1.4" fill="#fff" opacity="0.35"/>
-      <rect x="13" y="7" width="6" height="61" rx="3" fill="url(#${id}-cream)"/>
-      ${clay(cloth, face, dark)}
-      <ellipse cx="32" cy="12" rx="11" ry="3.2" fill="${gloss}"/>
-      ${logoUrl ? logo(id, logoUrl, 36, 21, 7) : ""}
-      <circle cx="16" cy="7" r="5" fill="${dark}" transform="translate(0 1.5)"/>
-      <circle cx="16" cy="7" r="5" fill="url(#${id}-cream)"/>
-      <circle cx="14.4" cy="5.4" r="1.6" fill="#fff" opacity="0.9"/>
-    `;
-  } else if (shape === "house") {
-    const roof = "M8 33 L29 13 C30.8 11.3 33.2 11.3 35 13 L56 33 C57.6 34.6 56.5 37 54.3 37 H9.7 C7.5 37 6.4 34.6 8 33 Z";
-    const walls = "M15 34 H49 V56 C49 58.2 47.2 60 45 60 H38 L32 69 L26 60 H19 C16.8 60 15 58.2 15 56 Z";
-    body = `
-      ${shadow(32, 9)}
-      ${clay(walls, `url(#${id}-cream)`, "#cbbba3")}
-      ${clay(roof, face, dark)}
-      <ellipse cx="30" cy="22" rx="9" ry="3.2" fill="${gloss}"/>
-      ${
-        logoUrl
-          ? logo(id, logoUrl, 32, 47, 7.5)
-          : `<rect x="27" y="44" width="10" height="13" rx="4" fill="${dark}" transform="translate(0 1.2)"/>
-             <rect x="27" y="44" width="10" height="13" rx="4" fill="${color}"/>
-             <circle cx="34.5" cy="51" r="1" fill="#fff" opacity="0.85"/>`
-      }
-    `;
-  } else if (shape === "shield") {
-    const d = "M32 6 C40 11 47 12.5 53 12.5 C55 12.5 56 14 56 16 C55 41 46 56 33.5 66.5 C32.6 67.3 31.4 67.3 30.5 66.5 C18 56 9 41 8 16 C8 14 9 12.5 11 12.5 C17 12.5 24 11 32 6 Z";
-    body = `
-      ${shadow(32, 9)}
-      ${clay(d, face, dark)}
-      <ellipse cx="26" cy="20" rx="10" ry="4.5" fill="${gloss}"/>
-      ${
-        logoUrl
-          ? logo(id, logoUrl, 32, 33, 9.5)
-          : `<path d="M22 33 L29 40 L43 25" fill="none" stroke="${dark}" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" transform="translate(0 1.6)"/>
-             <path d="M22 33 L29 40 L43 25" fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>`
-      }
-    `;
-  } else {
-    const d = "M32 68 C29 63 13 47 13 27 A19 19 0 0 1 51 27 C51 47 35 63 32 68 Z";
-    body = `
-      ${shadow(32, 8)}
-      ${clay(d, face, dark)}
-      <ellipse cx="25" cy="16" rx="8" ry="4.5" fill="${gloss}"/>
-      ${
-        logoUrl
-          ? logo(id, logoUrl, 32, 27, 10)
-          : `<circle cx="32" cy="28.4" r="8.5" fill="${dark}"/>
-             <circle cx="32" cy="27" r="8.5" fill="#fff"/>
-             <circle cx="30" cy="25" r="2.6" fill="#fff" opacity="0.9"/>`
-      }
-    `;
-  }
+  const chipH = 32;
+  const chipY = 4;
+  const iconPad = 5;
+  const iconSize = 22;
+  const textGap = 8;
+  const textW = estimateTextWidth(label);
+  const chipW = Math.min(
+    SPONSOR_PIN_W - 8,
+    iconPad + iconSize + textGap + textW + iconPad,
+  );
+  const chipX = (SPONSOR_PIN_W - chipW) / 2;
+  const iconX = chipX + iconPad;
+  const iconY = chipY + (chipH - iconSize) / 2;
+  const textX = iconX + iconSize + textGap;
+  const tipX = SPONSOR_PIN_W / 2;
+  const chipBottom = chipY + chipH;
+  const tailTop = chipBottom - 1;
+  const tailH = 7;
+  const tailHalf = 6;
+  const dotCy = SPONSOR_PIN_H - 5;
+  const dotR = 4.5;
 
   return `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 ${SPONSOR_PIN_W} ${SPONSOR_PIN_H}" width="${SPONSOR_PIN_W}" height="${SPONSOR_PIN_H}">
-    <defs>${defs}</defs>
-    ${body}
-  </svg>`;
+  <defs>
+    ${logoUrl ? `<clipPath id="${id}-logo"><rect x="${iconX}" y="${iconY}" width="${iconSize}" height="${iconSize}" rx="6"/></clipPath>` : ""}
+  </defs>
+  <ellipse cx="${tipX}" cy="${chipBottom + 3}" rx="${Math.max(18, chipW * 0.38)}" ry="3.2" fill="rgba(0,0,0,0.18)"/>
+  <path d="M${tipX - tailHalf} ${tailTop} L${tipX} ${tailTop + tailH} L${tipX + tailHalf} ${tailTop} Z" fill="${esc(color)}"/>
+  <rect x="${chipX}" y="${chipY}" width="${chipW}" height="${chipH}" rx="10" ry="10" fill="#ffffff" stroke="${esc(color)}" stroke-width="2"/>
+  <rect x="${iconX}" y="${iconY}" width="${iconSize}" height="${iconSize}" rx="6" ry="6" fill="${esc(color)}"/>
+  ${
+    logoUrl
+      ? `<image href="${esc(logoUrl)}" xlink:href="${esc(logoUrl)}" x="${iconX}" y="${iconY}" width="${iconSize}" height="${iconSize}" clip-path="url(#${id}-logo)" preserveAspectRatio="xMidYMid slice"/>`
+      : `<g transform="translate(${iconX}, ${iconY})">${shapeGlyph(shape, color)}</g>`
+  }
+  <text x="${textX}" y="${chipY + chipH / 2 + 1}" fill="#1B1A17" font-size="${NAME_FONT_SIZE}" font-weight="700" font-family="Space Grotesk, system-ui, -apple-system, 'Segoe UI', sans-serif" dominant-baseline="middle">${esc(label)}</text>
+  <circle cx="${tipX}" cy="${dotCy}" r="${dotR}" fill="${esc(color)}" stroke="#ffffff" stroke-width="1.8"/>
+</svg>`;
 }

@@ -712,6 +712,7 @@ export default function MapScreen() {
                   color={zone.type === "refugio" ? theme.colors.success : theme.colors.accent}
                   shape={zone.pinShape}
                   logoUrl={zone.logoUrl}
+                  name={zone.name}
                 />
               </Marker>
             ))}

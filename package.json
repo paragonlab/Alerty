@@ -15,6 +15,7 @@
     "test:colonia": "npx --yes tsx lib/alerty/coloniaGeocode.test.ts",
     "test:summary": "npx --yes tsx lib/alerty/daySummary.test.ts",
     "test:circulo": "npx --yes tsx lib/alerty/circulo.test.ts",
+    "test:pinArt": "npx --yes tsx lib/alerty/pinArt.test.ts",
     "supabase:db:push": "npx supabase db push"
   },
   "dependencies": {
