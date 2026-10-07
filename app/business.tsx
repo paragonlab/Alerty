@@ -359,9 +359,19 @@ export default function BusinessOnboarding() {
               </Pressable>
             </View>
 
+            <Text style={styles.label}>Nombre del negocio</Text>
+            <TextInput
+              value={name}
+              onChangeText={setName}
+              placeholder="Ej. Farmacias del Ahorro – Centro"
+              placeholderTextColor={theme.colors.textMuted}
+              style={styles.input}
+              maxLength={80}
+            />
+
             <Text style={styles.label}>Cómo se ve tu pin</Text>
             <Text style={styles.help}>
-              Elige la forma. El logotipo es opcional y se ve dentro del pin.
+              Elige el icono. El nombre aparece en la etiqueta; el logotipo es opcional.
             </Text>
             <View style={styles.shapeRow}>
               <SponsorPin
@@ -369,6 +379,7 @@ export default function BusinessOnboarding() {
                 color={type === "refugio" ? theme.colors.success : theme.colors.accent}
                 shape={pinShape}
                 logoUrl={logoUri}
+                name={name.trim() || "Tu negocio"}
               />
               <View style={styles.shapeChoices}>
                 {(
@@ -409,16 +420,6 @@ export default function BusinessOnboarding() {
                 </Text>
               </View>
             </Pressable>
-
-            <Text style={styles.label}>Nombre del negocio</Text>
-            <TextInput
-              value={name}
-              onChangeText={setName}
-              placeholder="Ej. Farmacias del Ahorro – Centro"
-              placeholderTextColor={theme.colors.textMuted}
-              style={styles.input}
-              maxLength={80}
-            />
 
             <Text style={styles.label}>Descripción corta</Text>
             <TextInput
@@ -503,6 +504,7 @@ export default function BusinessOnboarding() {
                       color={type === "refugio" ? theme.colors.success : theme.colors.accent}
                       shape={pinShape}
                       logoUrl={logoUri}
+                      name={name.trim() || "Tu negocio"}
                     />
                   </Marker>
                 ) : null}
@@ -710,7 +712,7 @@ const createStyles = () => StyleSheet.create({
   },
   shapeRow: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-start",
     gap: 12,
   },
   shapeChoices: {

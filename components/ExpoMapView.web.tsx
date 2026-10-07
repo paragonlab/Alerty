@@ -56,6 +56,7 @@ type SponsorPinMeta = {
   color: string;
   shape: "pin" | "flag" | "house" | "shield";
   logoUrl?: string | null;
+  name?: string | null;
 };
 
 type CommunityPinMeta = {
@@ -401,14 +402,10 @@ function ensurePulseStyles() {
   width: ${SPONSOR_PIN_W}px;
   height: ${SPONSOR_PIN_H}px;
   margin-top: -${SPONSOR_PIN_H}px;
+  margin-left: -${sponsorPinTipX()}px;
   cursor: pointer;
   pointer-events: auto;
-  filter: drop-shadow(0 2px 2px rgba(0,0,0,0.3));
 }
-.pulso-sponsor--flag { margin-left: -${sponsorPinTipX("flag")}px; }
-.pulso-sponsor--pin,
-.pulso-sponsor--house,
-.pulso-sponsor--shield { margin-left: -${sponsorPinTipX("pin")}px; }
 .pulso-sponsor > svg {
   width: ${SPONSOR_PIN_W}px;
   height: ${SPONSOR_PIN_H}px;
@@ -660,6 +657,7 @@ function findSponsorMeta(node: React.ReactNode): SponsorPinMeta | null {
           color: typeof props.color === "string" ? props.color : "#E9792F",
           shape,
           logoUrl: typeof props.logoUrl === "string" ? props.logoUrl : null,
+          name: typeof props.name === "string" ? props.name : null,
         };
       }
       const bg = readBackgroundColor(props.style);
@@ -672,7 +670,7 @@ function findSponsorMeta(node: React.ReactNode): SponsorPinMeta | null {
 
   if (explicit) return explicit;
   if (!color) return null;
-  return { kind: "sponsor", color, shape: sawShield ? "shield" : "pin", logoUrl: null };
+  return { kind: "sponsor", color, shape: sawShield ? "shield" : "pin", logoUrl: null, name: null };
 }
 
 /** Detecta CommunityMarker vía markerKind / isDemo en props del elemento. */
@@ -957,15 +955,17 @@ function escapeAttr(value: string): string {
 
 function buildSponsorPinElement(meta: SponsorPinMeta): HTMLDivElement {
   const el = document.createElement("div");
-  el.className = `pulso-sponsor pulso-sponsor--${meta.shape}`;
+  el.className = "pulso-sponsor";
   el.style.setProperty("--pulso-color", meta.color);
   el.setAttribute("role", "button");
   el.setAttribute("tabindex", "0");
-  el.setAttribute("aria-label", meta.shape === "shield" ? "Refugio" : "Aliado");
+  const label = meta.name?.trim() || (meta.shape === "shield" ? "Refugio" : "Aliado");
+  el.setAttribute("aria-label", label);
   el.innerHTML = sponsorPinSvg({
     color: meta.color,
     shape: meta.shape,
     logoUrl: meta.logoUrl,
+    name: meta.name,
   });
   return el;
 }
@@ -1521,7 +1521,7 @@ const ExpoMapView = forwardRef<MapHandle, MapViewProps>(function ExpoMapView(pro
           iconAnchor: isDest
             ? [17, 44]
             : isSponsor
-              ? [sponsorPinTipX(p.meta.kind === "sponsor" ? p.meta.shape : "pin"), SPONSOR_PIN_H]
+              ? [sponsorPinTipX(), SPONSOR_PIN_H]
               : [size / 2, size / 2],
         });
         const marker = L.marker([p.coordinate.latitude, p.coordinate.longitude], {

@@ -7,23 +7,25 @@ export type { PinShape };
 
 /**
  * Pin de un Aliado. `markerKind` lo lee el mapa web para dibujar el mismo
- * SVG. La aguja marca el lugar (anchor abajo, en la punta).
+ * SVG. El punto de suelo marca el lugar (anchor abajo, al centro).
  */
 export function SponsorPin({
   color,
   shape,
   logoUrl,
+  name,
   markerKind: _markerKind,
 }: {
   color: string;
   shape: PinShape;
   logoUrl?: string | null;
+  name?: string | null;
   markerKind?: "sponsor";
 }) {
   return (
     <View style={{ width: SPONSOR_PIN_W, height: SPONSOR_PIN_H }}>
       <SvgXml
-        xml={sponsorPinSvg({ color, shape, logoUrl })}
+        xml={sponsorPinSvg({ color, shape, logoUrl, name })}
         width={SPONSOR_PIN_W}
         height={SPONSOR_PIN_H}
       />
