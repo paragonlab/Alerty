@@ -1,5 +1,5 @@
 import type { CommunityPost } from "./types";
-import { CULIACAN_CENTER } from "./constants";
+import { getActiveCity } from "./city";
 import { isOtherSinaloaCityStory } from "./coloniaGeocode";
 import { calculateDistance } from "./utils";
 
@@ -25,17 +25,22 @@ function withoutHashtagLines(text: string): string {
 }
 
 /**
- * Video que sí es de Culiacán: con ubicación en la ciudad, o que la nombra en
- * el texto. El sync de X busca "Culiacán", pero muchos posts de otros estados
- * solo la meten en una lista de hashtags de relleno.
+ * Video/pulso de la ciudad activa: con ubicación cerca del centro, o que la
+ * nombra en el texto. Fase 1 = Culiacán; el sync de X busca "Culiacán", pero
+ * muchos posts de otros estados solo la meten en hashtags de relleno.
  */
 export function isAboutCuliacan(post: Pick<CommunityPost, "text" | "lat" | "lng">): boolean {
+  const city = getActiveCity();
   if (post.lat != null && post.lng != null) {
     return (
-      calculateDistance(CULIACAN_CENTER.latitude, CULIACAN_CENTER.longitude, post.lat, post.lng) <= 30
+      calculateDistance(city.center.latitude, city.center.longitude, post.lat, post.lng) <= 30
     );
   }
-  return /culiac[aá]n/i.test(withoutHashtagLines(post.text)) && !isOtherSinaloaCityStory(post.text);
+  if (city.slug === "culiacan") {
+    return /culiac[aá]n/i.test(withoutHashtagLines(post.text)) && !isOtherSinaloaCityStory(post.text);
+  }
+  const nameRe = new RegExp(city.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+  return nameRe.test(withoutHashtagLines(post.text));
 }
 
 /** Nombre del medio en pulsos RSS; "Desde X" en comunidad. */

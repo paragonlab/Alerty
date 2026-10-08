@@ -1,4 +1,5 @@
 import { Alert, Platform, Share } from "react-native";
+import { getActiveCityName } from "./city";
 import { GO_DEST_LABEL, GO_OUT_LABEL, RISK_LABEL, type RiskAssessment } from "./risk";
 
 export const APP_SHARE_URL = "https://pulso-ciudadano.com";
@@ -47,7 +48,7 @@ export async function shareAlertPulse(opts: {
   alertId?: string;
 }): Promise<void> {
   const url = opts.alertId ? `${APP_SHARE_URL}/alert/${opts.alertId}` : APP_SHARE_URL;
-  const headline = `Alerta en Pulso: ${opts.title} · ${opts.neighborhood ?? "Culiacán"}`;
+  const headline = `Alerta en Pulso: ${opts.title} · ${opts.neighborhood ?? getActiveCityName()}`;
   const message = `${headline}\n${url}`;
   try {
     if (Platform.OS === "web" && typeof navigator !== "undefined") {

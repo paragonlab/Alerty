@@ -1,7 +1,7 @@
 // Envía push notifications cuando se crea una alerta o una actualización.
 // Invocada por el trigger alerts_notify (service_role) y también desde el
 // cliente para las actualizaciones de hilo.
-//   body = { type: "alert", alertId }    -> críticas: push a todos
+//   body = { type: "alert", alertId }    -> críticas: push a users.city_id = alert.city_id
 //   body = { type: "update", updateId }  -> push a los seguidores de la alerta
 //
 // Setup:
@@ -11,6 +11,10 @@
 // destinatarios saltando RLS. Verifica el JWT del usuario que la invoca.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.97.0";
+import {
+  filterTokensByAlertCity,
+  filterZonesByAlertCity,
+} from "../_shared/notifyCityScope.ts";
 
 const CRITICAL_CATEGORIES = [
   "sos",
@@ -223,7 +227,7 @@ Deno.serve(async (req) => {
   if (body.type === "alert" && body.alertId) {
     const { data: alert } = await admin
       .from("alerts")
-      .select("id,category,user_id,title,lat,lng")
+      .select("id,category,user_id,title,lat,lng,city_id")
       .eq("id", body.alertId)
       .single();
 
@@ -234,18 +238,26 @@ Deno.serve(async (req) => {
       return json({ sent: 0, skipped: "operativo" });
     }
 
+    const alertCityId = (alert as { city_id?: string | null }).city_id ?? null;
+    if (!alertCityId) {
+      // Sin city_id no hay broadcast global: evita landmine multi-ciudad.
+      return json({ sent: 0, skipped: "missing_city_id" });
+    }
+
     const label = CATEGORY_LABELS[alert.category] ?? alert.category;
     const byUser = new Map<string, PushMessage>();
 
     if (CRITICAL_CATEGORIES.includes(alert.category)) {
       let query = admin
         .from("push_tokens")
-        .select("token, user_id, users!inner(push_enabled, hidden_categories)")
-        .eq("users.push_enabled", true);
+        .select("token, user_id, users!inner(push_enabled, hidden_categories, city_id)")
+        .eq("users.push_enabled", true)
+        .eq("users.city_id", alertCityId);
       if (alert.user_id) query = query.neq("user_id", alert.user_id);
       const { data: rows } = await query;
+      const scoped = filterTokensByAlertCity(rows ?? [], alertCityId);
 
-      for (const row of rows ?? []) {
+      for (const row of scoped) {
         if (hidesCategory(row, alert.category)) continue;
         const userId = (row as { user_id: string }).user_id;
         byUser.set(userId, {
@@ -272,10 +284,12 @@ Deno.serve(async (req) => {
     ) {
       const { data: zones } = await admin
         .from("watched_zones")
-        .select("user_id,label,lat,lng");
+        .select("user_id,label,lat,lng,city_id")
+        .eq("city_id", alertCityId);
 
+      const scopedZones = filterZonesByAlertCity(zones ?? [], alertCityId);
       const nearByUser = new Map<string, string>();
-      for (const zone of zones ?? []) {
+      for (const zone of scopedZones) {
         if (alert.user_id && zone.user_id === alert.user_id) continue;
         const km = haversineKm(alertLat, alertLng, Number(zone.lat), Number(zone.lng));
         if (km <= CIRCULO_RADIUS_KM && !nearByUser.has(zone.user_id)) {
@@ -286,11 +300,13 @@ Deno.serve(async (req) => {
       if (nearByUser.size > 0) {
         const { data: rows } = await admin
           .from("push_tokens")
-          .select("token, user_id, users!inner(push_enabled, hidden_categories)")
+          .select("token, user_id, users!inner(push_enabled, hidden_categories, city_id)")
           .in("user_id", [...nearByUser.keys()])
-          .eq("users.push_enabled", true);
+          .eq("users.push_enabled", true)
+          .eq("users.city_id", alertCityId);
 
-        for (const row of rows ?? []) {
+        const scoped = filterTokensByAlertCity(rows ?? [], alertCityId);
+        for (const row of scoped) {
           if (hidesCategory(row, alert.category)) continue;
           const userId = (row as { user_id: string }).user_id;
           const zoneLabel = nearByUser.get(userId);

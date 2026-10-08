@@ -57,6 +57,7 @@ import { placeIcon, searchCuliacanPlaces, type PlaceResult } from "../../lib/ale
 import { CommunityMarker } from "../../components/CommunityMarker";
 import { CommunityPostPreview } from "../../components/CommunityPostPreview";
 import { SOSButton } from "../../components/SOSButton";
+import { getActiveCityLabel, getActiveCityName } from "../../lib/alerty/city";
 import { CATEGORY_LABELS, CULIACAN_CENTER, TIME_FILTER_PILL_LABEL, TIME_FILTERS } from "../../lib/alerty/constants";
 import { useAlertyTheme } from "../../lib/useAlertyTheme";
 import { DARK_MAP_STYLE } from "../../lib/theme";
@@ -267,7 +268,7 @@ export default function MapScreen() {
         community.filter((p) => near(p.lat, p.lng)).length;
       if (nearCount > 0) return { count: nearCount, where: "cerca" };
     }
-    return { count: total, where: "en Culiacán" };
+    return { count: total, where: `en ${getActiveCityName()}` };
   }, [filteredAlerts, filteredCommunity, userLocation]);
 
   const heatSources = useMemo(
@@ -319,7 +320,7 @@ export default function MapScreen() {
   const zonePlaceLabel = useMemo(() => {
     const place = nearestCuliacanPlace(verdictPoint.latitude, verdictPoint.longitude);
     if (place) return place.name;
-    return userLocation ? "Tu zona" : "Culiacán";
+    return userLocation ? "Tu zona" : getActiveCityName();
   }, [verdictPoint.latitude, verdictPoint.longitude, userLocation]);
 
   const nearbyPulseCount = useMemo(
@@ -535,13 +536,13 @@ export default function MapScreen() {
     if (isWeb) {
       Alert.alert(
         "Sin resultados",
-        "No encontramos ese lugar en Culiacán. Prueba con otro nombre o toca el mapa.",
+        `No encontramos ese lugar en ${getActiveCityName()}. Prueba con otro nombre o toca el mapa.`,
       );
       return;
     }
     setSearching(true);
     try {
-      const results = await Location.geocodeAsync(`${query}, Culiacán, Sinaloa`);
+      const results = await Location.geocodeAsync(`${query}, ${getActiveCityLabel()}`);
       if (!results.length) {
         Alert.alert("Sin resultados", "No encontramos esa dirección. Elige una colonia o toca el mapa.");
         return;
@@ -777,7 +778,7 @@ export default function MapScreen() {
             />
             <View style={styles.headerRow}>
               <View style={{ flex: 1 }}>
-                <Text style={styles.cityLabel} numberOfLines={1}>Culiacán, Sinaloa</Text>
+                <Text style={styles.cityLabel} numberOfLines={1}>{getActiveCityLabel()}</Text>
               </View>
               <View style={styles.headerTools}>
                 <Pressable
@@ -943,8 +944,8 @@ export default function MapScreen() {
                 <Ionicons name="newspaper-outline" size={13} color={theme.colors.textMuted} />
                 <Text style={styles.cityStripText} numberOfLines={1}>
                   {unlocatedCount === 1
-                    ? "1 reporte en Culiacán sin ubicación confirmada"
-                    : `${unlocatedCount} reportes en Culiacán sin ubicación confirmada`}
+                    ? `1 reporte en ${getActiveCityName()} sin ubicación confirmada`
+                    : `${unlocatedCount} reportes en ${getActiveCityName()} sin ubicación confirmada`}
                 </Text>
                 <Text style={styles.cityStripCta}>Ver</Text>
               </Pressable>

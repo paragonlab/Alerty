@@ -11,6 +11,7 @@ import type {
   TimeFilter,
   WatchedZone,
 } from "./types";
+import { getActiveCityId } from "./city";
 import { MAP_FILTER_CATEGORIES, PIN_CATEGORIES, REPUTATION_LEVELS, getLevelProgress } from "./constants";
 import { canAddCirculoZone } from "./circulo";
 import { baseAlerts, createRandomAlert, demoCommunityPosts, isDemoEnabled } from "./mock";
@@ -752,16 +753,19 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
     if (!isSupabaseConfigured || !supabase) return;
     let data: any[] | null = null;
     try {
+      const cityId = getActiveCityId();
       const res = await supabase
         .from("sponsored_zones")
         .select("id,name,description,lat,lng,type,logo_url,pin_shape,pin_giro")
-        .eq("status", "active");
+        .eq("status", "active")
+        .eq("city_id", cityId);
       if (res.error || !res.data) {
         // pin_giro puede no existir aún; reintenta sin esa columna.
         const fallback = await supabase
           .from("sponsored_zones")
           .select("id,name,description,lat,lng,type,logo_url,pin_shape")
-          .eq("status", "active");
+          .eq("status", "active")
+          .eq("city_id", cityId);
         if (fallback.error || !fallback.data) return;
         data = fallback.data;
       } else {
@@ -850,6 +854,7 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
         label: trimmed,
         lat,
         lng,
+        city_id: getActiveCityId(),
       })
       .select("id,label,lat,lng,created_at")
       .single();
@@ -1063,11 +1068,13 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
     const client = supabase;
 
     try {
+      const cityId = getActiveCityId();
       const rssQuery = client
         .from("community_posts")
         .select(COMMUNITY_POST_COLUMNS)
         .eq("is_demo", false)
         .eq("source", "rss")
+        .eq("city_id", cityId)
         .order("fetched_at", { ascending: false })
         .limit(30);
       const otherQuery = client
@@ -1075,6 +1082,7 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
         .select(COMMUNITY_POST_COLUMNS)
         .eq("is_demo", false)
         .neq("source", "rss")
+        .eq("city_id", cityId)
         .order("created_at", { ascending: false })
         .limit(40);
 
@@ -1222,6 +1230,7 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
     const { data } = await supabase
       .from("alerts")
       .select(ALERT_SELECT)
+      .eq("city_id", getActiveCityId())
       .order("created_at", { ascending: false })
       .limit(100);
 
@@ -1433,6 +1442,7 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
         lng: parent.lng,
         title: "Otro ángulo",
         parent_alert_id: parentAlertId,
+        city_id: getActiveCityId(),
       })
       .select("id,created_at")
       .single();

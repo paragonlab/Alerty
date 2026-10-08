@@ -20,6 +20,8 @@
     "test:avatars": "npx --yes tsx lib/alerty/avatars.test.ts",
     "test:guessCategory": "npx --yes tsx scripts/guessCategoryParity.test.ts",
     "test:operativo": "npx --yes tsx lib/alerty/operativoPolicy.test.ts",
+    "test:city": "npx --yes tsx lib/alerty/city.test.ts && npx --yes tsx lib/alerty/cityFeeds.test.ts",
+    "test:notifyCity": "deno test --allow-env supabase/functions/_shared/notifyCityScope.test.ts",
     "supabase:db:push": "npx supabase db push"
   },
   "dependencies": {

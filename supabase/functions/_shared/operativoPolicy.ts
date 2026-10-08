@@ -4,8 +4,11 @@
  * 20261008120000_operativo_delay_no_live_map.sql.
  */
 
+import { CITY_IDS, cityName } from "./cities.ts";
+
 export const OPERATIVO_CATEGORY = "operativo" as const;
-export const OPERATIVO_CITY_PLACE_LABEL = "Culiacán";
+/** Fase 1 sync: siempre Culiacán. El trigger SQL usa cities.name si hay city_id. */
+export const OPERATIVO_CITY_PLACE_LABEL = cityName(CITY_IDS.culiacan);
 
 export function isOperativoCategory(category: string | null | undefined): boolean {
   return category === OPERATIVO_CATEGORY;

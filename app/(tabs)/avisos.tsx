@@ -12,6 +12,7 @@ import {
 } from "../../lib/alerty/geolocation";
 import { useAlertyStore } from "../../lib/alerty/store";
 import { useAlertyTheme } from "../../lib/useAlertyTheme";
+import { getActiveCityName } from "../../lib/alerty/city";
 import { AVISOS_RADIUS_KM, CATEGORY_ICONS, CATEGORY_LABELS, CULIACAN_CENTER } from "../../lib/alerty/constants";
 import { isOperativoCategory } from "../../lib/alerty/operativoPolicy";
 import { formatRelativeTime, matchInboxAlert } from "../../lib/alerty/utils";
@@ -225,7 +226,7 @@ export default function AvisosScreen() {
         <Text style={styles.emptyCtaText}>{copy.cta}</Text>
       </Pressable>
       <Pressable style={styles.emptySecondary} onPress={() => setBrowseCenter(true)}>
-        <Text style={styles.emptySecondaryText}>Ver el centro de Culiacán</Text>
+        <Text style={styles.emptySecondaryText}>Ver el centro de {getActiveCityName()}</Text>
       </Pressable>
     </View>
   ) : (
@@ -234,7 +235,7 @@ export default function AvisosScreen() {
       <Text style={styles.emptyText}>Nada cerca ni en seguimiento</Text>
       <Text style={styles.emptyHint}>
         {browseCenter && !userCoords
-          ? `Esto es el centro de Culiacán, no tu ubicación. Avisos muestra alertas a ${AVISOS_RADIUS_KM} km o las que sigues.`
+          ? `Esto es el centro de ${getActiveCityName()}, no tu ubicación. Avisos muestra alertas a ${AVISOS_RADIUS_KM} km o las que sigues.`
           : `Avisos muestra alertas a ${AVISOS_RADIUS_KM} km o las que sigues. Pulsos tiene el resto.`}
       </Text>
     </View>
@@ -246,7 +247,7 @@ export default function AvisosScreen() {
         <Text style={styles.title}>Avisos</Text>
         <Text style={styles.subtitle}>
           {browseCenter && !userCoords
-            ? `Centro de Culiacán (${AVISOS_RADIUS_KM} km), sin tu ubicación`
+            ? `Centro de ${getActiveCityName()} (${AVISOS_RADIUS_KM} km), sin tu ubicación`
             : `Cerca de ti (${AVISOS_RADIUS_KM} km) y alertas que sigues`}
         </Text>
       </View>

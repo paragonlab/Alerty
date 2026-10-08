@@ -10,6 +10,7 @@
 // Geo: pin solo con colonia clara + mención de Culiacán. Mazatlán/otras ciudades: sin pin.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.97.0";
+import { DEFAULT_SYNC_CITY_ID } from "../_shared/cities.ts";
 import { resolveCommunityGeo } from "../_shared/culiacanPlaces.ts";
 import { guessCategory } from "../_shared/guessCategory.ts";
 import { stripOperativoGeo } from "../_shared/operativoPolicy.ts";
@@ -225,6 +226,8 @@ Deno.serve(async (req) => {
             category_guess: categoryGuess,
             is_demo: false,
             trust_tier: "news",
+            // Fase 1: stamp Culiacán; feeds Mazatlán = fase 2/4.
+            city_id: DEFAULT_SYNC_CITY_ID,
           }),
         );
       }

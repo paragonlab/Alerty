@@ -10,6 +10,7 @@
 // Sin geo usable → lat/lng null (Feed sí, mapa no). Sin jitter.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.97.0";
+import { DEFAULT_SYNC_CITY_ID } from "../_shared/cities.ts";
 import { resolveCommunityGeo } from "../_shared/culiacanPlaces.ts";
 import { guessCategory } from "../_shared/guessCategory.ts";
 import { stripOperativoGeo } from "../_shared/operativoPolicy.ts";
@@ -111,6 +112,7 @@ type CommunityRow = {
   category_guess: string | null;
   is_demo: boolean;
   trust_tier: TrustTier;
+  city_id: string;
 };
 
 async function searchRecent(
@@ -348,6 +350,8 @@ function tweetToRow(
     category_guess: category,
     is_demo: false,
     trust_tier: onAllowlist ? trust : "community",
+    // Fase 1: sync solo Culiacán (Mazatlán queries/feeds = fase 2/4).
+    city_id: DEFAULT_SYNC_CITY_ID,
   });
 }
 

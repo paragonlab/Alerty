@@ -1,12 +1,12 @@
 /**
  * Búsqueda de lugares (plazas, restaurantes, hospitales…) con Photon, el
- * buscador abierto sobre OpenStreetMap, solo dentro de Culiacán. Es un
+ * buscador abierto sobre OpenStreetMap, dentro de la ciudad activa. Es un
  * servicio público de uso justo: se consulta desde 3 letras y con pausa entre
  * teclas. Si Pulso crece, conviene uno propio o de paga.
  */
+import { getActiveCity } from "./city";
+
 const PHOTON_URL = "https://photon.komoot.io/api/";
-// oeste, sur, este, norte
-const CULIACAN_BBOX = "-107.52,24.70,-107.30,24.88";
 
 export type PlaceResult = {
   name: string;
@@ -28,18 +28,27 @@ type PhotonFeature = {
   };
 };
 
+/** Alias histórico: busca en la ciudad activa (hoy Culiacán). */
 export async function searchCuliacanPlaces(
   query: string,
   signal?: AbortSignal,
 ): Promise<PlaceResult[]> {
+  return searchActiveCityPlaces(query, signal);
+}
+
+export async function searchActiveCityPlaces(
+  query: string,
+  signal?: AbortSignal,
+): Promise<PlaceResult[]> {
+  const city = getActiveCity();
   const q = query.trim();
   if (q.length < 3) return [];
   const params = new URLSearchParams({
     q,
-    lat: "24.8091",
-    lon: "-107.394",
+    lat: String(city.center.latitude),
+    lon: String(city.center.longitude),
     limit: "6",
-    bbox: CULIACAN_BBOX,
+    bbox: city.bbox,
   });
   const res = await fetch(`${PHOTON_URL}?${params}`, { signal });
   if (!res.ok) return [];
@@ -56,7 +65,7 @@ export async function searchCuliacanPlaces(
     const [lng, lat] = f.geometry.coordinates;
     out.push({
       name: p.name,
-      detail: p.street ?? p.district ?? p.locality ?? "Culiacán",
+      detail: p.street ?? p.district ?? p.locality ?? city.name,
       lat,
       lng,
       kind: p.osm_value ?? p.osm_key ?? "",
