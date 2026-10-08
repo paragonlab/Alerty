@@ -1,16 +1,25 @@
-// Ingesta RSS de noticias locales (Culiacán / Sinaloa) → community_posts (source=rss).
+// Ingesta RSS de noticias locales por ciudad → community_posts (source=rss).
 //
 // Deploy:
 //   supabase functions deploy sync-news-rss
 //
-// Opcional:
-//   supabase secrets set NEWS_RSS_FEEDS='https://...,https://...'
+// Por defecto recorre culiacan + mazatlan (citySyncConfig).
+// Opcional: ?city=mazatlan | SYNC_CITY_SLUGS=culiacan,mazatlan
+// Opcional feeds override (solo Culiacán): NEWS_RSS_FEEDS='https://...'
+// Mazatlán: NEWS_RSS_FEEDS_MAZATLAN='https://...'
 //
-// Cron: igual que sync-x-community (cada 10–30 min).
-// Geo: pin solo con colonia clara + mención de Culiacán. Mazatlán/otras ciudades: sin pin.
+// Cron: un solo job; no duplicar crons por ciudad (evita doble lectura X; RSS es barato).
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.97.0";
-import { DEFAULT_SYNC_CITY_ID } from "../_shared/cities.ts";
+import {
+  CITY_SYNC,
+  isOtherCityStoryFor,
+  mentionsCity,
+  resolveSyncCitySlugs,
+  type CitySyncConfig,
+  type RssFeed,
+  type SyncCitySlug,
+} from "../_shared/citySyncConfig.ts";
 import { resolveCommunityGeo } from "../_shared/culiacanPlaces.ts";
 import { guessCategory } from "../_shared/guessCategory.ts";
 import { stripOperativoGeo } from "../_shared/operativoPolicy.ts";
@@ -20,50 +29,6 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
   "Access-Control-Allow-Methods": "POST, OPTIONS, GET",
 };
-
-/** Feeds por defecto — editar o sobrescribir con NEWS_RSS_FEEDS (URLs separadas por coma). */
-const DEFAULT_FEEDS: Array<{ name: string; handle: string; url: string; logoUrl?: string }> = [
-  {
-    name: "Línea Directa",
-    handle: "@LineaDirectaMX",
-    url: "https://lineadirectaportal.com/feed",
-    logoUrl: "https://www.google.com/s2/favicons?domain=lineadirectaportal.com&sz=64",
-  },
-  // Ríodoce apagó su RSS a nivel de hosting: riodoce.mx/feed y toda ruta de feed
-  // responden 500 con "GridPane Security has disabled the RSS Feed". No es
-  // intermitente ni bloqueo por user-agent. Nunca entró una sola nota por aquí y
-  // el error fijo tapaba los fallos reales de los demás feeds. Sigue llegando
-  // por X como @Riodoce_mx. No volver a agregarlo sin comprobar que respondan.
-  {
-    name: "Noroeste",
-    handle: "@Noroeste",
-    url: "https://www.noroeste.com.mx/rss/portada.xml",
-    logoUrl: "https://www.google.com/s2/favicons?domain=noroeste.com.mx&sz=64",
-  },
-];
-
-const EVENT_HINT =
-  /\b(alerta|balacera|tiroteo|accidente|bloqueo|detonaci|enfrentamiento|asalto|robo|narcobloqueo|choque|incendio|inundaci|persecuci|culiac[aá]n)\b/i;
-
-function mentionsCuliacan(text: string): boolean {
-  return text
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .includes("culiacan");
-}
-
-function isOtherCityStory(text: string): boolean {
-  const n = text
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "");
-  const other =
-    /\b(mazatlan|los mochis|navolato|guamuchil|escuinapa|el rosario|concordia|cosala|guasave|ahome|el fuerte|choix|angostura|salvador alvarado|el dorado)\b/.test(
-      n,
-    );
-  return other && !n.includes("culiacan");
-}
 
 function json(payload: unknown, status = 200) {
   return new Response(JSON.stringify(payload), {
@@ -129,9 +94,8 @@ function parseRss(xml: string): RssItem[] {
   return items;
 }
 
-function resolveFeeds(): Array<{ name: string; handle: string; url: string; logoUrl?: string }> {
-  const raw = Deno.env.get("NEWS_RSS_FEEDS");
-  if (!raw?.trim()) return DEFAULT_FEEDS;
+function feedsFromEnv(raw: string | undefined): RssFeed[] | null {
+  if (!raw?.trim()) return null;
   return raw
     .split(",")
     .map((u) => u.trim())
@@ -152,23 +116,21 @@ function resolveFeeds(): Array<{ name: string; handle: string; url: string; logo
     });
 }
 
-Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
-  if (req.method !== "POST" && req.method !== "GET") {
-    return new Response("Method not allowed", { status: 405, headers: corsHeaders });
+function resolveFeedsForCity(slug: SyncCitySlug, cfg: CitySyncConfig): RssFeed[] {
+  if (slug === "culiacan") {
+    return feedsFromEnv(Deno.env.get("NEWS_RSS_FEEDS")) ?? cfg.rssFeeds;
   }
+  if (slug === "mazatlan") {
+    return feedsFromEnv(Deno.env.get("NEWS_RSS_FEEDS_MAZATLAN")) ?? cfg.rssFeeds;
+  }
+  return cfg.rssFeeds;
+}
 
-  const supabaseUrl = Deno.env.get("SUPABASE_URL");
-  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-  if (!supabaseUrl || !serviceKey) {
-    return json({ ok: false, error: "Missing Supabase env" }, 500);
-  }
-  if (!req.headers.get("authorization")) {
-    return new Response("Unauthorized", { status: 401, headers: corsHeaders });
-  }
-
-  const admin = createClient(supabaseUrl, serviceKey);
-  const feeds = resolveFeeds();
+async function syncCityRss(
+  admin: ReturnType<typeof createClient>,
+  cfg: CitySyncConfig,
+): Promise<{ slug: SyncCitySlug; upserted: number; with_geo: number; feed_only: number; errors: string[] }> {
+  const feeds = resolveFeedsForCity(cfg.slug, cfg);
   const rows: Array<Record<string, unknown>> = [];
   const errors: string[] = [];
 
@@ -185,20 +147,18 @@ Deno.serve(async (req) => {
       const items = parseRss(xml).slice(0, 12);
       for (const item of items) {
         const blob = `${item.title} ${item.description}`;
-        // Solo Culiacán: Mazatlán / Los Mochis etc. no entran al mapa ni al feed local.
-        if (isOtherCityStory(blob)) continue;
-        if (!EVENT_HINT.test(blob) && !mentionsCuliacan(blob)) continue;
+        // Path por ciudad: Culiacán sigue rechazando Mazatlán-only; Mazatlán rechaza Culiacán-only.
+        if (isOtherCityStoryFor(blob, cfg)) continue;
+        if (!cfg.eventHint.test(blob) && !mentionsCity(blob, cfg)) continue;
 
-        // Geocodificar sobre el mismo extracto que se guarda: el cuerpo completo
-        // termina en una lista de sitios incidentales ("un auto incendiado en la
-        // colonia X, un robo en la colonia Y") que no es dónde ocurrió la nota.
         const excerpt = item.description.slice(0, 800) || item.title;
         const geo = resolveCommunityGeo({
           text: excerpt,
           title: item.title,
           publisherPlaceLabel: null,
-          fallbackLabel: "Culiacán (noticia)",
-          requireCuliacanMention: true,
+          fallbackLabel: cfg.placeFallbackRss,
+          requireCityMention: true,
+          citySlug: cfg.slug,
         });
         const externalId = item.link.slice(0, 240);
         const categoryGuess = guessCategory(`${item.title} ${excerpt}`);
@@ -220,14 +180,10 @@ Deno.serve(async (req) => {
             geocoded_from_text: geo.geocodedFromText,
             created_at: item.pubDate ? new Date(item.pubDate).toISOString() : new Date().toISOString(),
             fetched_at: new Date().toISOString(),
-            // Mismo criterio que el geocode: clasificar sobre el titular y el extracto
-            // que se guardan. En el cuerpo completo, una columna de análisis menciona
-            // "balacera" en el último párrafo y entraba con severidad de tiroteo real.
             category_guess: categoryGuess,
             is_demo: false,
             trust_tier: "news",
-            // Fase 1: stamp Culiacán; feeds Mazatlán = fase 2/4.
-            city_id: DEFAULT_SYNC_CITY_ID,
+            city_id: cfg.cityId,
           }),
         );
       }
@@ -237,12 +193,7 @@ Deno.serve(async (req) => {
   }
 
   if (rows.length === 0) {
-    return json({
-      ok: true,
-      upserted: 0,
-      feed_errors: errors,
-      message: "Sin ítems RSS relevantes",
-    });
+    return { slug: cfg.slug, upserted: 0, with_geo: 0, feed_only: 0, errors };
   }
 
   const { error, data } = await admin
@@ -251,16 +202,55 @@ Deno.serve(async (req) => {
     .select("id");
 
   if (error) {
-    console.error("upsert rss failed", error);
-    return json({ ok: false, error: error.message, feed_errors: errors }, 500);
+    errors.push(`upsert: ${error.message}`);
+    return { slug: cfg.slug, upserted: 0, with_geo: 0, feed_only: 0, errors };
   }
 
   const withGeo = rows.filter((r) => r.lat != null && r.lng != null).length;
-  return json({
-    ok: true,
+  return {
+    slug: cfg.slug,
     upserted: data?.length ?? rows.length,
     with_geo: withGeo,
     feed_only: rows.length - withGeo,
-    feed_errors: errors,
+    errors,
+  };
+}
+
+Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  if (req.method !== "POST" && req.method !== "GET") {
+    return new Response("Method not allowed", { status: 405, headers: corsHeaders });
+  }
+
+  const supabaseUrl = Deno.env.get("SUPABASE_URL");
+  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  if (!supabaseUrl || !serviceKey) {
+    return json({ ok: false, error: "Missing Supabase env" }, 500);
+  }
+  if (!req.headers.get("authorization")) {
+    return new Response("Unauthorized", { status: 401, headers: corsHeaders });
+  }
+
+  const admin = createClient(supabaseUrl, serviceKey);
+  const slugs = resolveSyncCitySlugs(req);
+  const cities: Array<Awaited<ReturnType<typeof syncCityRss>>> = [];
+
+  for (const slug of slugs) {
+    cities.push(await syncCityRss(admin, CITY_SYNC[slug]));
+  }
+
+  const upserted = cities.reduce((n, c) => n + c.upserted, 0);
+  const with_geo = cities.reduce((n, c) => n + c.with_geo, 0);
+  const feed_only = cities.reduce((n, c) => n + c.feed_only, 0);
+  const feed_errors = cities.flatMap((c) => c.errors.map((e) => `${c.slug}: ${e}`));
+
+  return json({
+    ok: true,
+    upserted,
+    with_geo,
+    feed_only,
+    cities,
+    feed_errors,
+    message: upserted === 0 ? "Sin ítems RSS relevantes" : undefined,
   });
 });

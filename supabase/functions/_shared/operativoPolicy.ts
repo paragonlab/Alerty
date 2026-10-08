@@ -7,7 +7,7 @@
 import { CITY_IDS, cityName } from "./cities.ts";
 
 export const OPERATIVO_CATEGORY = "operativo" as const;
-/** Fase 1 sync: siempre Culiacán. El trigger SQL usa cities.name si hay city_id. */
+/** Fallback si la fila no trae city_id (fase 1 / filas legacy). */
 export const OPERATIVO_CITY_PLACE_LABEL = cityName(CITY_IDS.culiacan);
 
 export function isOperativoCategory(category: string | null | undefined): boolean {
@@ -22,6 +22,7 @@ type GeoRow = {
   geo_source: string;
   place_name_source: string | null;
   geocoded_from_text: string | null;
+  city_id?: string | null;
 };
 
 /** Sync: nunca persistir ubicación precisa para operativo. */
@@ -31,7 +32,7 @@ export function stripOperativoGeo<T extends GeoRow>(row: T): T {
     ...row,
     lat: null,
     lng: null,
-    place_label: OPERATIVO_CITY_PLACE_LABEL,
+    place_label: cityName(row.city_id) || OPERATIVO_CITY_PLACE_LABEL,
     geo_source: "none",
     place_name_source: null,
     geocoded_from_text: null,

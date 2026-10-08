@@ -36,11 +36,16 @@ export function isAboutCuliacan(post: Pick<CommunityPost, "text" | "lat" | "lng"
       calculateDistance(city.center.latitude, city.center.longitude, post.lat, post.lng) <= 30
     );
   }
+  const body = withoutHashtagLines(post.text);
+  if (isOtherSinaloaCityStory(body)) return false;
   if (city.slug === "culiacan") {
-    return /culiac[aá]n/i.test(withoutHashtagLines(post.text)) && !isOtherSinaloaCityStory(post.text);
+    return /culiac[aá]n/i.test(body);
+  }
+  if (city.slug === "mazatlan") {
+    return /mazatl[aá]n/i.test(body);
   }
   const nameRe = new RegExp(city.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
-  return nameRe.test(withoutHashtagLines(post.text));
+  return nameRe.test(body);
 }
 
 /** Nombre del medio en pulsos RSS; "Desde X" en comunidad. */

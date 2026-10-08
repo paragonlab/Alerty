@@ -9,6 +9,7 @@ import { startSessionPings, trackEvent } from "../lib/analytics";
 import { darkHighVisibility, lightTheme } from "../lib/theme";
 import { isSupabaseConfigured, supabase } from "../lib/supabase";
 import { useAlertyStore } from "../lib/alerty/store";
+import { hydrateCityPreference } from "../lib/alerty/cityPreference";
 import { consumeAuthNext, setAuthNext } from "../lib/alerty/session";
 import { authCodeFromUrl, exchangeAuthCodeOnce } from "../lib/alerty/oauth";
 import { isDemoEnabled } from "../lib/alerty/mock";
@@ -147,14 +148,22 @@ export default function RootLayout() {
   }, [alerts, currentUser.id, router]);
 
   useEffect(() => {
-    if (isDemoEnabled) {
-      startDemo();
-      return;
-    }
-    if (!isSupabaseConfigured) return;
-    void loadAlertsFromSupabase();
-    void loadSponsoredZones();
-    void loadCommunityPosts({ refreshNews: true });
+    let cancelled = false;
+    void (async () => {
+      await hydrateCityPreference();
+      if (cancelled) return;
+      if (isDemoEnabled) {
+        startDemo();
+        return;
+      }
+      if (!isSupabaseConfigured) return;
+      void loadAlertsFromSupabase();
+      void loadSponsoredZones();
+      void loadCommunityPosts({ refreshNews: true });
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {

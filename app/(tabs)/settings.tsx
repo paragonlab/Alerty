@@ -17,6 +17,12 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { MAP_FILTER_CATEGORIES, CATEGORY_LABELS, getLevelProgress } from "../../lib/alerty/constants";
 import { ALIADO_PRICE_LABEL, CIRCULO_PRICE_LABEL, circuloZoneLimit } from "../../lib/alerty/circulo";
+import {
+  getActiveCitySlug,
+  listSelectableCities,
+  type CitySlug,
+} from "../../lib/alerty/city";
+import { persistCityPreference } from "../../lib/alerty/cityPreference";
 import { needsReview, useAlertyStore } from "../../lib/alerty/store";
 import { useAlertyTheme } from "../../lib/useAlertyTheme";
 import { requireSession } from "../../lib/alerty/session";
@@ -49,7 +55,22 @@ export default function SettingsScreen() {
     resetGuest,
     isModerator,
     moderationQueue,
+    loadAlertsFromSupabase,
+    loadSponsoredZones,
+    loadCommunityPosts,
   } = useAlertyStore();
+
+  const [activeCitySlug, setActiveCitySlug] = useState<CitySlug>(getActiveCitySlug);
+  const selectableCities = useMemo(() => listSelectableCities(), []);
+
+  const handleSelectCity = async (slug: CitySlug) => {
+    if (slug === activeCitySlug) return;
+    await persistCityPreference(slug);
+    setActiveCitySlug(slug);
+    void loadAlertsFromSupabase();
+    void loadSponsoredZones();
+    void loadCommunityPosts({ refreshNews: true });
+  };
 
   const theme = useAlertyTheme();
   const styles = createStyles(theme);
@@ -456,6 +477,37 @@ export default function SettingsScreen() {
             <Ionicons name="chevron-forward" size={18} color={theme.colors.textMuted} />
           </View>
         </Pressable>
+
+        {/* Ciudad (prueba fase 2 — no es onboarding multi-ciudad) */}
+        <View style={styles.card}>
+          <View style={styles.cardHeader}>
+            <Ionicons name="location-outline" size={15} color={theme.colors.accent} />
+            <Text style={styles.cardTitle}>Ciudad</Text>
+          </View>
+          <Text style={[styles.helperText, { marginBottom: 10 }]}>
+            Prueba mapa y feed por ciudad. En prod el default sigue siendo Culiacán; también puedes usar ?city=mazatlan en web.
+          </Text>
+          {selectableCities.map((city, index) => {
+            const selected = city.slug === activeCitySlug;
+            return (
+              <View key={city.id}>
+                {index > 0 ? <View style={styles.divider} /> : null}
+                <Pressable style={styles.settingRow} onPress={() => void handleSelectCity(city.slug)}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.settingLabel}>
+                      {city.name}, {city.state}
+                    </Text>
+                  </View>
+                  <Ionicons
+                    name={selected ? "checkmark-circle" : "ellipse-outline"}
+                    size={22}
+                    color={selected ? theme.colors.accent : theme.colors.textMuted}
+                  />
+                </Pressable>
+              </View>
+            );
+          })}
+        </View>
 
         {/* Appearance */}
         <View style={styles.card}>

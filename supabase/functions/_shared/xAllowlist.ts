@@ -1,12 +1,10 @@
 /**
- * Cuentas de X de confianza para Culiacán / Sinaloa (medios y autoridades).
+ * Helpers de allowlist X + lista legacy Culiacán.
  *
- * Cómo editar:
- * 1) Constante abajo (redeploy sync-x-community), o
- * 2) Secret `X_ALLOWLIST=handle1:medio,handle2:oficial` (sin @, minúsculas ok).
+ * Fase 2: las allowlists por ciudad viven en `citySyncConfig.ts`
+ * (`CITY_SYNC[slug].xAllowlist`). sync-x-community usa `mergeCityAllowlist`.
  *
- * Un handle en allowlist se sincroniza aunque el texto no tenga keyword fuerte;
- * sigue aplicándose filtro anti-ruido y preferencia de geo.
+ * Override global opcional: secret `X_ALLOWLIST=handle1:medio,handle2:oficial`.
  */
 export type TrustTier = "community" | "medio" | "oficial" | "news";
 
