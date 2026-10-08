@@ -11,7 +11,7 @@ import type {
   TimeFilter,
   WatchedZone,
 } from "./types";
-import { getActiveCityId } from "./city";
+import { belongsToActiveCity, getActiveCityId } from "./city";
 import { MAP_FILTER_CATEGORIES, PIN_CATEGORIES, REPUTATION_LEVELS, getLevelProgress } from "./constants";
 import { canAddCirculoZone } from "./circulo";
 import { baseAlerts, createRandomAlert, demoCommunityPosts, isDemoEnabled } from "./mock";
@@ -458,6 +458,8 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
         const row = payload.new as any;
         // Defensa: operativo no es reportable; no entra al feed ni dispara UI.
         if (row.category === "operativo") return;
+        // Solo la ciudad activa (evita fugas entre Culiacán / Mazatlán).
+        if (!belongsToActiveCity(row.city_id)) return;
         const { data: userData } = await supabase!
           .from("users")
           .select("id,username,avatar_url,character,is_verified,trust_score,followers_count")
@@ -564,7 +566,9 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
       "postgres_changes",
       { event: "INSERT", schema: "public", table: "community_posts" },
       (payload) => {
-        const post = mapCommunityRow(payload.new);
+        const row = payload.new as any;
+        if (!belongsToActiveCity(row.city_id)) return;
+        const post = mapCommunityRow(row);
         if (post.isDemo) return;
         if (isOtherSinaloaCityStory(post.text)) return;
         // RLS ya oculta operativo fresco; defensa si el evento llega igual.
@@ -817,6 +821,7 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
       .from("watched_zones")
       .select("id,label,lat,lng,created_at")
       .eq("user_id", sess.session.user.id)
+      .eq("city_id", getActiveCityId())
       .order("created_at", { ascending: true });
     if (error || !data) {
       console.warn("loadWatchedZones failed", error);

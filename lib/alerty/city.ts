@@ -1,10 +1,9 @@
 /**
  * Fuente de verdad de la ciudad activa.
  *
- * Default de prod: Culiacán (`ACTIVE_CITY_SLUG`). Para probar Mazatlán sin
- * picker completo: preferencia en AsyncStorage, `?city=mazatlan` (web) o el
- * interruptor en Ajustes. Los IDs coinciden con el seed de
- * supabase/migrations/20261008180000_cities_and_city_id.sql.
+ * Default de prod: Culiacán (`ACTIVE_CITY_SLUG`). Preferencia en AsyncStorage,
+ * selector de ciudad (mapa / Ajustes) o `?city=` en web. Los IDs coinciden
+ * con el seed de supabase/migrations/20261008180000_cities_and_city_id.sql.
  */
 
 export type CitySlug = "culiacan" | "mazatlan";
@@ -73,15 +72,31 @@ export const ACTIVE_CITY_SLUG: CitySlug = "culiacan";
 
 export const CITY_PREFERENCE_KEY = "pulso_active_city_slug";
 
-/** Preferencia de sesión/dispositivo (Ajustes / ?city=). null = usar default. */
+/** Preferencia de sesión/dispositivo (selector / ?city=). null = usar default. */
 let cityPreference: CitySlug | null = null;
+
+type CityChangeListener = (slug: CitySlug) => void;
+const cityChangeListeners = new Set<CityChangeListener>();
 
 export function isCitySlug(value: string | null | undefined): value is CitySlug {
   return value === "culiacan" || value === "mazatlan";
 }
 
 export function setCityPreference(slug: CitySlug | null): void {
+  const prev = getActiveCitySlug();
   cityPreference = slug;
+  const next = getActiveCitySlug();
+  if (prev !== next) {
+    cityChangeListeners.forEach((listener) => listener(next));
+  }
+}
+
+/** Notifica cuando la ciudad activa cambia (mapa, copy, feeds). */
+export function subscribeCityChange(listener: CityChangeListener): () => void {
+  cityChangeListeners.add(listener);
+  return () => {
+    cityChangeListeners.delete(listener);
+  };
 }
 
 export function getCityPreference(): CitySlug | null {
@@ -125,7 +140,7 @@ export function defaultBackfillCityId(): string {
   return CITY_IDS.culiacan;
 }
 
-/** Ciudades seleccionables en el switch de prueba (fase 2). */
+/** Ciudades disponibles en el selector de producto. */
 export function listSelectableCities(): CityConfig[] {
   return Object.values(CITIES).filter((c) => c.active);
 }

@@ -1,6 +1,6 @@
 /**
- * Persistencia mínima de ciudad activa (fase 2 — sin onboarding multi-ciudad).
- * Fuentes: AsyncStorage, ?city= en web, Ajustes.
+ * Persistencia de ciudad activa.
+ * Fuentes: AsyncStorage, ?city= en web, selector de ciudad (mapa / Ajustes).
  */
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Platform } from "react-native";

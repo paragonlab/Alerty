@@ -57,14 +57,26 @@ import { placeIcon, searchCuliacanPlaces, type PlaceResult } from "../../lib/ale
 import { CommunityMarker } from "../../components/CommunityMarker";
 import { CommunityPostPreview } from "../../components/CommunityPostPreview";
 import { SOSButton } from "../../components/SOSButton";
-import { getActiveCityLabel, getActiveCityName } from "../../lib/alerty/city";
-import { CATEGORY_LABELS, CULIACAN_CENTER, TIME_FILTER_PILL_LABEL, TIME_FILTERS } from "../../lib/alerty/constants";
+import {
+  getActiveCityLabel,
+  getActiveCityName,
+  getActiveCitySlug,
+  subscribeCityChange,
+  type CitySlug,
+} from "../../lib/alerty/city";
+import {
+  CATEGORY_LABELS,
+  getActiveMapCenter,
+  TIME_FILTER_PILL_LABEL,
+  TIME_FILTERS,
+} from "../../lib/alerty/constants";
 import { useAlertyTheme } from "../../lib/useAlertyTheme";
 import { DARK_MAP_STYLE } from "../../lib/theme";
 import { useAlertyStore } from "../../lib/alerty/store";
 import { supabase } from "../../lib/supabase";
 import type { AlertCategory, CommunityPost } from "../../lib/alerty/types";
 import { isOperativoCategory } from "../../lib/alerty/operativoPolicy";
+import { CityPickerModal } from "../../components/CityPickerModal";
 import {
   calculateDistance,
   forCommunityListDisplay,
@@ -103,10 +115,25 @@ export default function MapScreen() {
   const [selectedSources, setSelectedSources] = useState(1);
   const [timeMenuOpen, setTimeMenuOpen] = useState(false);
   const [pinTracks, setPinTracks] = useState(true);
-  const [mapLatitudeDelta, setMapLatitudeDelta] = useState(CULIACAN_CENTER.latitudeDelta);
+  const [citySlug, setCitySlug] = useState<CitySlug>(getActiveCitySlug);
+  const [cityPickerOpen, setCityPickerOpen] = useState(false);
+  const mapCenter = useMemo(() => getActiveMapCenter(), [citySlug]);
+  const [mapLatitudeDelta, setMapLatitudeDelta] = useState(mapCenter.latitudeDelta);
   const isWeb = Platform.OS === "web";
   const showPinNames = shouldShowSponsorName({ latitudeDelta: mapLatitudeDelta });
   const showSponsorNames = showPinNames;
+
+  const cityCenteredOnce = useRef(false);
+  useEffect(() => subscribeCityChange(setCitySlug), []);
+
+  useEffect(() => {
+    setMapLatitudeDelta(mapCenter.latitudeDelta);
+    if (!cityCenteredOnce.current) {
+      cityCenteredOnce.current = true;
+      return;
+    }
+    mapRef.current?.animateToRegion(mapCenter, 450);
+  }, [citySlug, mapCenter]);
 
   const {
     alerts,
@@ -303,13 +330,13 @@ export default function MapScreen() {
   }, [userLocation, filteredAlerts]);
 
   const riskGrid = useMemo(
-    () => (showGrid ? buildRiskGridFromPoints(heatSources, CULIACAN_CENTER) : []),
-    [showGrid, heatSources],
+    () => (showGrid ? buildRiskGridFromPoints(heatSources, mapCenter) : []),
+    [showGrid, heatSources, mapCenter],
   );
 
   const verdictPoint = userLocation ?? {
-    latitude: CULIACAN_CENTER.latitude,
-    longitude: CULIACAN_CENTER.longitude,
+    latitude: mapCenter.latitude,
+    longitude: mapCenter.longitude,
   };
 
   const zoneAssessment = useMemo(
@@ -626,7 +653,7 @@ export default function MapScreen() {
           <MapView
             ref={mapRef}
             style={[StyleSheet.absoluteFill, isWeb && styles.webMapHost]}
-            initialRegion={CULIACAN_CENTER}
+            initialRegion={mapCenter}
             showsUserLocation
             showsMyLocationButton={false}
             pitchEnabled={false}
@@ -777,9 +804,17 @@ export default function MapScreen() {
               style={StyleSheet.absoluteFill}
             />
             <View style={styles.headerRow}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.cityLabel} numberOfLines={1}>{getActiveCityLabel()}</Text>
-              </View>
+              <Pressable
+                style={styles.cityPickerBtn}
+                onPress={() => setCityPickerOpen(true)}
+                accessibilityRole="button"
+                accessibilityLabel={`Ciudad: ${getActiveCityLabel()}. Toca para cambiar`}
+              >
+                <Text style={styles.cityLabel} numberOfLines={1}>
+                  {getActiveCityLabel()}
+                </Text>
+                <Ionicons name="chevron-down" size={16} color={theme.colors.textMuted} />
+              </Pressable>
               <View style={styles.headerTools}>
                 <Pressable
                   style={styles.headerTool}
@@ -1121,6 +1156,11 @@ export default function MapScreen() {
             }}
           />
         ) : null}
+
+        <CityPickerModal
+          visible={cityPickerOpen}
+          onClose={() => setCityPickerOpen(false)}
+        />
       </View>
     </SafeAreaView>
   );
@@ -1401,10 +1441,19 @@ const createStyles = (theme: any, themeMode: string) => StyleSheet.create({
     fontFamily: theme.fonts.heading,
     paddingHorizontal: 2,
   },
+  cityPickerBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    minHeight: 44,
+    paddingRight: 4,
+  },
   cityLabel: {
     color: theme.colors.text,
     fontSize: 18,
     fontFamily: theme.fonts.heading,
+    flexShrink: 1,
   },
   subLabel: {
     color: theme.colors.textMuted,

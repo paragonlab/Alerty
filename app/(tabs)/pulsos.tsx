@@ -11,10 +11,17 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { AlertCard } from "../../components/AlertCard";
+import { CityPickerModal } from "../../components/CityPickerModal";
 import { CommunityPostCard } from "../../components/CommunityPostCard";
 import { CommunityPostPreview } from "../../components/CommunityPostPreview";
 import { VideoReelsList } from "../../components/VideoReelsList";
 import { ReelsTimeFilter } from "../../components/ReelsTimeFilter";
+import {
+  getActiveCityName,
+  getActiveCitySlug,
+  subscribeCityChange,
+  type CitySlug,
+} from "../../lib/alerty/city";
 import { INFO_DISCLAIMER, TIME_FILTER_PILL_LABEL, TIME_FILTERS } from "../../lib/alerty/constants";
 import { useAlertyTheme } from "../../lib/useAlertyTheme";
 import { useAlertyStore } from "../../lib/alerty/store";
@@ -55,6 +62,11 @@ export default function FeedScreen() {
   const theme = useAlertyTheme();
   const styles = createStyles(theme);
   const [previewPost, setPreviewPost] = useState<CommunityPost | null>(null);
+  const [citySlug, setCitySlug] = useState<CitySlug>(getActiveCitySlug);
+  const [cityPickerOpen, setCityPickerOpen] = useState(false);
+  const cityName = useMemo(() => getActiveCityName(), [citySlug]);
+
+  useEffect(() => subscribeCityChange(setCitySlug), []);
 
   // Llegó desde un pin de noticia del mapa: se abre su ficha.
   useEffect(() => {
@@ -203,6 +215,16 @@ export default function FeedScreen() {
         <Text style={styles.subtitle}>
           Lo que está pasando cerca: reportes, comunidad y noticieros.
         </Text>
+        <Pressable
+          style={styles.cityChip}
+          onPress={() => setCityPickerOpen(true)}
+          accessibilityRole="button"
+          accessibilityLabel={`Ciudad: ${cityName}. Toca para cambiar`}
+        >
+          <Ionicons name="location-outline" size={14} color={theme.colors.accent} />
+          <Text style={styles.cityChipText}>{cityName}</Text>
+          <Ionicons name="chevron-down" size={12} color={theme.colors.textMuted} />
+        </Pressable>
       </View>
 
       <View style={styles.filterRow}>
@@ -308,6 +330,10 @@ export default function FeedScreen() {
       {previewPost ? (
         <CommunityPostPreview post={previewPost} onClose={() => setPreviewPost(null)} />
       ) : null}
+      <CityPickerModal
+        visible={cityPickerOpen}
+        onClose={() => setCityPickerOpen(false)}
+      />
     </View>
   );
 }
@@ -387,6 +413,25 @@ const createStyles = (theme: any) => StyleSheet.create({
     color: theme.colors.textMuted,
     fontSize: 13,
     fontFamily: theme.fonts.body,
+  },
+  cityChip: {
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginTop: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: theme.radius.pill,
+    backgroundColor: theme.colors.surfaceAlt,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    minHeight: 32,
+  },
+  cityChipText: {
+    color: theme.colors.text,
+    fontSize: 13,
+    fontFamily: theme.fonts.heading,
   },
   filterRow: {
     flexDirection: "row",
