@@ -20,17 +20,29 @@ export const ALERT_CATEGORIES = [
   "zona segura",
   "sos",
   "desaparecida",
-  "operativo",
+  // "operativo" retirado del reporte ciudadano (halconeo / mapa en vivo).
 ] as const;
 
-/** Categorías solo de Pulsos (community_posts.category_guess). */
-export const COMMUNITY_EXTRA_CATEGORIES = ["alerta", "otro"] as const;
+/**
+ * Categorías solo de Pulsos (community_posts.category_guess).
+ * `operativo` sigue clasificándose en noticias, pero no se reporta ni va al mapa
+ * en vivo; ver lib/alerty/operativoPolicy.ts.
+ */
+export const COMMUNITY_EXTRA_CATEGORIES = ["alerta", "otro", "operativo"] as const;
 
-/** Todas las categorías de pin / filtro (alertas + pulsos). */
+/** Todas las categorías de pin / etiqueta (alertas + pulsos). */
 export const PIN_CATEGORIES = [
   ...ALERT_CATEGORIES,
   ...COMMUNITY_EXTRA_CATEGORIES,
 ] as const;
+
+/**
+ * Chips de filtro (mapa / onboarding / ajustes). Sin operativo: no se filtra
+ * en vivo; tras el delay aparece en listas sin depender del chip.
+ */
+export const MAP_FILTER_CATEGORIES = PIN_CATEGORIES.filter(
+  (c) => c !== "operativo",
+) as Exclude<(typeof PIN_CATEGORIES)[number], "operativo">[];
 
 export const CATEGORY_LABELS: Record<(typeof PIN_CATEGORIES)[number], string> = {
   balacera: "Balacera",

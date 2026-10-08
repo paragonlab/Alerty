@@ -1,0 +1,36 @@
+/**
+ * Política operativo (halconeo): sin coords en community_posts.
+ * Debe alinearse con lib/alerty/operativoPolicy.ts y la migración
+ * 20261008120000_operativo_delay_no_live_map.sql.
+ */
+
+export const OPERATIVO_CATEGORY = "operativo" as const;
+export const OPERATIVO_CITY_PLACE_LABEL = "Culiacán";
+
+export function isOperativoCategory(category: string | null | undefined): boolean {
+  return category === OPERATIVO_CATEGORY;
+}
+
+type GeoRow = {
+  category_guess: string | null;
+  lat: number | null;
+  lng: number | null;
+  place_label: string;
+  geo_source: string;
+  place_name_source: string | null;
+  geocoded_from_text: string | null;
+};
+
+/** Sync: nunca persistir ubicación precisa para operativo. */
+export function stripOperativoGeo<T extends GeoRow>(row: T): T {
+  if (!isOperativoCategory(row.category_guess)) return row;
+  return {
+    ...row,
+    lat: null,
+    lng: null,
+    place_label: OPERATIVO_CITY_PLACE_LABEL,
+    geo_source: "none",
+    place_name_source: null,
+    geocoded_from_text: null,
+  };
+}

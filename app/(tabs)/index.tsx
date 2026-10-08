@@ -53,7 +53,6 @@ import {
   sponsorPinAnchor,
 } from "../../lib/alerty/pinArt";
 import { isAboutCuliacan, isCommunityVideo } from "../../lib/alerty/communityLabel";
-import { isCategoryShown } from "../../lib/alerty/utils";
 import { placeIcon, searchCuliacanPlaces, type PlaceResult } from "../../lib/alerty/placeSearch";
 import { CommunityMarker } from "../../components/CommunityMarker";
 import { CommunityPostPreview } from "../../components/CommunityPostPreview";
@@ -64,13 +63,15 @@ import { DARK_MAP_STYLE } from "../../lib/theme";
 import { useAlertyStore } from "../../lib/alerty/store";
 import { supabase } from "../../lib/supabase";
 import type { AlertCategory, CommunityPost } from "../../lib/alerty/types";
+import { isOperativoCategory } from "../../lib/alerty/operativoPolicy";
 import {
   calculateDistance,
+  forCommunityListDisplay,
   getCategoryPinColor,
   getPulseDuration,
   getTimeFilterWindowLabel,
   isAlertInWindow,
-  isCommunityInWindow,
+  isCommunityFeedVisible,
   shouldSuppressAlert,
 } from "../../lib/alerty/utils";
 
@@ -137,6 +138,7 @@ export default function MapScreen() {
         (alert) =>
           alert.status === "active" &&
           !alert.parentAlertId &&
+          !isOperativoCategory(alert.category) &&
           activeCategories.includes(alert.category) &&
           isAlertInWindow(alert, timeFilter) &&
           !shouldSuppressAlert(alert),
@@ -146,10 +148,8 @@ export default function MapScreen() {
 
   const filteredCommunity = useMemo(
     () =>
-      communityPosts.filter(
-        (post) =>
-          isCommunityInWindow(post, timeFilter) &&
-          isCategoryShown(post.categoryGuess, activeCategories),
+      communityPosts.filter((post) =>
+        isCommunityFeedVisible(post, timeFilter, activeCategories),
       ),
     [communityPosts, timeFilter, activeCategories],
   );
@@ -1112,7 +1112,7 @@ export default function MapScreen() {
 
         {selectedCommunity ? (
           <CommunityPostPreview
-            post={selectedCommunity}
+            post={forCommunityListDisplay(selectedCommunity)}
             sourceCount={selectedSources}
             onClose={() => {
               setSelectedCommunity(null);

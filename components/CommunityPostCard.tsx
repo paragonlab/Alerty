@@ -1,8 +1,10 @@
 import { Pressable, StyleSheet, Text, View, Image } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { formatRelativeTime } from "../lib/alerty/utils";
+import { forCommunityListDisplay, formatRelativeTime } from "../lib/alerty/utils";
 import type { CommunityPost } from "../lib/alerty/types";
 import { communitySourceLabel, isNewsPost } from "../lib/alerty/communityLabel";
+import { CATEGORY_LABELS } from "../lib/alerty/constants";
+import { isOperativoCategory } from "../lib/alerty/operativoPolicy";
 import { useAlertyTheme } from "../lib/useAlertyTheme";
 import { CommunityVoteBar } from "./CommunityVoteBar";
 
@@ -14,12 +16,17 @@ type CommunityPostCardProps = {
 const X_ACCENT = "#1D9BF0";
 const NEWS_ACCENT = "#0D9488";
 
-export function CommunityPostCard({ post, onPress }: CommunityPostCardProps) {
+export function CommunityPostCard({ post: rawPost, onPress }: CommunityPostCardProps) {
   const theme = useAlertyTheme();
   const styles = createStyles(theme);
+  const post = forCommunityListDisplay(rawPost);
   const news = isNewsPost(post);
   const sourceLabel = communitySourceLabel(post);
   const accent = news ? NEWS_ACCENT : X_ACCENT;
+  const operativo = isOperativoCategory(post.categoryGuess);
+  const categoryLabel = operativo
+    ? (CATEGORY_LABELS as Record<string, string>).operativo
+    : null;
 
   return (
     <Pressable
@@ -57,6 +64,11 @@ export function CommunityPostCard({ post, onPress }: CommunityPostCardProps) {
             {post.isDemo ? (
               <View style={styles.demoPill}>
                 <Text style={styles.demoText}>DEMO</Text>
+              </View>
+            ) : null}
+            {categoryLabel ? (
+              <View style={styles.operativoPill}>
+                <Text style={styles.operativoText}>{categoryLabel}</Text>
               </View>
             ) : null}
           </View>
@@ -193,6 +205,19 @@ const createStyles = (theme: any) =>
       backgroundColor: "#F59E0B22",
       borderWidth: 1,
       borderColor: "#F59E0B66",
+    },
+    operativoPill: {
+      borderRadius: 999,
+      paddingHorizontal: 8,
+      paddingVertical: 3,
+      backgroundColor: "#26418F18",
+      borderWidth: 1,
+      borderColor: "#26418F66",
+    },
+    operativoText: {
+      color: "#26418F",
+      fontSize: 11,
+      fontFamily: theme.fonts.heading,
     },
     demoText: {
       color: "#B45309",

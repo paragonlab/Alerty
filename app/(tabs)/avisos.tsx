@@ -13,6 +13,7 @@ import {
 import { useAlertyStore } from "../../lib/alerty/store";
 import { useAlertyTheme } from "../../lib/useAlertyTheme";
 import { AVISOS_RADIUS_KM, CATEGORY_ICONS, CATEGORY_LABELS, CULIACAN_CENTER } from "../../lib/alerty/constants";
+import { isOperativoCategory } from "../../lib/alerty/operativoPolicy";
 import { formatRelativeTime, matchInboxAlert } from "../../lib/alerty/utils";
 import type { AlertItem } from "../../lib/alerty/types";
 
@@ -113,6 +114,7 @@ export default function AvisosScreen() {
   const notifications = useMemo(() => {
     return alerts
       .map((alert) => {
+        if (isOperativoCategory(alert.category)) return null;
         // Lo que sigues y el SOS siempre; lo demás, según tus categorías.
         if (
           alert.category !== "sos" &&

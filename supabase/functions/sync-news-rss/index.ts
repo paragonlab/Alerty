@@ -12,6 +12,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.97.0";
 import { resolveCommunityGeo } from "../_shared/culiacanPlaces.ts";
 import { guessCategory } from "../_shared/guessCategory.ts";
+import { stripOperativoGeo } from "../_shared/operativoPolicy.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -199,30 +200,33 @@ Deno.serve(async (req) => {
           requireCuliacanMention: true,
         });
         const externalId = item.link.slice(0, 240);
-        rows.push({
-          source: "rss",
-          external_id: externalId,
-          author_handle: feed.handle,
-          author_name: feed.name,
-          text: excerpt,
-          url: item.link,
-          media_url: item.mediaUrl,
-          author_avatar_url: feed.logoUrl ?? null,
-          lat: geo.mapEligible ? geo.lat : null,
-          lng: geo.mapEligible ? geo.lng : null,
-          place_label: geo.placeLabel,
-          geo_source: geo.geoSource,
-          place_name_source: geo.placeNameSource,
-          geocoded_from_text: geo.geocodedFromText,
-          created_at: item.pubDate ? new Date(item.pubDate).toISOString() : new Date().toISOString(),
-          fetched_at: new Date().toISOString(),
-          // Mismo criterio que el geocode: clasificar sobre el titular y el extracto
-          // que se guardan. En el cuerpo completo, una columna de análisis menciona
-          // "balacera" en el último párrafo y entraba con severidad de tiroteo real.
-          category_guess: guessCategory(`${item.title} ${excerpt}`),
-          is_demo: false,
-          trust_tier: "news",
-        });
+        const categoryGuess = guessCategory(`${item.title} ${excerpt}`);
+        rows.push(
+          stripOperativoGeo({
+            source: "rss",
+            external_id: externalId,
+            author_handle: feed.handle,
+            author_name: feed.name,
+            text: excerpt,
+            url: item.link,
+            media_url: item.mediaUrl,
+            author_avatar_url: feed.logoUrl ?? null,
+            lat: geo.mapEligible ? geo.lat : null,
+            lng: geo.mapEligible ? geo.lng : null,
+            place_label: geo.placeLabel,
+            geo_source: geo.geoSource,
+            place_name_source: geo.placeNameSource,
+            geocoded_from_text: geo.geocodedFromText,
+            created_at: item.pubDate ? new Date(item.pubDate).toISOString() : new Date().toISOString(),
+            fetched_at: new Date().toISOString(),
+            // Mismo criterio que el geocode: clasificar sobre el titular y el extracto
+            // que se guardan. En el cuerpo completo, una columna de análisis menciona
+            // "balacera" en el último párrafo y entraba con severidad de tiroteo real.
+            category_guess: categoryGuess,
+            is_demo: false,
+            trust_tier: "news",
+          }),
+        );
       }
     } catch (e) {
       errors.push(`${feed.name}: ${e instanceof Error ? e.message : String(e)}`);

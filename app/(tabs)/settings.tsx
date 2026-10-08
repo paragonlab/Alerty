@@ -15,7 +15,7 @@ import { UserAvatar } from "../../components/UserAvatar";
 import { CITIZEN_CHARACTERS } from "../../lib/alerty/avatars";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { PIN_CATEGORIES, CATEGORY_LABELS, getLevelProgress } from "../../lib/alerty/constants";
+import { MAP_FILTER_CATEGORIES, CATEGORY_LABELS, getLevelProgress } from "../../lib/alerty/constants";
 import { ALIADO_PRICE_LABEL, CIRCULO_PRICE_LABEL, circuloZoneLimit } from "../../lib/alerty/circulo";
 import { needsReview, useAlertyStore } from "../../lib/alerty/store";
 import { useAlertyTheme } from "../../lib/useAlertyTheme";
@@ -73,7 +73,7 @@ export default function SettingsScreen() {
   const [deletingAccount, setDeletingAccount] = useState(false);
 
   const allSelected = useMemo(
-    () => activeCategories.length === PIN_CATEGORIES.length,
+    () => MAP_FILTER_CATEGORIES.every((c) => activeCategories.includes(c)),
     [activeCategories],
   );
 
@@ -82,7 +82,7 @@ export default function SettingsScreen() {
       setCategoryDefaults([]);
       return;
     }
-    setCategoryDefaults([...PIN_CATEGORIES]);
+    setCategoryDefaults([...MAP_FILTER_CATEGORIES]);
   };
 
   const handleSignOut = async () => {
@@ -555,7 +555,7 @@ export default function SettingsScreen() {
             </Pressable>
           </View>
           <View style={styles.categoryWrap}>
-            {PIN_CATEGORIES.map((category) => {
+            {MAP_FILTER_CATEGORIES.map((category) => {
               const active = activeCategories.includes(category);
               return (
                 <Pressable

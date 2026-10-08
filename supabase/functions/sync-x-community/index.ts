@@ -12,6 +12,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.97.0";
 import { resolveCommunityGeo } from "../_shared/culiacanPlaces.ts";
 import { guessCategory } from "../_shared/guessCategory.ts";
+import { stripOperativoGeo } from "../_shared/operativoPolicy.ts";
 import {
   mergeAllowlist,
   trustForHandle,
@@ -323,7 +324,7 @@ function tweetToRow(
 
   const videoUrl = pickVideoUrl(tweet, mediaByKey);
 
-  return {
+  return stripOperativoGeo({
     source: "x",
     external_id: tweet.id,
     author_handle: handle,
@@ -347,7 +348,7 @@ function tweetToRow(
     category_guess: category,
     is_demo: false,
     trust_tier: onAllowlist ? trust : "community",
-  };
+  });
 }
 
 Deno.serve(async (req) => {

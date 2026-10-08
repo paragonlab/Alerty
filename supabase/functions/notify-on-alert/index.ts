@@ -229,6 +229,11 @@ Deno.serve(async (req) => {
 
     if (!alert) return json({ sent: 0 });
 
+    // Operativo: no push (ni broadcast ni Círculo). Ver operativoPolicy / halconeo.
+    if (alert.category === "operativo") {
+      return json({ sent: 0, skipped: "operativo" });
+    }
+
     const label = CATEGORY_LABELS[alert.category] ?? alert.category;
     const byUser = new Map<string, PushMessage>();
 
@@ -318,6 +323,10 @@ Deno.serve(async (req) => {
       .select("id,category,title")
       .eq("id", update.alert_id)
       .single();
+
+    if (alert?.category === "operativo") {
+      return json({ sent: 0, skipped: "operativo" });
+    }
 
     const { data: follows } = await admin
       .from("alert_follows")

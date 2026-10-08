@@ -488,7 +488,11 @@ export function resolveCommunityMapPoint(post: {
   source?: string | null;
   trustTier?: string | null;
   placeLabel?: string | null;
+  categoryGuess?: string | null;
 }): { lat: number; lng: number; placeLabel: string; approximate: boolean } | null {
+  // Operativo: nunca pin en el mapa (ni por coords guardadas ni por colonia en texto).
+  if (post.categoryGuess === "operativo") return null;
+
   if (
     typeof post.lat === "number" &&
     typeof post.lng === "number" &&
