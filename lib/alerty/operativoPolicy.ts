@@ -10,13 +10,15 @@
  * supabase/migrations/20261008120000_operativo_delay_no_live_map.sql
  */
 
+import { getActiveCityName } from "./city";
+
 export const OPERATIVO_CATEGORY = "operativo" as const;
 
 /** Retraso mínimo desde publicación antes de mostrar un pulso operativo en listas. */
 export const OPERATIVO_FEED_DELAY_MS = 2 * 60 * 60 * 1000;
 
-/** Lugar genérico: sin colonia ni coords precisas. */
-export const OPERATIVO_CITY_PLACE_LABEL = "Culiacán";
+/** Lugar genérico: sin colonia ni coords precisas (nombre de la ciudad activa). */
+export const OPERATIVO_CITY_PLACE_LABEL = getActiveCityName();
 
 export function isOperativoCategory(category: string | null | undefined): boolean {
   return category === OPERATIVO_CATEGORY;

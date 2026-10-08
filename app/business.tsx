@@ -55,6 +55,7 @@ import { lightTheme as theme } from "../lib/theme";
 import { supabase } from "../lib/supabase";
 import { safeBack } from "../lib/alerty/nav";
 import { ALIADO_PRICE_LABEL } from "../lib/alerty/circulo";
+import { getActiveCityId } from "../lib/alerty/city";
 import { CULIACAN_CENTER } from "../lib/alerty/constants";
 import { getCurrentCoords } from "../lib/alerty/geolocation";
 import { addressFromCoords } from "../lib/alerty/geocode";
@@ -283,6 +284,7 @@ export default function BusinessOnboarding() {
       proof_kind: proofPath ? proofKind : null,
       location_verified_at: onSite?.at ?? null,
       location_distance_m: onSite?.distanceM ?? null,
+      city_id: getActiveCityId(),
     });
     return { error: error ? error.message : null, logoUrl: savedLogo };
   };

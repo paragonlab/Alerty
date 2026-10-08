@@ -12,6 +12,7 @@
 
 import Stripe from "https://esm.sh/stripe@17.5.0?target=deno";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.97.0";
+import { DEFAULT_SYNC_CITY_ID } from "../_shared/cities.ts";
 
 const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY")!, {
   apiVersion: "2024-12-18.acacia",
@@ -122,6 +123,7 @@ Deno.serve(async (req) => {
         pin_giro: giro,
         logo_url: logo,
         status: "pending",
+        city_id: DEFAULT_SYNC_CITY_ID,
       })
       .select("id")
       .single();

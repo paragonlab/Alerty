@@ -1,9 +1,10 @@
-export const CULIACAN_CENTER = {
-  latitude: 24.8091,
-  longitude: -107.394,
-  latitudeDelta: 0.16,
-  longitudeDelta: 0.16,
-};
+import { getActiveCity } from "./city";
+
+/**
+ * Región del mapa de la ciudad activa.
+ * Alias histórico: hoy = Culiacán; ver lib/alerty/city.ts.
+ */
+export const CULIACAN_CENTER = getActiveCity().center;
 
 /** Categorías que un ciudadano puede reportar (alerts.category). */
 export const ALERT_CATEGORIES = [

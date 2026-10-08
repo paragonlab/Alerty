@@ -21,6 +21,7 @@ import { canRecordVoice, saveRecording, voiceRecordingOptions } from "../lib/ale
 import * as Location from "expo-location";
 import { Audio } from "expo-av";
 import { useRouter } from "expo-router";
+import { getActiveCityId } from "../lib/alerty/city";
 import {
   ALERT_CATEGORIES,
   CATEGORY_ICONS,
@@ -575,6 +576,7 @@ export default function ReportScreen() {
             title: titleText,
             description,
             status: "active",
+            city_id: getActiveCityId(),
           })
           .select("id,created_at")
           .single(),

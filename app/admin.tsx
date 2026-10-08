@@ -13,6 +13,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
+import { getActiveCityId } from "../lib/alerty/city";
 import { needsReview, useAlertyStore } from "../lib/alerty/store";
 import { useAlertyTheme } from "../lib/useAlertyTheme";
 import { safeBack } from "../lib/alerty/nav";
@@ -287,6 +288,7 @@ export default function AdminScreen() {
             : null,
         logo_url: lead.logo_url,
         status: "active",
+        city_id: getActiveCityId(),
       })
       .select("id")
       .single();
