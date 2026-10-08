@@ -158,6 +158,15 @@ function run() {
   assert(newsColonia?.placeLabel === "Las Quintas", "RSS with a colonia pins on it");
   assert(newsColonia?.approximate === false, "resolved colonia is not approximate");
 
+  const operativoBlocked = resolveCommunityMapPoint({
+    lat: 24.8175,
+    lng: -107.3783,
+    text: "Despliegue de militares en Chapultepec",
+    placeLabel: "Chapultepec",
+    categoryGuess: "operativo",
+  });
+  assert(operativoBlocked === null, "operativo never gets a map pin");
+
   const storedApprox = resolveCommunityMapPoint({
     lat: 24.8105,
     lng: -107.3928,

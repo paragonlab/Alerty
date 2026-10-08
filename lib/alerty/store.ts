@@ -11,9 +11,14 @@ import type {
   TimeFilter,
   WatchedZone,
 } from "./types";
-import { PIN_CATEGORIES, REPUTATION_LEVELS, getLevelProgress } from "./constants";
+import { MAP_FILTER_CATEGORIES, PIN_CATEGORIES, REPUTATION_LEVELS, getLevelProgress } from "./constants";
 import { canAddCirculoZone } from "./circulo";
 import { baseAlerts, createRandomAlert, demoCommunityPosts, isDemoEnabled } from "./mock";
+import {
+  isOperativoCategory,
+  isOperativoFeedReady,
+  redactOperativoLocation,
+} from "./operativoPolicy";
 import { calculateDistance, matchInboxAlert, type UserCoords } from "./utils";
 import { isOtherSinaloaCityStory } from "./coloniaGeocode";
 import { isSupabaseConfigured, supabase } from "../supabase";
@@ -64,7 +69,7 @@ const mapCommunityRow = (row: any): CommunityPost => {
       : source === "rss"
         ? "news"
         : "community";
-  return {
+  const mapped: CommunityPost = {
     id: row.id,
     source,
     externalId: row.external_id,
@@ -96,6 +101,7 @@ const mapCommunityRow = (row: any): CommunityPost => {
     isDemo: Boolean(row.is_demo),
     trustTier,
   };
+  return redactOperativoLocation(mapped);
 };
 
 type VoteType = "upvote" | "downvote";
@@ -210,11 +216,17 @@ const syncPreference = async (key: string, value: any) => {
 
 // Se guardan las categorías ocultas, no las visibles: así una categoría nueva
 // aparece activada para todos en vez de quedar oculta para siempre. El SOS no
-// se puede ocultar.
+// se puede ocultar. Operativo no es chip de filtro (solo lista con delay).
 const hiddenFrom = (active: readonly string[]) =>
-  PIN_CATEGORIES.filter((c) => c !== "sos" && !active.includes(c));
-const activeFromHidden = (hidden: string[] | null | undefined): PinCategory[] =>
-  PIN_CATEGORIES.filter((c) => c === "sos" || !(hidden ?? []).includes(c));
+  MAP_FILTER_CATEGORIES.filter((c) => c !== "sos" && !active.includes(c));
+const activeFromHidden = (hidden: string[] | null | undefined): PinCategory[] => {
+  const filterable = MAP_FILTER_CATEGORIES.filter(
+    (c) => c === "sos" || !(hidden ?? []).includes(c),
+  );
+  // Operativo siempre "activo" para isCategoryShown en rutas legacy; el delay
+  // lo aplica isCommunityFeedVisible.
+  return [...filterable, "operativo" as PinCategory];
+};
 
 // Los IDs de alertas demo/locales (seed-, live-, local-) no son UUID y no
 // existen en la base de datos — sus mutaciones se quedan solo en memoria.
@@ -443,6 +455,8 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
       { event: "INSERT", schema: "public", table: "alerts" },
       async (payload) => {
         const row = payload.new as any;
+        // Defensa: operativo no es reportable; no entra al feed ni dispara UI.
+        if (row.category === "operativo") return;
         const { data: userData } = await supabase!
           .from("users")
           .select("id,username,avatar_url,character,is_verified,trust_score,followers_count")
@@ -552,6 +566,10 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
         const post = mapCommunityRow(payload.new);
         if (post.isDemo) return;
         if (isOtherSinaloaCityStory(post.text)) return;
+        // RLS ya oculta operativo fresco; defensa si el evento llega igual.
+        if (isOperativoCategory(post.categoryGuess) && !isOperativoFeedReady(post.createdAt)) {
+          return;
+        }
         set((state) => {
           if (state.communityPosts.some((p) => p.id === post.id || p.externalId === post.externalId)) {
             return state;
@@ -1070,9 +1088,13 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
         return;
       }
 
-      const communityPosts = mergeCommunityRows(rssRes.data, otherRes.data).filter(
-        (post) => !isOtherSinaloaCityStory(post.text),
-      );
+      const communityPosts = mergeCommunityRows(rssRes.data, otherRes.data).filter((post) => {
+        if (isOtherSinaloaCityStory(post.text)) return false;
+        if (isOperativoCategory(post.categoryGuess) && !isOperativoFeedReady(post.createdAt)) {
+          return false;
+        }
+        return true;
+      });
       set({ communityPosts, communityLoaded: true });
       persistFeedCache(get().alerts, communityPosts);
       void get().loadCommunityVotes(communityPosts.map((p) => p.id));
@@ -1168,7 +1190,7 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
         .select(ALERT_SELECT)
         .eq("id", id)
         .maybeSingle();
-      if (!row) return false;
+      if (!row || row.category === "operativo") return false;
       const { data: votes } = await supabase
         .from("verifications")
         .select("vote_type")
@@ -1213,7 +1235,10 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
     const toItems = (voteCounts: Map<string, { up: number; down: number }>): AlertItem[] =>
       data
         .map((row: any) => mapAlertRow(row, voteCounts.get(row.id)))
-        .filter((alert: AlertItem) => !blocked.includes(alert.user.id));
+        .filter(
+          (alert: AlertItem) =>
+            !isOperativoCategory(alert.category) && !blocked.includes(alert.user.id),
+        );
 
     set({ alerts: toItems(new Map()), alertsLoaded: true });
     get().recomputeVerifiedStatus();
@@ -1482,12 +1507,19 @@ void AsyncStorage.getItem(FEED_CACHE_KEY)
       alerts?: AlertItem[];
       communityPosts?: CommunityPost[];
     };
+    const cachedAlerts = (parsed.alerts ?? []).filter((a) => !isOperativoCategory(a.category));
+    const cachedCommunity = (parsed.communityPosts ?? [])
+      .filter(
+        (p) =>
+          !isOperativoCategory(p.categoryGuess) || isOperativoFeedReady(p.createdAt),
+      )
+      .map(redactOperativoLocation);
     useAlertyStore.setState({
-      alerts: state.alertsLoaded || state.alerts.length > 0 ? state.alerts : parsed.alerts ?? [],
+      alerts: state.alertsLoaded || state.alerts.length > 0 ? state.alerts : cachedAlerts,
       communityPosts:
         state.communityLoaded || state.communityPosts.length > 0
           ? state.communityPosts
-          : parsed.communityPosts ?? [],
+          : cachedCommunity,
     });
   })
   .catch(() => {});

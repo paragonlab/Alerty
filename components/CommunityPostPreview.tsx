@@ -11,8 +11,9 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { Video, ResizeMode } from "expo-av";
-import { formatRelativeTime } from "../lib/alerty/utils";
+import { forCommunityListDisplay, formatRelativeTime } from "../lib/alerty/utils";
 import { isCityApproxLabel } from "../lib/alerty/coloniaGeocode";
+import { isOperativoCategory } from "../lib/alerty/operativoPolicy";
 import type { CommunityPost } from "../lib/alerty/types";
 import { communitySourceLabel, isNewsPost } from "../lib/alerty/communityLabel";
 import { CATEGORY_LABELS } from "../lib/alerty/constants";
@@ -36,11 +37,13 @@ type CommunityPostPreviewProps = {
 };
 
 /** Preview in-app del post (texto + media). Abrir externo es secundario. */
-export function CommunityPostPreview({ post, sourceCount = 1, onClose }: CommunityPostPreviewProps) {
+export function CommunityPostPreview({ post: rawPost, sourceCount = 1, onClose }: CommunityPostPreviewProps) {
   const theme = useAlertyTheme();
   const styles = createStyles(theme);
   const [mediaFailed, setMediaFailed] = useState(false);
   const openedAtRef = useRef(Date.now());
+  const post = forCommunityListDisplay(rawPost);
+  const operativo = isOperativoCategory(post.categoryGuess);
 
   useEffect(() => {
     openedAtRef.current = Date.now();
@@ -155,27 +158,30 @@ export function CommunityPostPreview({ post, sourceCount = 1, onClose }: Communi
           <Ionicons name="location-outline" size={12} color={theme.colors.textMuted} />
           <Text style={styles.metaText} numberOfLines={2}>
             {post.placeLabel}
-            {isCityApproxLabel(post.placeLabel)
-              ? " · zona aproximada"
-              : post.geoSource === "text_colonia" && post.geocodedFromText
-                ? ` · pin por texto (${post.geocodedFromText})`
-                : post.geoSource === "tweet_coords"
-                  ? " · coords del autor"
-                  : post.geoSource === "place_bbox"
-                    ? " · lugar del autor"
-                    : ""}
+            {operativo
+              ? " · sin ubicación en el mapa"
+              : isCityApproxLabel(post.placeLabel)
+                ? " · zona aproximada"
+                : post.geoSource === "text_colonia" && post.geocodedFromText
+                  ? ` · pin por texto (${post.geocodedFromText})`
+                  : post.geoSource === "tweet_coords"
+                    ? " · coords del autor"
+                    : post.geoSource === "place_bbox"
+                      ? " · lugar del autor"
+                      : ""}
           </Text>
           <View style={styles.dot} />
           <Text style={styles.metaText}>{formatRelativeTime(post.createdAt)}</Text>
         </View>
 
-        {sourceCount > 1 ? (
+        {sourceCount > 1 && !operativo ? (
           <Text style={styles.sourceHint}>
             Un mismo hecho reportado por {sourceCount} fuentes · el mapa lo cuenta una vez.
           </Text>
         ) : null}
 
-        {post.placeNameSource &&
+        {!operativo &&
+        post.placeNameSource &&
         post.geocodedFromText &&
         post.placeNameSource.toLowerCase() !== post.geocodedFromText.toLowerCase() ? (
           <Text style={styles.sourceHint}>

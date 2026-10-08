@@ -6,6 +6,11 @@ import {
   PIN_CATEGORIES,
   TIME_FILTER_WINDOW_LABEL,
 } from "./constants";
+import {
+  isOperativoCategory,
+  isOperativoFeedReady,
+  redactOperativoLocation,
+} from "./operativoPolicy";
 import type { AlertItem, CommunityPost, TimeFilter } from "./types";
 
 export const getAlertAgeMinutes = (createdAt: string) =>
@@ -50,6 +55,27 @@ export const isAlertInWindow = (alert: AlertItem, filter: TimeFilter) =>
 /** Comunidad: fecha del medio o primera ingesta en Pulso (fetched_at no se pisa en resync). */
 export const isCommunityInWindow = (post: CommunityPost, filter: TimeFilter) =>
   isCreatedAtInWindow(post.createdAt, filter) || isCreatedAtInWindow(post.fetchedAt, filter);
+
+/**
+ * Filtro de feed/lista para posts de comunidad.
+ * Operativo: solo tras el delay (sin chip de filtro); el resto usa categoría activa + ventana.
+ */
+export const isCommunityFeedVisible = (
+  post: CommunityPost,
+  filter: TimeFilter,
+  active: readonly string[],
+  nowMs = Date.now(),
+) => {
+  if (!isCommunityInWindow(post, filter)) return false;
+  if (isOperativoCategory(post.categoryGuess)) {
+    return isOperativoFeedReady(post.createdAt, nowMs);
+  }
+  return isCategoryShown(post.categoryGuess, active);
+};
+
+/** Post listo para UI de lista: operativo sin coords ni colonia. */
+export const forCommunityListDisplay = (post: CommunityPost): CommunityPost =>
+  redactOperativoLocation(post);
 
 export const getIntensityColor = (createdAt: string) => {
   const minutes = getAlertAgeMinutes(createdAt);

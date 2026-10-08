@@ -20,13 +20,14 @@ import { useAlertyTheme } from "../../lib/useAlertyTheme";
 import { useAlertyStore } from "../../lib/alerty/store";
 import { requireSession } from "../../lib/alerty/session";
 import {
+  forCommunityListDisplay,
   getTimeFilterWindowLabel,
   isAlertInWindow,
-  isCommunityInWindow,
+  isCommunityFeedVisible,
   shouldSuppressAlert,
 } from "../../lib/alerty/utils";
 import { isAboutCuliacan, isCommunityVideo } from "../../lib/alerty/communityLabel";
-import { isCategoryShown } from "../../lib/alerty/utils";
+import { isOperativoCategory } from "../../lib/alerty/operativoPolicy";
 import type { AlertItem, CommunityPost } from "../../lib/alerty/types";
 
 type FeedRow =
@@ -68,6 +69,7 @@ export default function FeedScreen() {
       alerts.filter(
         (alert) =>
           alert.status === "active" &&
+          !isOperativoCategory(alert.category) &&
           activeCategories.includes(alert.category) &&
           isAlertInWindow(alert, timeFilter) &&
           !shouldSuppressAlert(alert),
@@ -84,11 +86,9 @@ export default function FeedScreen() {
 
   const filteredCommunity = useMemo(
     () =>
-      communityPosts.filter(
-        (post) =>
-          isCommunityInWindow(post, timeFilter) &&
-          isCategoryShown(post.categoryGuess, activeCategories),
-      ),
+      communityPosts
+        .filter((post) => isCommunityFeedVisible(post, timeFilter, activeCategories))
+        .map(forCommunityListDisplay),
     [communityPosts, timeFilter, activeCategories],
   );
 
@@ -99,6 +99,7 @@ export default function FeedScreen() {
       alerts.filter(
         (alert) =>
           alert.status === "active" &&
+          !isOperativoCategory(alert.category) &&
           activeCategories.includes(alert.category) &&
           isAlertInWindow(alert, timeFilter) &&
           !shouldSuppressAlert(alert),
@@ -112,24 +113,33 @@ export default function FeedScreen() {
     if (!reelsInitialAlertId) return reelAlerts;
     if (reelAlerts.some((a) => a.id === reelsInitialAlertId)) return reelAlerts;
     const target = alerts.find((a) => a.id === reelsInitialAlertId);
-    return target ? [target, ...reelAlerts] : reelAlerts;
+    if (!target || isOperativoCategory(target.category)) return reelAlerts;
+    return [target, ...reelAlerts];
   }, [reelAlerts, reelsInitialAlertId, alerts]);
 
   // Videos de X y medios: siguen a los de vecinos para que Videos nunca quede
   // vacío. Solo miniatura; el video se abre en su fuente.
   const communityVideos = useMemo(() => {
-    const list = communityPosts.filter(
-      (post) =>
-        isCommunityVideo(post) &&
-        isAboutCuliacan(post) &&
-        isCommunityInWindow(post, timeFilter) &&
-        isCategoryShown(post.categoryGuess, activeCategories),
-    );
-    // El video tocado en la lista o el mapa entra aunque quede fuera del filtro.
+    const list = communityPosts
+      .filter(
+        (post) =>
+          isCommunityVideo(post) &&
+          isAboutCuliacan(post) &&
+          isCommunityFeedVisible(post, timeFilter, activeCategories),
+      )
+      .map(forCommunityListDisplay);
+    // El video tocado en la lista o el mapa entra aunque quede fuera del filtro
+    // de tiempo — salvo operativo fresco (nunca en vivo).
     const tapped = reelsInitialAlertId?.startsWith("c-")
       ? communityPosts.find((p) => `c-${p.id}` === reelsInitialAlertId)
       : undefined;
-    return tapped && !list.includes(tapped) ? [tapped, ...list] : list;
+    if (!tapped) return list;
+    // Operativo fresco: nunca forzar entrada al carrusel (ubicación en vivo).
+    if (isOperativoCategory(tapped.categoryGuess) && !isCommunityFeedVisible(tapped, timeFilter, activeCategories)) {
+      return list;
+    }
+    const safe = forCommunityListDisplay(tapped);
+    return list.some((p) => p.id === safe.id) ? list : [safe, ...list];
   }, [communityPosts, timeFilter, reelsInitialAlertId, activeCategories]);
 
   const feedItems = useMemo(() => {
