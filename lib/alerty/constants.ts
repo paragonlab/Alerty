@@ -1,10 +1,30 @@
 import { getActiveCity } from "./city";
 
 /**
- * Región del mapa de la ciudad activa.
- * Alias histórico: hoy = Culiacán; ver lib/alerty/city.ts.
+ * Región del mapa de la ciudad activa (viva — sigue a la preferencia).
+ * Alias histórico `CULIACAN_CENTER`: preferir `getActiveMapCenter()`.
  */
-export const CULIACAN_CENTER = getActiveCity().center;
+export function getActiveMapCenter() {
+  return getActiveCity().center;
+}
+
+/**
+ * Alias histórico. Usa getters para no congelar el centro al importar el módulo.
+ */
+export const CULIACAN_CENTER = {
+  get latitude() {
+    return getActiveCity().center.latitude;
+  },
+  get longitude() {
+    return getActiveCity().center.longitude;
+  },
+  get latitudeDelta() {
+    return getActiveCity().center.latitudeDelta;
+  },
+  get longitudeDelta() {
+    return getActiveCity().center.longitudeDelta;
+  },
+};
 
 /** Categorías que un ciudadano puede reportar (alerts.category). */
 export const ALERT_CATEGORIES = [

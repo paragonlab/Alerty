@@ -12,9 +12,11 @@ import {
   getActiveCityLabel,
   getActiveCityName,
   getActiveCitySlug,
+  listSelectableCities,
   setCityPreference,
+  subscribeCityChange,
 } from "./city";
-import { CULIACAN_CENTER } from "./constants";
+import { CULIACAN_CENTER, getActiveMapCenter } from "./constants";
 import { getOperativoCityPlaceLabel } from "./operativoPolicy";
 
 function assert(cond: unknown, msg: string): asserts cond {
@@ -58,12 +60,33 @@ function run() {
     "operativo place label follows active city",
   );
 
+  const selectable = listSelectableCities();
+  assert(selectable.length === 2, "both cities selectable");
+  assert(
+    selectable.every((c) => c.name === "Culiacán" || c.name === "Mazatlán"),
+    "labels are Culiacán and Mazatlán",
+  );
+
+  let notified: string | null = null;
+  const unsub = subscribeCityChange((slug) => {
+    notified = slug;
+  });
   setCityPreference("mazatlan");
+  assert(notified === "mazatlan", "subscribeCityChange fires");
   assert(getActiveCitySlug() === "mazatlan", "preference switches slug");
   assert(getActiveCityId() === CITY_IDS.mazatlan, "preference switches id");
   assert(belongsToActiveCity(CITY_IDS.mazatlan), "mazatlan belongs after switch");
   assert(!belongsToActiveCity(CITY_IDS.culiacan), "culiacan excluded after switch");
   assert(getOperativoCityPlaceLabel() === "Mazatlán", "operativo label follows switch");
+  assert(
+    getActiveMapCenter().latitude === CITIES.mazatlan.center.latitude,
+    "map center follows preference",
+  );
+  assert(
+    CULIACAN_CENTER.latitude === CITIES.mazatlan.center.latitude,
+    "historical alias stays live",
+  );
+  unsub();
   setCityPreference(null);
 
   console.log("city tests ok");
