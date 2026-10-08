@@ -1,5 +1,5 @@
 /**
- * Catálogo mínimo de ciudades para edge functions (fase 1).
+ * Catálogo mínimo de ciudades para edge functions.
  * IDs alineados con lib/alerty/city.ts y la migración
  * 20261008180000_cities_and_city_id.sql.
  */
@@ -9,7 +9,7 @@ export const CITY_IDS = {
   mazatlan: "c0a1c000-0002-4000-8000-000000000002",
 } as const;
 
-/** Sync X/RSS fase 1: todo lo nuevo se estampa como Culiacán. */
+/** Fallback legacy: Culiacán (fase 1 stamp). Preferir citySyncConfig.cityId. */
 export const DEFAULT_SYNC_CITY_ID = CITY_IDS.culiacan;
 
 export const CITY_NAMES: Record<string, string> = {

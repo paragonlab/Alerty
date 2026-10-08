@@ -1,8 +1,9 @@
 /**
- * Fuente de verdad de la ciudad activa (fase 1: siempre Culiacán).
+ * Fuente de verdad de la ciudad activa.
  *
- * Fases siguientes solo cambian ACTIVE_CITY_SLUG (o lo leen de preferencia
- * del usuario). Los IDs coinciden con el seed de
+ * Default de prod: Culiacán (`ACTIVE_CITY_SLUG`). Para probar Mazatlán sin
+ * picker completo: preferencia en AsyncStorage, `?city=mazatlan` (web) o el
+ * interruptor en Ajustes. Los IDs coinciden con el seed de
  * supabase/migrations/20261008180000_cities_and_city_id.sql.
  */
 
@@ -23,7 +24,7 @@ export type CityConfig = {
   /** Photon bbox: oeste, sur, este, norte. */
   bbox: string;
   timezone: string;
-  /** Ciudad con feed/sync en prod. */
+  /** Ciudad con feed/sync en prod (DB `cities.active`). */
   active: boolean;
 };
 
@@ -62,15 +63,37 @@ export const CITIES: Record<CitySlug, CityConfig> = {
     },
     bbox: "-106.55,23.15,-106.25,23.35",
     timezone: "America/Mazatlan",
-    active: false,
+    // Fase 2: sync puede apuntar a Mazatlán. Default UI sigue siendo Culiacán.
+    active: true,
   },
 };
 
-/** Fase 1: única ciudad operativa. Cambiar aquí (o leer preferencia) en fases UI. */
+/** Default de la app en vivo (prod). No cambiar a mazatlan en esta fase. */
 export const ACTIVE_CITY_SLUG: CitySlug = "culiacan";
 
+export const CITY_PREFERENCE_KEY = "pulso_active_city_slug";
+
+/** Preferencia de sesión/dispositivo (Ajustes / ?city=). null = usar default. */
+let cityPreference: CitySlug | null = null;
+
+export function isCitySlug(value: string | null | undefined): value is CitySlug {
+  return value === "culiacan" || value === "mazatlan";
+}
+
+export function setCityPreference(slug: CitySlug | null): void {
+  cityPreference = slug;
+}
+
+export function getCityPreference(): CitySlug | null {
+  return cityPreference;
+}
+
+export function getActiveCitySlug(): CitySlug {
+  return cityPreference ?? ACTIVE_CITY_SLUG;
+}
+
 export function getActiveCity(): CityConfig {
-  return CITIES[ACTIVE_CITY_SLUG];
+  return CITIES[getActiveCitySlug()];
 }
 
 export function getActiveCityId(): string {
@@ -100,4 +123,9 @@ export function belongsToActiveCity(cityId: string | null | undefined): boolean 
 /** Asunción de backfill: filas históricas → Culiacán. */
 export function defaultBackfillCityId(): string {
   return CITY_IDS.culiacan;
+}
+
+/** Ciudades seleccionables en el switch de prueba (fase 2). */
+export function listSelectableCities(): CityConfig[] {
+  return Object.values(CITIES).filter((c) => c.active);
 }

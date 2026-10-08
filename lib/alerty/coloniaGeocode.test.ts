@@ -2,6 +2,7 @@
  * Smoke tests for colonia-from-text geocoding (no Jest in package.json).
  * Run: npm run test:colonia
  */
+import { setCityPreference } from "./city";
 import {
   extractColoniasFromText,
   resolveTextColonia,
@@ -9,9 +10,11 @@ import {
   resolveCommunityMapPoint,
   resolveDestinationQuery,
   suggestDestinationPlaces,
+  isOtherSinaloaCityStory,
   CULIACAN_PLACES,
   CITY_APPROX_LABEL,
 } from "./coloniaGeocode";
+import { MAZATLAN_PLACES } from "./places/mazatlanPlaces";
 
 function assert(cond: unknown, msg: string): asserts cond {
   if (!cond) throw new Error(msg);
@@ -211,6 +214,59 @@ function run() {
 
   const prados = resolveTextColonia("Ataque armado en la colonia Prados del Sur, Culiacán");
   assert(prados?.place.name === "Prados del Sur", `Prados del Sur, got ${prados?.place.name}`);
+
+  // Defensa feed Culiacán: historias solo-Mazatlán se excluyen.
+  assert(
+    isOtherSinaloaCityStory("Reportan bloqueo en el centro de Mazatlán esta tarde."),
+    "Mazatlán-only is other-city on Culiacán path",
+  );
+  assert(
+    !isOtherSinaloaCityStory("Balacera en Las Quintas, Culiacán"),
+    "Culiacán story is not other-city",
+  );
+
+  // Gazetteer Mazatlán por citySlug (sin mutar preferencia global).
+  assert(MAZATLAN_PLACES.some((p) => p.name === "Zona Dorada"), "mazatlan gazetteer has Zona Dorada");
+  assert(MAZATLAN_PLACES.some((p) => p.name === "El Castillo"), "mazatlan gazetteer has El Castillo");
+  const zona = resolveTextColonia(
+    "Reportan balacera en Zona Dorada, Mazatlán.",
+    "mazatlan",
+  );
+  assert(zona?.place.name === "Zona Dorada", `Zona Dorada lookup, got ${zona?.place.name}`);
+  const castillo = resolveTextColonia(
+    "Marinos sobrevuelan el penal de El Castillo en Mazatlán.",
+    "mazatlan",
+  );
+  assert(castillo?.place.name === "El Castillo", `El Castillo lookup, got ${castillo?.place.name}`);
+
+  const mzPin = resolveCommunityGeo({
+    text: "El incidente ocurrió en Zona Dorada, Mazatlán.",
+    title: "Balacera en Zona Dorada",
+    fallbackLabel: "Mazatlán (noticia)",
+    requireCityMention: true,
+    citySlug: "mazatlan",
+  });
+  assert(mzPin.mapEligible === true, "Mazatlán + colonia pins on Mazatlán path");
+  assert(mzPin.placeLabel === "Zona Dorada", mzPin.placeLabel);
+
+  const culOnMz = resolveCommunityGeo({
+    text: "Balacera en colonia Guadalupe, Culiacán.",
+    title: "Balacera en Culiacán",
+    fallbackLabel: "Mazatlán (noticia)",
+    requireCityMention: true,
+    citySlug: "mazatlan",
+  });
+  assert(culOnMz.mapEligible === false, "Culiacán story not pinned on Mazatlán path");
+
+  // Preferencia activa: búsqueda de destinos usa gazetteer de la ciudad.
+  setCityPreference("mazatlan");
+  assert(
+    isOtherSinaloaCityStory("Balacera en colonia Guadalupe, Culiacán"),
+    "Culiacán-only is other-city when active=mazatlan",
+  );
+  const destMarina = resolveDestinationQuery("Marina");
+  assert(destMarina?.placeLabel === "Marina", "destination Marina in Mazatlán");
+  setCityPreference(null);
 
   console.log("coloniaGeocode tests: OK");
 }

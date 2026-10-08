@@ -17,8 +17,12 @@ export const OPERATIVO_CATEGORY = "operativo" as const;
 /** Retraso mínimo desde publicación antes de mostrar un pulso operativo en listas. */
 export const OPERATIVO_FEED_DELAY_MS = 2 * 60 * 60 * 1000;
 
-/** Lugar genérico: sin colonia ni coords precisas (nombre de la ciudad activa). */
-export const OPERATIVO_CITY_PLACE_LABEL = getActiveCityName();
+/** Lugar genérico por defecto (Culiacán). Preferir getOperativoCityPlaceLabel(). */
+export const OPERATIVO_CITY_PLACE_LABEL = "Culiacán";
+
+export function getOperativoCityPlaceLabel(): string {
+  return getActiveCityName();
+}
 
 export function isOperativoCategory(category: string | null | undefined): boolean {
   return category === OPERATIVO_CATEGORY;
@@ -48,7 +52,7 @@ export function redactOperativoLocation<T extends LocFields>(post: T): T {
     ...post,
     lat: null,
     lng: null,
-    placeLabel: OPERATIVO_CITY_PLACE_LABEL,
+    placeLabel: getOperativoCityPlaceLabel(),
     geoSource: "none",
     placeNameSource: null,
     geocodedFromText: null,

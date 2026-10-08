@@ -1,24 +1,31 @@
-// Sincroniza posts recientes de X (Twitter) sobre seguridad en Culiacán
+// Sincroniza posts recientes de X (Twitter) sobre seguridad por ciudad
 // hacia la tabla public.community_posts.
 //
 // Setup:
 //   supabase secrets set X_BEARER_TOKEN=AAAA...
-//   # opcional: X_ALLOWLIST=LineaDirectaMX:medio,SSPSinaloa:oficial
+//   # opcional por ciudad: allowlist en citySyncConfig; override global X_ALLOWLIST
+//   # opcional: SYNC_CITY_SLUGS=culiacan,mazatlan o ?city=mazatlan
 //   supabase functions deploy sync-x-community
+//
+// Un solo cron recorre las ciudades activas de sync (default: culiacán + mazatlán).
+// Costo X ≈ N × (2 queries evento + hasta 5 allowlist) por corrida de 10 min.
 //
 // Geo policy: coords del tweet, place.bbox, o geocode de colonia en texto.
 // Sin geo usable → lat/lng null (Feed sí, mapa no). Sin jitter.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.97.0";
-import { DEFAULT_SYNC_CITY_ID } from "../_shared/cities.ts";
+import {
+  CITY_SYNC,
+  isOtherCityStoryFor,
+  mergeCityAllowlist,
+  resolveSyncCitySlugs,
+  type CitySyncConfig,
+  type SyncCitySlug,
+} from "../_shared/citySyncConfig.ts";
 import { resolveCommunityGeo } from "../_shared/culiacanPlaces.ts";
 import { guessCategory } from "../_shared/guessCategory.ts";
 import { stripOperativoGeo } from "../_shared/operativoPolicy.ts";
-import {
-  mergeAllowlist,
-  trustForHandle,
-  type TrustTier,
-} from "../_shared/xAllowlist.ts";
+import { trustForHandle, type TrustTier, type AllowlistEntry } from "../_shared/xAllowlist.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -26,27 +33,12 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS, GET",
 };
 
-const PLACE_FALLBACK = "Culiacán (X)";
-
-const PLACE_TERMS = "(Culiacán OR Culiacan OR #Culiacán)";
-
 // Mantener ≤512 chars (límite Recent Search). Soft-noise filtra el resto en código.
 const EVENT_TERMS =
   '(alerta OR alertan OR reportan OR "acaba de" OR balacera OR tiroteo OR disparos OR detonaciones OR enfrentamiento OR narcobloqueo OR bloqueo OR accidente OR choque OR asalto OR "zona de riesgo" OR "grupo armado")';
 
 const NOISE_EXCLUSIONS =
   '-is:retweet -is:reply -promo -turismo -partido -gol -"estoy en" -comida';
-
-const X_QUERY_GEO = `${PLACE_TERMS} ${EVENT_TERMS} has:geo ${NOISE_EXCLUSIONS} lang:es`;
-const X_QUERY_FEED = `${PLACE_TERMS} ${EVENT_TERMS} ${NOISE_EXCLUSIONS} lang:es`;
-
-if (X_QUERY_GEO.length > 512 || X_QUERY_FEED.length > 512) {
-  console.warn(
-    "X Recent Search query exceeds 512 chars",
-    X_QUERY_GEO.length,
-    X_QUERY_FEED.length,
-  );
-}
 
 const SOFT_NOISE = [
   /\bestoy en\b/i,
@@ -70,6 +62,15 @@ function json(payload: unknown, status = 200) {
 
 function isSoftNoise(text: string): boolean {
   return SOFT_NOISE.some((re) => re.test(text));
+}
+
+function buildQueries(placeTerms: string): { geo: string; feed: string } {
+  const geo = `${placeTerms} ${EVENT_TERMS} has:geo ${NOISE_EXCLUSIONS} lang:es`;
+  const feed = `${placeTerms} ${EVENT_TERMS} ${NOISE_EXCLUSIONS} lang:es`;
+  if (geo.length > 512 || feed.length > 512) {
+    console.warn("X Recent Search query exceeds 512 chars", geo.length, feed.length);
+  }
+  return { geo, feed };
 }
 
 type XTweet = {
@@ -154,6 +155,7 @@ async function searchRecent(
 function resolveGeo(
   tweet: XTweet,
   placeById: Map<string, XPlace>,
+  cfg: CitySyncConfig,
 ): {
   lat: number | null;
   lng: number | null;
@@ -186,7 +188,8 @@ function resolveGeo(
     coords,
     placeBboxCenter,
     publisherPlaceLabel,
-    fallbackLabel: PLACE_FALLBACK,
+    fallbackLabel: cfg.placeFallbackX,
+    citySlug: cfg.slug,
   });
 
   return {
@@ -246,7 +249,7 @@ async function hydrateVideos(
     const params = new URLSearchParams({
       ids: pending.map((p: { external_id: string }) => p.external_id).join(","),
       expansions: "attachments.media_keys",
-      "media.fields": "type,variants",
+      "media.fields": "url,preview_image_url,type,variants",
     });
     const res = await fetch(`https://api.twitter.com/2/tweets?${params}`, {
       headers: { Authorization: `Bearer ${bearer}` },
@@ -296,9 +299,12 @@ function tweetToRow(
   userById: Map<string, XUser>,
   placeById: Map<string, XPlace>,
   mediaByKey: Map<string, XMedia>,
-  allowlist: ReturnType<typeof mergeAllowlist>,
+  allowlist: AllowlistEntry[],
+  cfg: CitySyncConfig,
 ): CommunityRow | null {
   if (isSoftNoise(tweet.text)) return null;
+  // Path por ciudad: no estampar stories de otra ciudad en este city_id.
+  if (isOtherCityStoryFor(tweet.text, cfg)) return null;
 
   const author = tweet.author_id ? userById.get(tweet.author_id) : undefined;
   const username = author?.username;
@@ -313,6 +319,7 @@ function tweetToRow(
   const { lat, lng, placeLabel, geoSource, placeNameSource, geocodedFromText } = resolveGeo(
     tweet,
     placeById,
+    cfg,
   );
 
   let mediaUrl: string | null = null;
@@ -335,7 +342,6 @@ function tweetToRow(
     url: `https://x.com/${username ?? "i"}/status/${tweet.id}`,
     media_url: mediaUrl,
     video_url: videoUrl,
-    // X suele devolver _normal; preferir versión más grande para pines.
     author_avatar_url: author?.profile_image_url
       ? author.profile_image_url.replace("_normal.", "_bigger.")
       : null,
@@ -350,70 +356,66 @@ function tweetToRow(
     category_guess: category,
     is_demo: false,
     trust_tier: onAllowlist ? trust : "community",
-    // Fase 1: sync solo Culiacán (Mazatlán queries/feeds = fase 2/4).
-    city_id: DEFAULT_SYNC_CITY_ID,
+    city_id: cfg.cityId,
   });
 }
 
-Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
-  if (req.method !== "POST" && req.method !== "GET") {
-    return new Response("Method not allowed", { status: 405, headers: corsHeaders });
-  }
-
-  const bearer = Deno.env.get("X_BEARER_TOKEN");
-  const supabaseUrl = Deno.env.get("SUPABASE_URL");
-  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-  const allowlist = mergeAllowlist(Deno.env.get("X_ALLOWLIST"));
-
-  if (!supabaseUrl || !serviceKey) {
-    return json({ ok: false, error: "Missing Supabase env" }, 500);
-  }
-
-  if (!bearer) {
-    return json({
-      ok: true,
-      mode: "demo",
-      upserted: 0,
-      message:
-        "X_BEARER_TOKEN no configurado. Usa seeds DEMO de la migración. Configura el secret y vuelve a invocar.",
-    });
-  }
-
-  if (!req.headers.get("authorization")) {
-    return new Response("Unauthorized", { status: 401, headers: corsHeaders });
-  }
-
-  const admin = createClient(supabaseUrl, serviceKey);
-  const hydration = await hydrateVideos(admin, bearer);
-
+async function syncCityX(
+  admin: ReturnType<typeof createClient>,
+  bearer: string,
+  cfg: CitySyncConfig,
+  envAllowlist: string | undefined,
+): Promise<{
+  slug: SyncCitySlug;
+  upserted: number;
+  with_geo: number;
+  feed_only: number;
+  allowlist_size: number;
+  x_searches: number;
+  error?: string;
+}> {
+  const allowlist = mergeCityAllowlist(cfg.xAllowlist, envAllowlist);
+  const { geo, feed } = buildQueries(cfg.placeTerms);
   let batches: Array<Awaited<ReturnType<typeof searchRecent>>> = [];
+  let xSearches = 0;
 
   try {
-    // Pasadas de evento (geo + feed) primero; allowlist en segundo lote para no saturar rate limits.
     const eventBatches = await Promise.all([
-      searchRecent(bearer, X_QUERY_GEO, 15),
-      searchRecent(bearer, X_QUERY_FEED, 15),
+      searchRecent(bearer, geo, 15),
+      searchRecent(bearer, feed, 15),
     ]);
+    xSearches += 2;
     const allowlistQueries = allowlist.slice(0, 5).map((a) => {
-      return `(from:${a.handle}) ${PLACE_TERMS} ${NOISE_EXCLUSIONS}`;
+      return `(from:${a.handle}) ${cfg.placeTerms} ${NOISE_EXCLUSIONS}`;
     });
     const allowBatches =
       allowlistQueries.length > 0
         ? await Promise.all(allowlistQueries.map((q) => searchRecent(bearer, q, 10)))
         : [];
+    xSearches += allowlistQueries.length;
     batches = [...eventBatches, ...allowBatches];
   } catch (e) {
     const err = e as Error & { status?: number; detail?: string };
     if (err.message?.startsWith("X API ")) {
-      console.error("X API error", err.status, err.detail);
-      return json(
-        { ok: false, error: "X API error", status: err.status, detail: err.detail },
-        502,
-      );
+      return {
+        slug: cfg.slug,
+        upserted: 0,
+        with_geo: 0,
+        feed_only: 0,
+        allowlist_size: allowlist.length,
+        x_searches: xSearches,
+        error: `X API ${err.status}: ${err.detail ?? err.message}`,
+      };
     }
-    console.error("X API fetch failed", e);
-    return json({ ok: false, error: "X API network error" }, 502);
+    return {
+      slug: cfg.slug,
+      upserted: 0,
+      with_geo: 0,
+      feed_only: 0,
+      allowlist_size: allowlist.length,
+      x_searches: xSearches,
+      error: "X API network error",
+    };
   }
 
   const tweetById = new Map<string, XTweet>();
@@ -440,15 +442,11 @@ Deno.serve(async (req) => {
   const placeById = new Map(places.map((p) => [p.id, p]));
   const mediaByKey = new Map(media.map((m) => [m.media_key, m]));
 
-  if (tweets.length === 0) {
-    return json({ ok: true, mode: "live", upserted: 0, message: "Sin resultados recientes", ...hydration });
-  }
-
   const rows: CommunityRow[] = [];
   let withGeo = 0;
   let feedOnly = 0;
   for (const tweet of tweets) {
-    const row = tweetToRow(tweet, userById, placeById, mediaByKey, allowlist);
+    const row = tweetToRow(tweet, userById, placeById, mediaByKey, allowlist, cfg);
     if (!row) continue;
     if (row.lat != null && row.lng != null) withGeo += 1;
     else feedOnly += 1;
@@ -456,15 +454,14 @@ Deno.serve(async (req) => {
   }
 
   if (rows.length === 0) {
-    return json({
-      ok: true,
-      mode: "live",
+    return {
+      slug: cfg.slug,
       upserted: 0,
       with_geo: 0,
       feed_only: 0,
-      message: "Sin posts de alerta/evento tras filtros",
-      ...hydration,
-    });
+      allowlist_size: allowlist.length,
+      x_searches: xSearches,
+    };
   }
 
   const { error, data } = await admin
@@ -473,17 +470,86 @@ Deno.serve(async (req) => {
     .select("id");
 
   if (error) {
-    console.error("upsert community_posts failed", error);
-    return json({ ok: false, error: error.message }, 500);
+    return {
+      slug: cfg.slug,
+      upserted: 0,
+      with_geo: withGeo,
+      feed_only: feedOnly,
+      allowlist_size: allowlist.length,
+      x_searches: xSearches,
+      error: error.message,
+    };
+  }
+
+  return {
+    slug: cfg.slug,
+    upserted: data?.length ?? rows.length,
+    with_geo: withGeo,
+    feed_only: feedOnly,
+    allowlist_size: allowlist.length,
+    x_searches: xSearches,
+  };
+}
+
+Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  if (req.method !== "POST" && req.method !== "GET") {
+    return new Response("Method not allowed", { status: 405, headers: corsHeaders });
+  }
+
+  const bearer = Deno.env.get("X_BEARER_TOKEN");
+  const supabaseUrl = Deno.env.get("SUPABASE_URL");
+  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  const envAllowlist = Deno.env.get("X_ALLOWLIST");
+
+  if (!supabaseUrl || !serviceKey) {
+    return json({ ok: false, error: "Missing Supabase env" }, 500);
+  }
+
+  if (!bearer) {
+    return json({
+      ok: true,
+      mode: "demo",
+      upserted: 0,
+      message:
+        "X_BEARER_TOKEN no configurado. Usa seeds DEMO de la migración. Configura el secret y vuelve a invocar.",
+    });
+  }
+
+  if (!req.headers.get("authorization")) {
+    return new Response("Unauthorized", { status: 401, headers: corsHeaders });
+  }
+
+  const admin = createClient(supabaseUrl, serviceKey);
+  const hydration = await hydrateVideos(admin, bearer);
+  const slugs = resolveSyncCitySlugs(req);
+  const cities: Array<Awaited<ReturnType<typeof syncCityX>>> = [];
+
+  for (const slug of slugs) {
+    cities.push(await syncCityX(admin, bearer, CITY_SYNC[slug], envAllowlist));
+  }
+
+  const upserted = cities.reduce((n, c) => n + c.upserted, 0);
+  const with_geo = cities.reduce((n, c) => n + c.with_geo, 0);
+  const feed_only = cities.reduce((n, c) => n + c.feed_only, 0);
+  const x_searches = cities.reduce((n, c) => n + c.x_searches, 0);
+  const hardError = cities.find((c) => c.error?.startsWith("X API"));
+  if (hardError && upserted === 0) {
+    return json(
+      { ok: false, error: "X API error", detail: hardError.error, cities, ...hydration },
+      502,
+    );
   }
 
   return json({
     ok: true,
     mode: "live",
-    upserted: data?.length ?? rows.length,
-    with_geo: withGeo,
-    feed_only: feedOnly,
-    allowlist_size: allowlist.length,
+    upserted,
+    with_geo,
+    feed_only,
+    x_searches,
+    cities,
+    message: upserted === 0 ? "Sin posts de alerta/evento tras filtros" : undefined,
     ...hydration,
   });
 });

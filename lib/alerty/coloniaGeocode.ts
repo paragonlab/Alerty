@@ -1,15 +1,19 @@
 /**
  * Gazetteer + extracción de colonias (cliente).
- * Mantener alineado con supabase/functions/_shared/culiacanPlaces.ts
+ * Culiacán: lista abajo. Mazatlán: places/mazatlanPlaces.ts.
+ * Edge: supabase/functions/_shared/culiacanPlaces.ts (+ places/mazatlanPlaces.ts).
  */
+import { getActiveCitySlug, type CitySlug } from "./city";
+import {
+  MAZATLAN_APPROX_LABEL,
+  MAZATLAN_CITY_CENTER,
+  MAZATLAN_PLACES,
+} from "./places/mazatlanPlaces";
+import type { CityPlace } from "./places/types";
 import { calculateDistance } from "./utils";
 
-export type CuliacanPlace = {
-  name: string;
-  lat: number;
-  lng: number;
-  aliases?: string[];
-};
+export type CuliacanPlace = CityPlace;
+export type { CityPlace };
 
 export const CULIACAN_PLACES: CuliacanPlace[] = [
   { name: "Las Quintas", lat: 24.8099, lng: -107.3874 },
@@ -95,13 +99,80 @@ export const CULIACAN_PLACES: CuliacanPlace[] = [
   },
 ];
 
-const CITY_CENTER = { lat: 24.8091, lng: -107.394 };
+const CULIACAN_CITY_CENTER = { lat: 24.8091, lng: -107.394 };
 export const CITY_APPROX_LABEL = "Culiacán (aproximado)";
+
+type CityGeoContext = {
+  slug: CitySlug;
+  places: CityPlace[];
+  center: { lat: number; lng: number };
+  approxLabel: string;
+  mentionNeedles: string[];
+  otherCityNeedles: string[];
+};
+
+const CULIACAN_OTHER = [
+  "mazatlan",
+  "los mochis",
+  "navolato",
+  "guamuchil",
+  "escuinapa",
+  "el rosario",
+  "concordia",
+  "cosala",
+  "guasave",
+  "ahome",
+  "el fuerte",
+  "choix",
+  "angostura",
+  "salvador alvarado",
+  "el dorado",
+];
+
+const MAZATLAN_OTHER = [
+  "culiacan",
+  "los mochis",
+  "navolato",
+  "guamuchil",
+  "escuinapa",
+  "el rosario",
+  "concordia",
+  "cosala",
+  "guasave",
+  "ahome",
+  "el fuerte",
+  "choix",
+  "angostura",
+  "salvador alvarado",
+  "el dorado",
+];
+
+export function getCityGeoContext(slug?: CitySlug): CityGeoContext {
+  const resolved = slug ?? getActiveCitySlug();
+  if (resolved === "mazatlan") {
+    return {
+      slug: "mazatlan",
+      places: MAZATLAN_PLACES,
+      center: MAZATLAN_CITY_CENTER,
+      approxLabel: MAZATLAN_APPROX_LABEL,
+      mentionNeedles: ["mazatlan"],
+      otherCityNeedles: MAZATLAN_OTHER,
+    };
+  }
+  return {
+    slug: "culiacan",
+    places: CULIACAN_PLACES,
+    center: CULIACAN_CITY_CENTER,
+    approxLabel: CITY_APPROX_LABEL,
+    mentionNeedles: ["culiacan"],
+    otherCityNeedles: CULIACAN_OTHER,
+  };
+}
 
 export type GeoSource = "tweet_coords" | "place_bbox" | "text_colonia" | "none";
 
 type TextColoniaHit = {
-  place: CuliacanPlace;
+  place: CityPlace;
   score: number;
   matchedAs: string;
   index: number;
@@ -122,20 +193,20 @@ function normalize(s: string): string {
     .trim();
 }
 
-function placeNames(place: CuliacanPlace): string[] {
+function placeNames(place: CityPlace): string[] {
   return [place.name, ...(place.aliases ?? [])];
 }
 
-function findPlaceByNameFragment(fragment: string): CuliacanPlace | null {
+function findPlaceByNameFragment(fragment: string, places: CityPlace[]): CityPlace | null {
   const frag = normalize(fragment)
     .replace(/\b(de|del|la|las|los|el)\b/g, " ")
     .replace(/\s+/g, " ")
     .trim();
   if (frag.length < 3) return null;
 
-  let exact: CuliacanPlace | null = null;
-  let best: { place: CuliacanPlace; len: number } | null = null;
-  for (const place of CULIACAN_PLACES) {
+  let exact: CityPlace | null = null;
+  let best: { place: CityPlace; len: number } | null = null;
+  for (const place of places) {
     for (const n of placeNames(place)) {
       const nn = normalize(n);
       if (frag === nn) {
@@ -149,8 +220,12 @@ function findPlaceByNameFragment(fragment: string): CuliacanPlace | null {
   return exact ?? best?.place ?? null;
 }
 
-export function extractColoniasFromText(text: string): TextColoniaHit[] {
+export function extractColoniasFromText(
+  text: string,
+  citySlug?: CitySlug,
+): TextColoniaHit[] {
   if (!text?.trim()) return [];
+  const { places } = getCityGeoContext(citySlug);
   const hay = text;
   const normHay = normalize(hay);
   const hits: TextColoniaHit[] = [];
@@ -159,8 +234,8 @@ export function extractColoniasFromText(text: string): TextColoniaHit[] {
   let m: RegExpExecArray | null;
   const phraseRe = new RegExp(COLONIA_PHRASE.source, COLONIA_PHRASE.flags);
   while ((m = phraseRe.exec(hay)) !== null) {
-    const raw = m[1].split(/[,.;:!?]| en | de Culiac/i)[0].trim();
-    const place = findPlaceByNameFragment(raw);
+    const raw = m[1].split(/[,.;:!?]| en | de Culiac| de Mazatl/i)[0].trim();
+    const place = findPlaceByNameFragment(raw, places);
     if (!place || seen.has(place.name)) continue;
     seen.add(place.name);
     const around = hay.slice(Math.max(0, m.index - 40), m.index + m[0].length + 10);
@@ -168,7 +243,7 @@ export function extractColoniasFromText(text: string): TextColoniaHit[] {
     hits.push({ place, score, matchedAs: raw, index: m.index });
   }
 
-  const ranked = [...CULIACAN_PLACES].sort(
+  const ranked = [...places].sort(
     (a, b) =>
       Math.max(...placeNames(b).map((n) => n.length)) -
       Math.max(...placeNames(a).map((n) => n.length)),
@@ -192,7 +267,11 @@ export function extractColoniasFromText(text: string): TextColoniaHit[] {
       if (idx < 0) continue;
       if (place.name === "Centro") {
         const window = hay.slice(Math.max(0, idx - 24), idx + nn.length + 24);
-        if (!/\b(colonia|col\.?|centro de culiac|zona centro|en el centro)\b/i.test(window)) {
+        if (
+          !/\b(colonia|col\.?|centro de culiac|centro de mazatl|zona centro|en el centro)\b/i.test(
+            window,
+          )
+        ) {
           continue;
         }
       }
@@ -220,13 +299,16 @@ export function extractColoniasFromText(text: string): TextColoniaHit[] {
   return hits.sort((a, b) => b.score - a.score || a.index - b.index);
 }
 
-export function resolveTextColonia(text: string): {
-  place: CuliacanPlace;
+export function resolveTextColonia(
+  text: string,
+  citySlug?: CitySlug,
+): {
+  place: CityPlace;
   confidence: "high" | "low";
   ambiguous: boolean;
   hits: TextColoniaHit[];
 } | null {
-  const hits = extractColoniasFromText(text);
+  const hits = extractColoniasFromText(text, citySlug);
   if (hits.length === 0) return null;
 
   const top = hits[0];
@@ -243,36 +325,52 @@ export function resolveTextColonia(text: string): {
   return { place: top.place, confidence, ambiguous: false, hits };
 }
 
-function placeLabelLooksLikeCityOnly(label: string | null | undefined): boolean {
+function placeLabelLooksLikeCityOnly(
+  label: string | null | undefined,
+  ctx: CityGeoContext,
+): boolean {
   if (!label) return true;
   const n = normalize(label);
-  return (
-    n === "culiacan" ||
-    n === "culiacan sinaloa" ||
-    n.includes("culiacan, sinaloa") ||
-    n === "sinaloa" ||
-    n.startsWith("culiacan (") ||
-    n.startsWith("sinaloa (")
-  );
+  if (n === "sinaloa" || n.startsWith("sinaloa (")) return true;
+  for (const needle of ctx.mentionNeedles) {
+    if (
+      n === needle ||
+      n === `${needle} sinaloa` ||
+      n.includes(`${needle}, sinaloa`) ||
+      n.startsWith(`${needle} (`)
+    ) {
+      return true;
+    }
+  }
+  return false;
 }
 
 export function isCityApproxLabel(label: string | null | undefined): boolean {
   return Boolean(label && /aproximad/i.test(label));
 }
 
-export function isOtherSinaloaCityStory(text: string, title?: string | null): boolean {
+/** Historia de otra ciudad respecto a la ciudad activa (o `citySlug`). */
+export function isOtherSinaloaCityStory(
+  text: string,
+  title?: string | null,
+  citySlug?: CitySlug,
+): boolean {
   const blob = [title, text].filter(Boolean).join("\n");
-  return mentionsOtherSinaloaCity(blob) && !mentionsCuliacan(blob);
+  const ctx = getCityGeoContext(citySlug);
+  return mentionsOtherSinaloaCity(blob, ctx) && !mentionsActiveCity(blob, ctx);
 }
 
-function mentionsCuliacan(text: string): boolean {
-  return normalize(text).includes("culiacan");
+function mentionsActiveCity(text: string, ctx: CityGeoContext): boolean {
+  const n = normalize(text);
+  return ctx.mentionNeedles.some((needle) => n.includes(needle));
 }
 
-function mentionsOtherSinaloaCity(text: string): boolean {
-  return /\b(mazatlan|los mochis|navolato|guamuchil|escuinapa|el rosario|concordia|cosala|guasave|ahome|el fuerte|choix|angostura|salvador alvarado|el dorado)\b/.test(
-    normalize(text),
-  );
+function mentionsOtherSinaloaCity(text: string, ctx: CityGeoContext): boolean {
+  const n = normalize(text);
+  return ctx.otherCityNeedles.some((needle) => {
+    const re = new RegExp(`\\b${needle.replace(/\s+/g, "\\s+")}\\b`);
+    return re.test(n);
+  });
 }
 
 function feedOnlyResolution(
@@ -301,12 +399,16 @@ function cityApproxOffset(seed: string): { lat: number; lng: number } {
   return { lat: Math.sin(angle) * ring, lng: Math.cos(angle) * ring };
 }
 
-function cityApproxPin(seed: string, placeNameSource: string | null): TextGeoResolution {
+function cityApproxPin(
+  seed: string,
+  placeNameSource: string | null,
+  ctx: CityGeoContext,
+): TextGeoResolution {
   const offset = cityApproxOffset(seed);
   return {
-    lat: CITY_CENTER.lat + offset.lat,
-    lng: CITY_CENTER.lng + offset.lng,
-    placeLabel: CITY_APPROX_LABEL,
+    lat: ctx.center.lat + offset.lat,
+    lng: ctx.center.lng + offset.lng,
+    placeLabel: ctx.approxLabel,
     geoSource: "place_bbox",
     placeNameSource,
     geocodedFromText: null,
@@ -316,16 +418,17 @@ function cityApproxPin(seed: string, placeNameSource: string | null): TextGeoRes
 }
 
 function textColoniaDiffersFromPublisher(
-  textPlace: CuliacanPlace,
+  textPlace: CityPlace,
   publisherLabel: string | null | undefined,
+  ctx: CityGeoContext,
 ): boolean {
-  if (!publisherLabel || placeLabelLooksLikeCityOnly(publisherLabel)) return true;
+  if (!publisherLabel || placeLabelLooksLikeCityOnly(publisherLabel, ctx)) return true;
   const pub = normalize(publisherLabel);
   for (const n of placeNames(textPlace)) {
     const nn = normalize(n);
     if (pub.includes(nn) || nn.includes(pub)) return false;
   }
-  for (const place of CULIACAN_PLACES) {
+  for (const place of ctx.places) {
     if (place.name === textPlace.name) continue;
     for (const n of placeNames(place)) {
       const nn = normalize(n);
@@ -354,22 +457,24 @@ export function resolveCommunityGeo(opts: {
   placeBboxCenter?: { lat: number; lng: number } | null;
   publisherPlaceLabel?: string | null;
   fallbackLabel: string;
-  /** RSS: pin at city center when there is no colonia (badge: zona aproximada). */
   allowCityApprox?: boolean;
-  /** RSS: no pinchar sin mencionar Culiacán (evita colonias homónimas de Mazatlán). */
   requireCuliacanMention?: boolean;
+  requireCityMention?: boolean;
+  citySlug?: CitySlug;
 }): TextGeoResolution {
+  const ctx = getCityGeoContext(opts.citySlug);
+  const requireMention = opts.requireCityMention ?? opts.requireCuliacanMention ?? false;
   const blob = [opts.title, opts.text].filter(Boolean).join("\n");
-  const textHit = resolveTextColonia(blob);
+  const textHit = resolveTextColonia(blob, ctx.slug);
   const placeNameSource = opts.publisherPlaceLabel?.trim() || null;
-  const inCuliacan = mentionsCuliacan(blob);
-  const otherCity = mentionsOtherSinaloaCity(blob);
+  const inCity = mentionsActiveCity(blob, ctx);
+  const otherCity = mentionsOtherSinaloaCity(blob, ctx);
 
-  if (otherCity && !inCuliacan) {
+  if (otherCity && !inCity) {
     return feedOnlyResolution(placeNameSource ?? opts.fallbackLabel, placeNameSource, textHit?.place.name ?? null);
   }
 
-  if (opts.requireCuliacanMention && !inCuliacan) {
+  if (requireMention && !inCity) {
     return feedOnlyResolution(placeNameSource ?? opts.fallbackLabel, placeNameSource, textHit?.place.name ?? null);
   }
 
@@ -390,7 +495,7 @@ export function resolveCommunityGeo(opts: {
     textHit &&
     textHit.confidence === "high" &&
     !otherCity &&
-    textColoniaDiffersFromPublisher(textHit.place, placeNameSource);
+    textColoniaDiffersFromPublisher(textHit.place, placeNameSource, ctx);
 
   if (preferText && textHit) {
     return {
@@ -423,7 +528,7 @@ export function resolveCommunityGeo(opts: {
     Number.isFinite(opts.placeBboxCenter.lat) &&
     Number.isFinite(opts.placeBboxCenter.lng)
   ) {
-    if (textHit && textHit.confidence === "high" && placeLabelLooksLikeCityOnly(placeNameSource)) {
+    if (textHit && textHit.confidence === "high" && placeLabelLooksLikeCityOnly(placeNameSource, ctx)) {
       return {
         lat: textHit.place.lat,
         lng: textHit.place.lng,
@@ -443,7 +548,7 @@ export function resolveCommunityGeo(opts: {
       placeNameSource,
       geocodedFromText: textHit?.place.name ?? null,
       mapEligible: true,
-      confidence: placeLabelLooksLikeCityOnly(placeNameSource) ? "low" : "high",
+      confidence: placeLabelLooksLikeCityOnly(placeNameSource, ctx) ? "low" : "high",
     };
   }
 
@@ -460,8 +565,8 @@ export function resolveCommunityGeo(opts: {
     };
   }
 
-  if (opts.allowCityApprox && inCuliacan && !otherCity) {
-    return cityApproxPin(blob, placeNameSource);
+  if (opts.allowCityApprox && inCity && !otherCity) {
+    return cityApproxPin(blob, placeNameSource, ctx);
   }
 
   return {
@@ -492,6 +597,7 @@ export function resolveCommunityMapPoint(post: {
 }): { lat: number; lng: number; placeLabel: string; approximate: boolean } | null {
   // Operativo: nunca pin en el mapa (ni por coords guardadas ni por colonia en texto).
   if (post.categoryGuess === "operativo") return null;
+  const ctx = getCityGeoContext();
 
   if (
     typeof post.lat === "number" &&
@@ -504,15 +610,16 @@ export function resolveCommunityMapPoint(post: {
     return {
       lat: post.lat,
       lng: post.lng,
-      placeLabel: post.placeLabel ?? CITY_APPROX_LABEL,
+      placeLabel: post.placeLabel ?? ctx.approxLabel,
       approximate: false,
     };
   }
   const geo = resolveCommunityGeo({
     text: post.text,
     publisherPlaceLabel: post.placeLabel,
-    fallbackLabel: post.placeLabel ?? CITY_APPROX_LABEL,
-    requireCuliacanMention: true,
+    fallbackLabel: post.placeLabel ?? ctx.approxLabel,
+    requireCityMention: true,
+    citySlug: ctx.slug,
   });
   if (!geo.mapEligible || geo.lat == null || geo.lng == null) return null;
   return {
@@ -523,13 +630,14 @@ export function resolveCommunityMapPoint(post: {
   };
 }
 
-/** Autocomplete de colonias mientras el usuario escribe. */
-export function suggestDestinationPlaces(query: string, limit = 6): CuliacanPlace[] {
+/** Autocomplete de colonias mientras el usuario escribe (ciudad activa). */
+export function suggestDestinationPlaces(query: string, limit = 6): CityPlace[] {
   const n = normalize(query.trim());
   if (n.length < 1) return [];
+  const { places } = getCityGeoContext();
 
-  const scored: { place: CuliacanPlace; score: number }[] = [];
-  for (const place of CULIACAN_PLACES) {
+  const scored: { place: CityPlace; score: number }[] = [];
+  for (const place of places) {
     let best = 0;
     for (const name of placeNames(place)) {
       const nn = normalize(name);
@@ -544,7 +652,7 @@ export function suggestDestinationPlaces(query: string, limit = 6): CuliacanPlac
   }
 
   scored.sort((a, b) => b.score - a.score || a.place.name.localeCompare(b.place.name, "es"));
-  const out: CuliacanPlace[] = [];
+  const out: CityPlace[] = [];
   const seen = new Set<string>();
   for (const row of scored) {
     if (seen.has(row.place.name)) continue;
@@ -555,20 +663,21 @@ export function suggestDestinationPlaces(query: string, limit = 6): CuliacanPlac
   return out;
 }
 
-/** Destino escrito por el usuario: colonia o zona de Culiacán. */
+/** Destino escrito por el usuario: colonia o zona de la ciudad activa. */
 export function resolveDestinationQuery(query: string): { lat: number; lng: number; placeLabel: string } | null {
   const q = query.trim();
   if (q.length < 3) return null;
+  const ctx = getCityGeoContext();
 
-  const hit = resolveTextColonia(q);
+  const hit = resolveTextColonia(q, ctx.slug);
   if (hit && !hit.ambiguous) {
     return { lat: hit.place.lat, lng: hit.place.lng, placeLabel: hit.place.name };
   }
 
   const n = normalize(q);
-  let exact: CuliacanPlace | null = null;
-  let best: { place: CuliacanPlace; len: number } | null = null;
-  for (const place of CULIACAN_PLACES) {
+  let exact: CityPlace | null = null;
+  let best: { place: CityPlace; len: number } | null = null;
+  for (const place of ctx.places) {
     for (const name of placeNames(place)) {
       const nn = normalize(name);
       if (nn.length < 3) continue;
@@ -593,10 +702,11 @@ export const nearestCuliacanPlace = (
   lat: number,
   lng: number,
   maxKm = 1.6,
-): CuliacanPlace | null => {
-  let best: CuliacanPlace | null = null;
+): CityPlace | null => {
+  const { places } = getCityGeoContext();
+  let best: CityPlace | null = null;
   let bestKm = maxKm;
-  for (const place of CULIACAN_PLACES) {
+  for (const place of places) {
     const km = calculateDistance(lat, lng, place.lat, place.lng);
     if (km <= bestKm) {
       bestKm = km;
