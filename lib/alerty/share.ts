@@ -14,6 +14,7 @@ import {
   alertDeepLink,
   dailySummaryShareMessage,
   pulsePublicUrl,
+  videoPublicUrl,
 } from "./shareCore";
 import { appShareMessage, activeColoniaTagline } from "./brandCopy";
 
@@ -23,6 +24,7 @@ export {
   alertDeepLink,
   dailySummaryShareMessage,
   pulsePublicUrl,
+  videoPublicUrl,
   appShareMessage,
   activeColoniaTagline,
 };
@@ -86,6 +88,7 @@ export async function shareAlertPulse(opts: {
   status?: "active" | "resolved";
   cityName?: string;
   kind?: "alert" | "community";
+  surface?: "feed" | "video";
 }): Promise<void> {
   const cityName = opts.cityName ?? getActiveCityName();
   const input: ShareCardInput = {
@@ -96,6 +99,7 @@ export async function shareAlertPulse(opts: {
     cityName,
     status: opts.status,
     kind: opts.kind ?? "alert",
+    surface: opts.surface,
   };
   const model = buildShareCardModel(input);
   const message = sharePulseMessage(model);
@@ -147,6 +151,7 @@ export async function shareAlertToWhatsApp(opts: {
   status?: "active" | "resolved";
   cityName?: string;
   kind?: "alert" | "community";
+  surface?: "feed" | "video";
 }): Promise<void> {
   const cityName = opts.cityName ?? getActiveCityName();
   const model = buildShareCardModel({
@@ -157,6 +162,7 @@ export async function shareAlertToWhatsApp(opts: {
     cityName,
     status: opts.status,
     kind: opts.kind ?? "alert",
+    surface: opts.surface,
   });
   const text = sharePulseMessage(model);
   const wa = `https://wa.me/?text=${encodeURIComponent(text)}`;

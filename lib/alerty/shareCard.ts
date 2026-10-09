@@ -11,12 +11,15 @@ import { isOperativoCategory } from "./operativoPolicy";
 import {
   APP_SHARE_URL,
   pulsePublicUrl,
+  videoPublicUrl,
   type PulseShareKind,
 } from "./shareCore";
 
 /** Ancho útil del titular en la tarjeta (evita el círculo derecho). */
 const SHARE_TITLE_MAX_CHARS = 32;
 const SHARE_TITLE_MAX_LINES = 3;
+
+export type ShareSurface = "feed" | "video";
 
 export type ShareCardInput = {
   id: string;
@@ -29,6 +32,8 @@ export type ShareCardInput = {
   status?: "active" | "resolved";
   actionLine?: string;
   kind?: PulseShareKind;
+  /** Desde Videos → /v/<id> con OG de miniatura. */
+  surface?: ShareSurface;
 };
 
 export type ShareCardModel = {
@@ -58,8 +63,14 @@ export function buildShareCardModel(input: ShareCardInput): ShareCardModel {
   const action = input.actionLine ?? actionLineFor(input.category);
   const accent = CATEGORY_PIN_COLORS[input.category] ?? "#6B7280";
 
+  const kind = input.kind ?? "alert";
+  const url =
+    input.surface === "video"
+      ? videoPublicUrl(input.id, kind)
+      : pulsePublicUrl(input.id, kind);
+
   return {
-    url: pulsePublicUrl(input.id, input.kind ?? "alert"),
+    url,
     headline,
     categoryLabel,
     placeLine: place,

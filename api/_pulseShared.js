@@ -298,6 +298,32 @@ function operativoReady(createdAt) {
 }
 
 /**
+ * Descarga una miniatura remota como data URI (para embutir en SVG/PNG OG).
+ * Solo image/*; timeout corto; sin coords ni metadatos de ubicación.
+ */
+async function fetchThumbDataUri(url) {
+  if (!url || typeof url !== "string") return null;
+  if (!/^https?:\/\//i.test(url)) return null;
+  try {
+    const ctrl = typeof AbortSignal !== "undefined" && AbortSignal.timeout
+      ? AbortSignal.timeout(3500)
+      : undefined;
+    const r = await fetch(url, {
+      signal: ctrl,
+      headers: { Accept: "image/*" },
+    });
+    if (!r.ok) return null;
+    const ct = (r.headers.get("content-type") || "").split(";")[0].trim().toLowerCase();
+    if (!ct.startsWith("image/") || ct.includes("svg")) return null;
+    const buf = Buffer.from(await r.arrayBuffer());
+    if (buf.length < 32 || buf.length > 2_500_000) return null;
+    return `data:${ct};base64,${buf.toString("base64")}`;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * @returns {Promise<null | {
  *   kind: 'alert'|'community',
  *   publicId: string,
@@ -309,6 +335,8 @@ function operativoReady(createdAt) {
  *   status: string,
  *   createdAt: string,
  *   showMap: boolean,
+ *   thumbUrl?: string|null,
+ *   hasVideo?: boolean,
  * }>}
  */
 async function loadPulse(rawId) {
@@ -318,7 +346,7 @@ async function loadPulse(rawId) {
   if (kind === "community") {
     const row = await supabaseGet(
       `community_posts?id=eq.${encodeURIComponent(id)}` +
-        `&select=id,text,category_guess,place_label,created_at,city_id,source,author_handle`,
+        `&select=id,text,category_guess,place_label,created_at,city_id,source,author_handle,media_url,video_url`,
     );
     if (!row) return null;
     const cat = row.category_guess || "otro";
@@ -338,37 +366,55 @@ async function loadPulse(rawId) {
       createdAt: row.created_at,
       showMap: cat !== "operativo",
       sourceHint: row.source === "rss" ? "Noticia" : "Desde X",
+      thumbUrl: row.media_url || null,
+      hasVideo: Boolean(row.video_url || row.media_url),
     };
   }
 
   const row = await supabaseGet(
     `alerts?id=eq.${encodeURIComponent(id)}` +
-      `&select=id,category,title,description,status,created_at,city_id`,
+      `&select=id,category,title,description,status,created_at,city_id,neighborhood,media(id,media_url,media_type)`,
   );
   if (!row) return null;
   if (row.category === "operativo" && !operativoReady(row.created_at)) return null;
   const cityMeta = CITY_BY_ID[row.city_id] || { name: "Culiacán", slug: "culiacan" };
+  const media = Array.isArray(row.media) ? row.media : [];
+  const imageMedia = media.find((m) => m.media_type === "image" && m.media_url);
+  const anyMedia = media.find((m) => m.media_url);
+  const thumbUrl = (imageMedia || anyMedia)?.media_url || null;
+  const place =
+    row.category === "operativo"
+      ? cityMeta.name
+      : row.neighborhood || cityMeta.name;
   return {
     kind: "alert",
     publicId,
     category: row.category || "otro",
-    title: row.title || row.description || CATEGORY_LABELS[row.category] || "Aviso",
-    place: row.category === "operativo" ? cityMeta.name : cityMeta.name,
+    title: cleanShareTitle(
+      row.title || row.description,
+      CATEGORY_LABELS[row.category] || "Aviso",
+      80,
+    ),
+    place,
     cityName: cityMeta.name,
     citySlug: cityMeta.slug,
     status: row.status || "active",
     createdAt: row.created_at,
     showMap: row.category !== "operativo",
     sourceHint: "aviso de vecinos",
+    thumbUrl,
+    hasVideo: media.some((m) => m.media_type === "video" || m.media_type === "image"),
   };
 }
 
 function svgFor(model) {
   const accent = CATEGORY_COLORS[model.category] || "#6B7280";
   const cat = CATEGORY_LABELS[model.category] || model.category;
+  const isVideo = model.surface === "video" || Boolean(model.thumbDataUri);
   // Sin recorte agresivo a 80: el wrap a 2–3 líneas decide el límite visual.
   const headline = cleanShareTitle(model.title, cat, 140);
-  const { lines, fontSize } = fitHeadline(headline);
+  const titleMaxWidth = isVideo && model.thumbDataUri ? 620 : TITLE_MAX_WIDTH_PX;
+  const { lines, fontSize } = fitHeadline(headline, { maxWidthPx: titleMaxWidth });
   const lineHeight = Math.round(fontSize * 1.22);
   const titleY = 270;
   const titleTspans = lines
@@ -391,11 +437,37 @@ function svgFor(model) {
     ? `<rect x="64" y="520" rx="16" width="200" height="44" fill="#1F9D6E"/>
        <text x="164" y="549" text-anchor="middle" fill="#fff" font-family="${ff}" font-size="22" font-weight="700">Ya se despejó</text>`
     : "";
-  const map = model.showMap
-    ? `<circle cx="980" cy="220" r="90" fill="${accent}" fill-opacity="0.12"/>
+
+  let rightPanel;
+  if (model.thumbDataUri) {
+    rightPanel = `
+      <defs>
+        <clipPath id="thumbClip">
+          <rect x="720" y="120" width="400" height="400" rx="28"/>
+        </clipPath>
+      </defs>
+      <rect x="720" y="120" width="400" height="400" rx="28" fill="#1B1A17"/>
+      <image href="${esc(model.thumbDataUri)}" x="720" y="120" width="400" height="400" preserveAspectRatio="xMidYMid slice" clip-path="url(#thumbClip)"/>
+      <rect x="848" y="460" rx="16" width="144" height="40" fill="rgba(27,26,23,0.72)"/>
+      <text x="920" y="487" text-anchor="middle" fill="#F6F2EA" font-family="${ff}" font-size="18" font-weight="700">Video</text>`;
+  } else if (isVideo) {
+    rightPanel = `
+      <rect x="780" y="160" width="320" height="320" rx="28" fill="${accent}" fill-opacity="0.12"/>
+      <circle cx="940" cy="300" r="48" fill="${accent}"/>
+      <polygon points="928,278 968,300 928,322" fill="#F6F2EA"/>
+      <text x="940" y="390" text-anchor="middle" fill="#6A6257" font-family="${ff}" font-size="20">Video en Pulso</text>`;
+  } else if (model.showMap) {
+    rightPanel = `<circle cx="980" cy="220" r="90" fill="${accent}" fill-opacity="0.12"/>
        <circle cx="980" cy="220" r="28" fill="${accent}"/>
-       <circle cx="980" cy="220" r="10" fill="#F6F2EA"/>`
-    : `<text x="980" y="230" text-anchor="middle" fill="#6A6257" font-family="${ff}" font-size="20">Sin mapa en vivo</text>`;
+       <circle cx="980" cy="220" r="10" fill="#F6F2EA"/>`;
+  } else {
+    rightPanel = `<text x="980" y="230" text-anchor="middle" fill="#6A6257" font-family="${ff}" font-size="20">Sin mapa en vivo</text>`;
+  }
+
+  const videoPill = isVideo
+    ? `<rect x="${Math.min(360, 48 + cat.length * 14) + 80}" y="160" rx="18" width="110" height="40" fill="#1B1A17"/>
+       <text x="${Math.min(360, 48 + cat.length * 14) + 135}" y="187" text-anchor="middle" fill="#F6F2EA" font-family="${ff}" font-size="18" font-weight="600">Video</text>`
+    : "";
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
@@ -411,11 +483,12 @@ function svgFor(model) {
   <text x="64" y="122" fill="#6A6257" font-family="${ff}" font-size="20">${esc(model.cityName)}</text>
   <rect x="64" y="160" rx="18" width="${Math.min(360, 48 + cat.length * 14)}" height="40" fill="${accent}" fill-opacity="0.14"/>
   <text x="84" y="187" fill="${accent}" font-family="${ff}" font-size="20" font-weight="600">${esc(cat)}</text>
+  ${videoPill}
   <text fill="#1B1A17" font-family="${ff}" font-size="${fontSize}" font-weight="700">${titleTspans}</text>
   <text x="64" y="${placeY}" fill="#6A6257" font-family="${ff}" font-size="24">${esc(model.place)}</text>
   ${actionSvg}
   ${badge}
-  ${map}
+  ${rightPanel}
   <text x="64" y="590" fill="#6A6257" font-family="${ff}" font-size="18">Informar para cuidarse · pulso-ciudadano.com</text>
 </svg>`;
 }
@@ -515,6 +588,7 @@ module.exports = {
   actionLineFor,
   esc,
   loadPulse,
+  fetchThumbDataUri,
   svgFor,
   svgShapesOnly,
   renderPng,
