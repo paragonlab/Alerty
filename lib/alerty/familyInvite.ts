@@ -2,7 +2,8 @@
  * “Avísale a tu familia”: link que abre registro/instalación con zona prellenada.
  */
 
-import { getActiveCitySlug } from "./city";
+import { getActiveCityName, getActiveCitySlug } from "./city";
+import { coloniaTagline } from "./brandCopy";
 import { APP_SHARE_URL } from "./shareCore";
 
 export type FamilyInviteParams = {
@@ -11,6 +12,8 @@ export type FamilyInviteParams = {
   lat?: number | null;
   lng?: number | null;
   citySlug?: string;
+  /** Nombre de ciudad para el mensaje; default = ciudad activa. */
+  cityName?: string;
 };
 
 export function familyInvitePath(params: FamilyInviteParams): string {
@@ -34,9 +37,10 @@ export function familyInviteUrl(params: FamilyInviteParams): string {
 
 export function familyInviteMessage(params: FamilyInviteParams): string {
   const url = familyInviteUrl(params);
+  const city = (params.cityName ?? getActiveCityName()).trim();
   return [
-    `Hola — te comparto mi zona en Pulso: ${params.zoneLabel}.`,
-    "Así te llegan avisos calmados de la colonia (no es denuncia ni 911).",
+    `Hola — te comparto mi zona en Pulso (${city}): ${params.zoneLabel}.`,
+    `${coloniaTagline(city)} Así te llegan avisos calmados (no es denuncia ni 911).`,
     url,
   ].join("\n");
 }

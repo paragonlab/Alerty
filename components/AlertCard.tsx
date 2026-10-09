@@ -1,6 +1,7 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Video, ResizeMode } from "expo-av";
 import { Ionicons } from "@expo/vector-icons";
+import { getActiveCityName } from "../lib/alerty/city";
 import { CATEGORY_ICONS, CATEGORY_LABELS, REPUTATION_LEVELS } from "../lib/alerty/constants";
 import { displayTitle } from "../lib/alerty/displayTitle";
 import { formatRelativeTime, getAlertAgeMinutes, getIntensityColor } from "../lib/alerty/utils";
@@ -95,7 +96,7 @@ export function AlertCard({ alert, onPress, onPressVideo }: AlertCardProps) {
 
         <View style={styles.metaRow}>
           <Ionicons name="location-outline" size={11} color={theme.colors.textMuted} />
-          <Text style={styles.metaText} numberOfLines={1}>{alert.neighborhood ?? "Culiacán"}</Text>
+          <Text style={styles.metaText} numberOfLines={1}>{alert.neighborhood ?? getActiveCityName()}</Text>
           <View style={styles.metaDivider} />
           <View style={styles.userSection}>
             <Text style={styles.metaText} numberOfLines={1}>{alert.user.username}</Text>

@@ -11,6 +11,7 @@ import {
 import { buildShareCardModel, sharePulseMessage, shareCardSvg } from "./shareCard";
 import { neighborThanksLine } from "./neighborThanks";
 import { familyInviteUrl, familyInviteMessage } from "./familyInvite";
+import { appShareMessage, coloniaTagline, neighborsBlurb } from "./brandCopy";
 
 function assert(cond: unknown, msg: string): asserts cond {
   if (!cond) throw new Error(msg);
@@ -111,7 +112,10 @@ function run() {
   assert(invite.includes("invite=familia"), "invite flag");
   assert(invite.includes("zone=Las"), "zone en query");
   assert(invite.includes("lat=24.810") || invite.includes("lat=24.809"), "lat redondeada");
-  assert(familyInviteMessage({ zoneLabel: "Centro" }).includes("Pulso"), "mensaje familia");
+  const inviteMsg = familyInviteMessage({ zoneLabel: "Centro", cityName: "Mazatlán" });
+  assert(inviteMsg.includes("Pulso"), "mensaje familia");
+  assert(inviteMsg.includes("Mazatlán"), `invite con ciudad: ${inviteMsg}`);
+  assert(inviteMsg.includes("¿Cómo está tu colonia en Mazatlán?"), "tagline en invite");
 
   const daily = dailySummaryShareMessage({
     cityName: "Culiacán",
@@ -122,6 +126,12 @@ function run() {
     toneLabel: "Día tranquilo",
   });
   assert(daily.startsWith("Así estuvo Culiacán hoy"), "resumen del día");
+
+  assert(coloniaTagline("Mazatlán").includes("Mazatlán"), "tagline ciudad");
+  assert(coloniaTagline(null) === "¿Cómo está tu colonia hoy?", "tagline neutro");
+  assert(neighborsBlurb(null).includes("Culiacán y Mazatlán"), "blurb global");
+  assert(appShareMessage("Mazatlán").includes("Mazatlán"), "share app dinámico");
+  assert(!appShareMessage("Mazatlán").includes("en Culiacán"), "share app sin ciudad fija");
   assert(daily.includes("ya se despejó"), "menciona despejados");
   assert(daily.includes("aliado"), "menciona aliados");
 

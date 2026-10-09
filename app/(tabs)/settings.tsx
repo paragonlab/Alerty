@@ -40,6 +40,7 @@ import {
 import { useRouter } from "expo-router";
 import { DailySummaryShareCard } from "../../components/DailySummaryShareCard";
 import { FamilyInviteButton } from "../../components/FamilyInviteButton";
+import { ShareAppButton } from "../../components/ShareAppButton";
 
 export default function SettingsScreen() {
   const {
@@ -470,6 +471,7 @@ export default function SettingsScreen() {
         </Pressable>
 
         <View style={{ gap: 10, marginBottom: 8 }}>
+          <ShareAppButton />
           <FamilyInviteButton
             zoneLabel={watchedZones[0]?.label ?? getActiveCityName()}
             lat={watchedZones[0]?.lat ?? userCoords?.latitude}
@@ -527,7 +529,7 @@ export default function SettingsScreen() {
             <Text style={styles.cardTitle}>Ciudad</Text>
           </View>
           <Text style={[styles.helperText, { marginBottom: 10 }]}>
-            Mapa, pulsos y avisos de la ciudad que elijas. Por defecto: Culiacán.
+            Mapa, pulsos y avisos de la ciudad que elijas (Culiacán o Mazatlán).
           </Text>
           {selectableCities.map((city, index) => {
             const selected = city.slug === activeCitySlug;

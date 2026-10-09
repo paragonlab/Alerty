@@ -14,8 +14,8 @@ día.
 
 ## 1. Descripción de la ficha (App Store Connect)
 
-Pulso Ciudadano es la red de vecinos de Culiacán para saber cómo está tu zona
-antes de salir.
+Pulso Ciudadano es la red de vecinos de Culiacán y Mazatlán para saber cómo está
+tu zona antes de salir.
 
 Aquí los vecinos se avisan entre ellos: qué está pasando en la colonia, qué
 calles evitar y qué lugares están tranquilos. Lo que lees lo escriben personas
@@ -29,7 +29,7 @@ policía, al 911 ni a ninguna autoridad, y no sustituimos a ninguna institución
 Si necesitas ayuda de emergencia, llama al 911.
 
 Gratis siempre:
-• Mapa en vivo de Culiacán
+• Mapa en vivo (Culiacán y Mazatlán)
 • Pulsos de la comunidad y de noticieros locales
 • Compartir con tus vecinos lo que ves
 • Aviso SOS a los vecinos que estén a 2 km
@@ -48,7 +48,7 @@ Términos de uso (EULA): https://www.apple.com/legal/internet-services/itunes/de
 
 ### Texto promocional (30–170 caracteres)
 
-Vecinos de Culiacán avisándose entre sí. Checa cómo está tu zona antes de salir.
+Vecinos de Culiacán y Mazatlán avisándose entre sí. Checa cómo está tu zona antes de salir.
 
 ---
 
