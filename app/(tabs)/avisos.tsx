@@ -171,7 +171,7 @@ export default function AvisosScreen() {
             <Text style={styles.itemTitle}>{label.toUpperCase()}</Text>
             {isCritical && (
               <View style={styles.criticalBadge}>
-                <Text style={styles.criticalBadgeText}>CRÍTICO</Text>
+                <Text style={styles.criticalBadgeText}>Urgente</Text>
               </View>
             )}
             {match.nearby && (

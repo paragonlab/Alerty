@@ -1,14 +1,15 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import {
   MAP_FILTER_CATEGORIES,
   CATEGORY_ICONS,
   CATEGORY_LABELS,
   INFO_DISCLAIMER,
 } from "../lib/alerty/constants";
+import { isCitySlug, setCityPreference } from "../lib/alerty/city";
 import { useAlertyStore } from "../lib/alerty/store";
 import { consumeAuthNext } from "../lib/alerty/session";
 import { useAlertyTheme } from "../lib/useAlertyTheme";
@@ -17,14 +18,30 @@ import type { PinCategory } from "../lib/alerty/types";
 /**
  * Primer paso de una cuenta nueva: elegir qué categorías ver. Aplica al mapa,
  * Pulsos, Videos, Avisos y notificaciones. El SOS no se puede apagar.
+ * Soporta invite de familia: ?invite=familia&zone=&lat=&lng=&city=
  */
 export default function OnboardingScreen() {
   const theme = useAlertyTheme();
   const styles = createStyles(theme);
   const router = useRouter();
+  const params = useLocalSearchParams<{
+    invite?: string;
+    zone?: string;
+    lat?: string;
+    lng?: string;
+    city?: string;
+  }>();
   const completeCategoryOnboarding = useAlertyStore((s) => s.completeCategoryOnboarding);
+  const addWatchedZone = useAlertyStore((s) => s.addWatchedZone);
   const [selected, setSelected] = useState<PinCategory[]>([...MAP_FILTER_CATEGORIES]);
   const [saving, setSaving] = useState(false);
+  const inviteZone = typeof params.zone === "string" ? params.zone : null;
+
+  useEffect(() => {
+    if (typeof params.city === "string" && isCitySlug(params.city)) {
+      setCityPreference(params.city);
+    }
+  }, [params.city]);
 
   const toggle = (category: PinCategory) => {
     if (category === "sos" || category === "operativo") return;
@@ -37,17 +54,27 @@ export default function OnboardingScreen() {
     if (saving) return;
     setSaving(true);
     await completeCategoryOnboarding(selected);
+    if (inviteZone) {
+      const lat = Number(params.lat);
+      const lng = Number(params.lng);
+      if (Number.isFinite(lat) && Number.isFinite(lng)) {
+        await addWatchedZone({ label: inviteZone, lat, lng });
+      }
+    }
     router.replace((consumeAuthNext() ?? "/(tabs)") as any);
   };
 
   return (
     <SafeAreaView style={styles.safe}>
       <ScrollView contentContainerStyle={styles.container}>
-        <Text style={styles.eyebrow}>BIENVENIDO A PULSO</Text>
-        <Text style={styles.title}>¿Qué quieres ver?</Text>
+        <Text style={styles.eyebrow}>Bienvenido a Pulso</Text>
+        <Text style={styles.title}>
+          {inviteZone ? `Tu zona: ${inviteZone}` : "¿Qué quieres ver?"}
+        </Text>
         <Text style={styles.subtitle}>
-          Elige las categorías para tu mapa, Pulsos, Videos, Avisos y notificaciones. Puedes
-          cambiarlas cuando quieras en Ajustes.
+          {inviteZone
+            ? "Alguien de tu familia te compartió esta zona. Elige qué avisos quieres recibir; al terminar la guardamos en tu Círculo."
+            : "Elige las categorías para tu mapa, Pulsos, Videos, Avisos y notificaciones. Puedes cambiarlas cuando quieras en Ajustes."}
         </Text>
 
         <View style={styles.grid}>

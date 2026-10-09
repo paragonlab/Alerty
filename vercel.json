@@ -16,6 +16,14 @@
       "dest": "/terms.html"
     },
     {
+      "src": "/api/og",
+      "dest": "/api/og"
+    },
+    {
+      "src": "/p/(?<id>[^/]+)",
+      "dest": "/api/p?id=$id"
+    },
+    {
       "handle": "filesystem"
     },
     {

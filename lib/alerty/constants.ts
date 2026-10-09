@@ -77,7 +77,7 @@ export const CATEGORY_LABELS: Record<(typeof PIN_CATEGORIES)[number], string> = 
   incendio: "Incendio",
   inundacion: "Inundación",
   "zona segura": "Zona segura",
-  sos: "EMERGENCIA SOS",
+  sos: "SOS",
   desaparecida: "Persona desaparecida",
   operativo: "Operativo",
   alerta: "Alerta",

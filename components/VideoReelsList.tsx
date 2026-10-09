@@ -830,13 +830,15 @@ export function VideoReelCard({
                 title: alert.title ?? CATEGORY_LABELS[alert.category],
                 neighborhood: alert.neighborhood,
                 alertId: alert.id,
+                category: alert.category,
+                status: alert.status,
               });
             }}
-            accessibilityLabel="Compartir esta alerta"
+            accessibilityLabel="Compartir este pulso"
           >
             <Ionicons name="share-social-outline" size={28} color="rgba(255,255,255,0.85)" />
           </Pressable>
-          <Text style={styles.actionLabel}>Compartir alerta</Text>
+          <Text style={styles.actionLabel}>Compartir</Text>
         </View>
 
         <View style={styles.actionItem}>

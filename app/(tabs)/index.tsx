@@ -164,7 +164,7 @@ export default function MapScreen() {
     () =>
       alerts.filter(
         (alert) =>
-          alert.status === "active" &&
+          (alert.status === "active" || alert.status === "resolved") &&
           !alert.parentAlertId &&
           !isOperativoCategory(alert.category) &&
           activeCategories.includes(alert.category) &&
@@ -1135,8 +1135,8 @@ export default function MapScreen() {
               {daySummary.total === 0
                 ? `Sin reportes en ${daySummary.windowLabel}`
                 : daySummary.graves > 0
-                  ? `${daySummary.graves} ${daySummary.graves === 1 ? "hecho grave" : "hechos graves"} en ${daySummary.windowLabel}`
-                  : `${daySummary.total} ${daySummary.total === 1 ? "reporte" : "reportes"} en ${daySummary.windowLabel}`}
+                  ? `${daySummary.graves} ${daySummary.graves === 1 ? "aviso de alto impacto" : "avisos de alto impacto"} en ${daySummary.windowLabel}`
+                  : `${daySummary.total} ${daySummary.total === 1 ? "aviso" : "avisos"} en ${daySummary.windowLabel}`}
             </Text>
             {unlocatedCount > 0 ? (
               <Text style={styles.emptyHint}>

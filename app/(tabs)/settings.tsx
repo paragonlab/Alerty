@@ -18,11 +18,14 @@ import { Ionicons } from "@expo/vector-icons";
 import { MAP_FILTER_CATEGORIES, CATEGORY_LABELS, getLevelProgress } from "../../lib/alerty/constants";
 import { ALIADO_PRICE_LABEL, CIRCULO_PRICE_LABEL, circuloZoneLimit } from "../../lib/alerty/circulo";
 import {
+  getActiveCityName,
   getActiveCitySlug,
   listSelectableCities,
   subscribeCityChange,
   type CitySlug,
 } from "../../lib/alerty/city";
+import { buildDailyShareStats } from "../../lib/alerty/dailyShare";
+import { summarizeWindow } from "../../lib/alerty/daySummary";
 import { selectCity } from "../../lib/alerty/selectCity";
 import { needsReview, useAlertyStore } from "../../lib/alerty/store";
 import { useAlertyTheme } from "../../lib/useAlertyTheme";
@@ -35,6 +38,8 @@ import {
   type PushStatus,
 } from "../../lib/notifications";
 import { useRouter } from "expo-router";
+import { DailySummaryShareCard } from "../../components/DailySummaryShareCard";
+import { FamilyInviteButton } from "../../components/FamilyInviteButton";
 
 export default function SettingsScreen() {
   const {
@@ -56,11 +61,36 @@ export default function SettingsScreen() {
     resetGuest,
     isModerator,
     moderationQueue,
+    alerts,
+    communityPosts,
+    sponsoredZones,
+    userCoords,
   } = useAlertyStore();
 
   const [activeCitySlug, setActiveCitySlug] = useState<CitySlug>(getActiveCitySlug);
   const [savingCity, setSavingCity] = useState(false);
   const selectableCities = useMemo(() => listSelectableCities(), []);
+
+  const dailyStats = useMemo(() => {
+    void activeCitySlug; // recalcula al cambiar ciudad
+    const summary = summarizeWindow({
+      alerts: alerts.filter((a) => a.status === "active" || a.status === "resolved"),
+      communityEvents: communityPosts.map((p) => ({
+        category: p.categoryGuess,
+        lat: p.lat,
+        lng: p.lng,
+      })),
+      timeFilter: "24h",
+      userLocation: userCoords,
+    });
+    return buildDailyShareStats({
+      cityName: getActiveCityName(),
+      summary,
+      alerts,
+      alliesCount: sponsoredZones.length,
+      clearedCount: alerts.filter((a) => a.status === "resolved").length,
+    });
+  }, [alerts, communityPosts, sponsoredZones, userCoords, activeCitySlug]);
 
   useEffect(() => subscribeCityChange(setActiveCitySlug), []);
 
@@ -438,6 +468,15 @@ export default function SettingsScreen() {
             <Ionicons name="chevron-forward" size={18} color={theme.colors.textMuted} />
           </View>
         </Pressable>
+
+        <View style={{ gap: 10, marginBottom: 8 }}>
+          <FamilyInviteButton
+            zoneLabel={watchedZones[0]?.label ?? getActiveCityName()}
+            lat={watchedZones[0]?.lat ?? userCoords?.latitude}
+            lng={watchedZones[0]?.lng ?? userCoords?.longitude}
+          />
+          <DailySummaryShareCard stats={dailyStats} />
+        </View>
 
         {isModerator && (
           <Pressable style={styles.card} onPress={() => router.push("/admin")}>

@@ -262,11 +262,11 @@ Deno.serve(async (req) => {
         const userId = (row as { user_id: string }).user_id;
         byUser.set(userId, {
           to: (row as { token: string }).token,
-          title: alert.category === "sos" ? "SOS · 2 km a la redonda" : `${label} reportada`,
+          title: alert.category === "sos" ? "SOS cerca · 2 km" : `Aviso: ${label}`,
           body:
             alert.category === "sos"
-              ? "Emergencia crítica cerca. Abre Pulso."
-              : alert.title ?? `Se reportó ${label.toLowerCase()} en tu zona.`,
+              ? "Hay un SOS cerca. Abre Pulso si puedes ayudar con seguridad."
+              : alert.title ?? `Hay un aviso de ${label.toLowerCase()} en tu zona.`,
           sound: "default",
           priority: "high",
           channelId: "default",
@@ -314,7 +314,7 @@ Deno.serve(async (req) => {
           byUser.set(userId, {
             to: (row as { token: string }).token,
             title: `${label} · ${zoneLabel}`,
-            body: `Se reportó ${label.toLowerCase()} cerca de ${zoneLabel}.`,
+            body: `Aviso de ${label.toLowerCase()} cerca de ${zoneLabel}.`,
             sound: "default",
             priority: "high",
             channelId: "default",
@@ -372,6 +372,44 @@ Deno.serve(async (req) => {
           data: { alertId: update.alert_id },
         });
       }
+    }
+  } else if (body.type === "cleared" && body.alertId) {
+    // Push suave a quien sigue la alerta: “ya se despejó”.
+    const { data: alert } = await admin
+      .from("alerts")
+      .select("id,category,title,status")
+      .eq("id", body.alertId)
+      .single();
+
+    if (!alert || alert.category === "operativo") {
+      return json({ sent: 0, skipped: "operativo_or_missing" });
+    }
+
+    const { data: follows } = await admin
+      .from("alert_follows")
+      .select("user_id")
+      .eq("alert_id", alert.id);
+
+    const followerIds = (follows ?? []).map((f) => f.user_id as string);
+    if (followerIds.length === 0) return json({ sent: 0 });
+
+    const { data: rows } = await admin
+      .from("push_tokens")
+      .select("token, users!inner(push_enabled)")
+      .in("user_id", followerIds)
+      .eq("users.push_enabled", true);
+
+    const label = CATEGORY_LABELS[alert.category] ?? alert.category;
+    for (const row of rows ?? []) {
+      messages.push({
+        to: (row as { token: string }).token,
+        title: `Ya se despejó · ${label}`,
+        body: "Vecinos marcan que la zona volvió a la calma.",
+        sound: "default",
+        priority: "high",
+        channelId: "default",
+        data: { alertId: alert.id, cleared: true },
+      });
     }
   } else if (body.type === "impact" && body.alertId) {
     // Aviso al autor cuando su pulso llega a un hito de confirmaciones. Solo lo
