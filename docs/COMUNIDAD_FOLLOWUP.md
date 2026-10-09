@@ -4,20 +4,25 @@ Complementa #47 (ya en prod, squash `c112230`).
 
 ## Orden de aplicación
 
-### Ya en prod (solo sincronizar repo — no reaplicar a ciegas)
+### Versiones ya aplicadas en prod (nombres ≠ archivos del repo)
 
-1. **`notify-on-alert` cleared → `not_resolved`**  
-   Push “Ya se despejó” solo si `status = resolved`. Si no: `{ skipped: "not_resolved" }` (prod v24).
-2. **`20261009140000_alert_cleared_revoke_default_grants.sql`**  
-   `REVOKE EXECUTE` de `expire_stale_alerts` para PUBLIC/anon/authenticated. Idempotente; ya aplicada en prod.
+| Versión en prod | Equivale a (archivo en repo) |
+|-----------------|------------------------------|
+| `20261009075123` | cleared / clearance base (#47) |
+| `20261009075129` | `20261009140000_alert_cleared_revoke_default_grants.sql` |
+| `20261009085219` | lógica de `20261009150000_cleared_push_once_and_expire_cron.sql` (con `$do$`/`$cmd$`) |
 
-### Nuevo (aplicar en este orden)
+**No re-aplicar a ciegas** por el nombre del archivo: en prod ya corrieron con timestamps distintos.
 
-3. **`20261009150000_cleared_push_once_and_expire_cron.sql`**  
-   - Columna `alerts.cleared_push_sent_at` (una push por alerta).  
-   - `pg_cron` job `pulso-expire-stale-alerts` cada hora (`15 * * * *`).
-4. Redeploy **manual** de `notify-on-alert` (claim atómico + `already_notified`).
-5. Redeploy web Vercel (`@resvg/resvg-js` → OG **PNG**; `/p/c-<id>` community).
+### Sync en repo
+
+1. **`notify-on-alert` cleared → `not_resolved`** (prod v24+) + claim `cleared_push_sent_at`.
+2. Migración revoke grants (idempotente).
+3. Migración cron corregida (`$do$` / `$cmd$` — el nesting `$$` original rompía `db push`).
+
+### Follow-up OG fuentes / títulos
+
+4. Redeploy web Vercel con `api/fonts/*.ttf` (`includeFiles` en `vercel.json`) y `cleanShareTitle` para community.
 
 No aplicar migraciones ni deploys desde el agente.
 

@@ -8,7 +8,7 @@ const {
   APP,
   ACTION,
   CATEGORY_LABELS,
-  displayTitle,
+  cleanShareTitle,
   esc,
   loadPulse,
 } = require("./_pulseShared");
@@ -18,7 +18,8 @@ function pageHtml(pulse) {
   const city = pulse.cityName;
   const citySlug = pulse.citySlug;
   const label = CATEGORY_LABELS[cat] || cat;
-  const headline = displayTitle(pulse.title, label).slice(0, 140);
+  // loadPulse ya limpia community; re-aplicar por si es alerta o cache viejo.
+  const headline = cleanShareTitle(pulse.title, label, 80);
   const action = ACTION[cat] || ACTION.otro;
   const cleared = pulse.status === "resolved";
   const place = pulse.place;

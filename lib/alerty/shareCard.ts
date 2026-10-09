@@ -6,7 +6,7 @@
 
 import { actionLineFor } from "./actionLines";
 import { CATEGORY_LABELS, CATEGORY_PIN_COLORS } from "./constants";
-import { displayTitle } from "./displayTitle";
+import { cleanShareTitle } from "./displayTitle";
 import { isOperativoCategory } from "./operativoPolicy";
 import {
   APP_SHARE_URL,
@@ -50,7 +50,7 @@ export function buildShareCardModel(input: ShareCardInput): ShareCardModel {
     CATEGORY_LABELS[input.category as keyof typeof CATEGORY_LABELS] ??
     input.category;
 
-  const headline = displayTitle(input.title, categoryLabel);
+  const headline = cleanShareTitle(input.title, categoryLabel, 80);
   const action = input.actionLine ?? actionLineFor(input.category);
   const accent = CATEGORY_PIN_COLORS[input.category] ?? "#6B7280";
 

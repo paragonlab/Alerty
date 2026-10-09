@@ -2,7 +2,15 @@
  * Helpers compartidos por /api/p y /api/og (CommonJS, sin deps de la app Expo).
  */
 
+const path = require("path");
+const fs = require("fs");
+
 const APP = "https://pulso-ciudadano.com";
+const FONT_DIR = path.join(__dirname, "fonts");
+const FONT_REGULAR = path.join(FONT_DIR, "NotoSans-Regular.ttf");
+const FONT_BOLD = path.join(FONT_DIR, "NotoSans-Bold.ttf");
+/** Familia declarada en el SVG — debe coincidir con el nombre interno de Noto. */
+const FONT_FAMILY = "Noto Sans";
 const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
 const SUPABASE_ANON =
   process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
@@ -132,17 +140,54 @@ function applyGazetteerCasing(text) {
   return out;
 }
 
+function stripNoise(text) {
+  return String(text || "")
+    .replace(/https?:\/\/\S+|www\.\S+|\b(?:t\.co|bit\.ly|goo\.gl|tinyurl\.com)\/\S+/gi, " ")
+    .replace(/\p{Extended_Pictographic}/gu, " ")
+    .replace(/[\u{1F6A8}\u{1F525}\u{26A0}\u{1F4A5}\u{FE0F}\u{200D}]/gu, " ")
+    .replace(/[\r\n\t]+/g, " ")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
+function truncateAtWord(text, maxLen) {
+  const t = String(text || "").trim();
+  if (t.length <= maxLen) return t;
+  const budget = Math.max(8, maxLen - 1);
+  const cut = t.slice(0, budget);
+  const sp = cut.lastIndexOf(" ");
+  const base = (sp >= Math.floor(budget * 0.45) ? cut.slice(0, sp) : cut).trimEnd();
+  return `${base}…`;
+}
+
 function displayTitle(raw, fallback) {
-  let out = String(raw || fallback || "Aviso en tu zona").trim();
-  out = out.replace(/[\u{1F6A8}\u{1F525}\u{26A0}\u{1F4A5}]/gu, "").replace(/\s{2,}/g, " ").trim();
+  let out = stripNoise(raw || fallback || "Aviso en tu zona");
+  if (!out) out = "Aviso en tu zona";
+  out = out
+    .replace(/^(urgente|última\s*hora|breaking|alerta\s*roja|atención|aviso\s*importante)\s*[:\-–—!]+\s*/i, "")
+    .trim() || out;
   const letters = out.replace(/[^A-Za-zÁÉÍÓÚÜÑáéíóúüñ]/g, "");
+  let shouting = false;
   if (letters.length >= 8) {
     const upper = letters.replace(/[^A-ZÁÉÍÓÚÜÑ]/g, "").length;
-    if (upper / letters.length >= 0.75) {
-      out = toTitleCaseEs(out);
+    shouting = upper / letters.length >= 0.75;
+  }
+  if (!shouting) {
+    const words = out.split(/\s+/).filter((w) => /[\p{L}]{3,}/u.test(w));
+    if (words.length >= 2) {
+      const caps = words.filter((w) => {
+        const L = w.replace(/[^A-Za-zÁÉÍÓÚÜÑáéíóúüñ]/g, "");
+        return L.length >= 3 && L === L.toLocaleUpperCase("es-MX") && /[A-ZÁÉÍÓÚÜÑ]/.test(L);
+      });
+      shouting = caps.length / words.length >= 0.5;
     }
   }
-  return applyGazetteerCasing(out);
+  if (shouting) out = toTitleCaseEs(out);
+  return applyGazetteerCasing(out).replace(/([!?¡¿]){2,}/g, "$1");
+}
+
+function cleanShareTitle(raw, fallback, maxLen = 80) {
+  return truncateAtWord(displayTitle(raw, fallback), maxLen);
 }
 
 function parsePublicId(rawId) {
@@ -205,7 +250,7 @@ async function loadPulse(rawId) {
       kind: "community",
       publicId,
       category: cat,
-      title: row.text || CATEGORY_LABELS[cat] || cat,
+      title: cleanShareTitle(row.text, CATEGORY_LABELS[cat] || cat, 80),
       place,
       cityName: cityMeta.name,
       citySlug: cityMeta.slug,
@@ -241,18 +286,19 @@ async function loadPulse(rawId) {
 function svgFor(model) {
   const accent = CATEGORY_COLORS[model.category] || "#6B7280";
   const cat = CATEGORY_LABELS[model.category] || model.category;
-  const headline = displayTitle(model.title, cat).slice(0, 90);
+  const headline = cleanShareTitle(model.title, cat, 80);
   const action = (ACTION[model.category] || ACTION.otro).slice(0, 80);
   const cleared = model.status === "resolved";
+  const ff = FONT_FAMILY;
   const badge = cleared
     ? `<rect x="64" y="520" rx="16" width="200" height="44" fill="#1F9D6E"/>
-       <text x="164" y="549" text-anchor="middle" fill="#fff" font-family="DejaVu Sans,system-ui,sans-serif" font-size="22" font-weight="700">Ya se despejó</text>`
+       <text x="164" y="549" text-anchor="middle" fill="#fff" font-family="${ff}" font-size="22" font-weight="700">Ya se despejó</text>`
     : "";
   const map = model.showMap
     ? `<circle cx="980" cy="220" r="90" fill="${accent}" fill-opacity="0.12"/>
        <circle cx="980" cy="220" r="28" fill="${accent}"/>
        <circle cx="980" cy="220" r="10" fill="#F6F2EA"/>`
-    : `<text x="980" y="230" text-anchor="middle" fill="#6A6257" font-family="DejaVu Sans,system-ui,sans-serif" font-size="20">Sin mapa en vivo</text>`;
+    : `<text x="980" y="230" text-anchor="middle" fill="#6A6257" font-family="${ff}" font-size="20">Sin mapa en vivo</text>`;
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
@@ -264,31 +310,95 @@ function svgFor(model) {
   </defs>
   <rect width="1200" height="630" fill="url(#bg)"/>
   <rect x="0" y="0" width="12" height="630" fill="${accent}"/>
-  <text x="64" y="88" fill="#1B1A17" font-family="DejaVu Sans,system-ui,sans-serif" font-size="28" font-weight="700" letter-spacing="1">PULSO</text>
-  <text x="64" y="122" fill="#6A6257" font-family="DejaVu Sans,system-ui,sans-serif" font-size="20">${esc(model.cityName)}</text>
+  <text x="64" y="88" fill="#1B1A17" font-family="${ff}" font-size="28" font-weight="700" letter-spacing="1">PULSO</text>
+  <text x="64" y="122" fill="#6A6257" font-family="${ff}" font-size="20">${esc(model.cityName)}</text>
   <rect x="64" y="160" rx="18" width="${Math.min(360, 48 + cat.length * 14)}" height="40" fill="${accent}" fill-opacity="0.14"/>
-  <text x="84" y="187" fill="${accent}" font-family="DejaVu Sans,system-ui,sans-serif" font-size="20" font-weight="600">${esc(cat)}</text>
-  <text x="64" y="280" fill="#1B1A17" font-family="DejaVu Sans,system-ui,sans-serif" font-size="40" font-weight="700">${esc(headline)}</text>
-  <text x="64" y="340" fill="#6A6257" font-family="DejaVu Sans,system-ui,sans-serif" font-size="24">${esc(model.place)}</text>
-  <text x="64" y="400" fill="#1B1A17" font-family="DejaVu Sans,system-ui,sans-serif" font-size="26">${esc(action)}</text>
+  <text x="84" y="187" fill="${accent}" font-family="${ff}" font-size="20" font-weight="600">${esc(cat)}</text>
+  <text x="64" y="280" fill="#1B1A17" font-family="${ff}" font-size="40" font-weight="700">${esc(headline)}</text>
+  <text x="64" y="340" fill="#6A6257" font-family="${ff}" font-size="24">${esc(model.place)}</text>
+  <text x="64" y="400" fill="#1B1A17" font-family="${ff}" font-size="26">${esc(action)}</text>
   ${badge}
   ${map}
-  <text x="64" y="590" fill="#6A6257" font-family="DejaVu Sans,system-ui,sans-serif" font-size="18">Informar para cuidarse · pulso-ciudadano.com</text>
+  <text x="64" y="590" fill="#6A6257" font-family="${ff}" font-size="18">Informar para cuidarse · pulso-ciudadano.com</text>
 </svg>`;
+}
+
+/** SVG solo con formas (sin <text>) — baseline para el test de píxeles. */
+function svgShapesOnly(model) {
+  const accent = CATEGORY_COLORS[model.category] || "#6B7280";
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <rect width="1200" height="630" fill="#F6F2EA"/>
+  <rect x="0" y="0" width="12" height="630" fill="${accent}"/>
+  <rect x="64" y="160" rx="18" width="180" height="40" fill="${accent}" fill-opacity="0.14"/>
+  <circle cx="980" cy="220" r="90" fill="${accent}" fill-opacity="0.12"/>
+  <circle cx="980" cy="220" r="28" fill="${accent}"/>
+  <circle cx="980" cy="220" r="10" fill="#F6F2EA"/>
+</svg>`;
+}
+
+function fontFiles() {
+  const files = [];
+  if (fs.existsSync(FONT_REGULAR)) files.push(FONT_REGULAR);
+  if (fs.existsSync(FONT_BOLD)) files.push(FONT_BOLD);
+  return files;
+}
+
+function renderImage(svg, { withFonts = true } = {}) {
+  const { Resvg } = require("@resvg/resvg-js");
+  const files = withFonts ? fontFiles() : [];
+  if (withFonts && files.length === 0) {
+    throw new Error("Faltan TTF en api/fonts (NotoSans-Regular/Bold.ttf)");
+  }
+  const resvg = new Resvg(svg, {
+    fitTo: { mode: "width", value: 1200 },
+    font: {
+      loadSystemFonts: false,
+      fontFiles: files,
+      defaultFontFamily: FONT_FAMILY,
+    },
+  });
+  return resvg.render();
 }
 
 function renderPng(svg) {
   try {
-    const { Resvg } = require("@resvg/resvg-js");
-    const resvg = new Resvg(svg, {
-      fitTo: { mode: "width", value: 1200 },
-      font: { loadSystemFonts: true },
-    });
-    return resvg.render().asPng();
+    return renderImage(svg, { withFonts: true }).asPng();
   } catch (err) {
     console.error("PNG render failed", err && err.message);
     return null;
   }
+}
+
+/**
+ * Cuenta píxeles “de tinta” (RGB bajos) en una banda — útil para detectar texto.
+ * Región por defecto: zona del titular (y≈230–310).
+ */
+function countDarkPixels(rendered, opts = {}) {
+  const {
+    x0 = 50,
+    x1 = 900,
+    y0 = 230,
+    y1 = 310,
+    threshold = 140,
+  } = opts;
+  const { width, height, pixels } = rendered;
+  let dark = 0;
+  const xStart = Math.max(0, Math.floor(x0));
+  const xEnd = Math.min(width, Math.ceil(x1));
+  const yStart = Math.max(0, Math.floor(y0));
+  const yEnd = Math.min(height, Math.ceil(y1));
+  for (let y = yStart; y < yEnd; y++) {
+    for (let x = xStart; x < xEnd; x++) {
+      const i = (y * width + x) * 4;
+      const r = pixels[i];
+      const g = pixels[i + 1];
+      const b = pixels[i + 2];
+      const a = pixels[i + 3];
+      if (a > 200 && r + g + b < threshold * 3) dark += 1;
+    }
+  }
+  return dark;
 }
 
 module.exports = {
@@ -296,10 +406,20 @@ module.exports = {
   ACTION,
   CATEGORY_LABELS,
   CATEGORY_COLORS,
+  FONT_FAMILY,
+  FONT_REGULAR,
+  FONT_BOLD,
   displayTitle,
+  cleanShareTitle,
+  stripNoise,
+  truncateAtWord,
   esc,
   loadPulse,
   svgFor,
+  svgShapesOnly,
   renderPng,
+  renderImage,
+  countDarkPixels,
+  fontFiles,
   parsePublicId,
 };

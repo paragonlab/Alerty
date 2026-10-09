@@ -3,9 +3,13 @@
  */
 import {
   applyGazetteerCasing,
+  cleanShareTitle,
   displayTitle,
   looksLikeAllCaps,
+  mostlyShouting,
+  stripNoise,
   toTitleCaseEs,
+  truncateAtWord,
 } from "./displayTitle";
 
 function assert(cond: unknown, msg: string): asserts cond {
@@ -16,6 +20,12 @@ function run() {
   assert(looksLikeAllCaps("BALACERA EN LAS QUINTAS URGENTE"), "detecta mayúsculas");
   assert(!looksLikeAllCaps("Balacera en Las Quintas"), "título normal no es all-caps");
   assert(!looksLikeAllCaps("SOS"), "sigla corta no cuenta");
+
+  assert(
+    mostlyShouting("PROYECTAN 37 MIL VIVIENDAS DEL BIENESTAR PARA Sinaloa"),
+    "mayoría en mayúsculas + nombre propio al final",
+  );
+  assert(!mostlyShouting("Proyectan viviendas en Sinaloa"), "title case normal no es shouting");
 
   assert(toTitleCaseEs("la obregón") === "La Obregón", `title case: ${toTitleCaseEs("la obregón")}`);
   assert(
@@ -48,6 +58,25 @@ function run() {
     "fallback cuando no hay título",
   );
   assert(displayTitle("   ") === "Aviso en tu zona", "vacío → fallback amable");
+
+  const noisy =
+    "🏠🚨 PROYECTAN 37 MIL VIVIENDAS DEL BIENESTAR PARA Sinaloa\nhttps://t.co/abc123XYZ más";
+  assert(!stripNoise(noisy).includes("t.co"), "strip urls");
+  assert(!stripNoise(noisy).includes("\n"), "strip newlines");
+
+  const share = cleanShareTitle(noisy, "Aviso", 80);
+  assert(!/https?:|t\.co/i.test(share), `cleanShare sin links: ${share}`);
+  assert(share.length <= 81, `≤80+…: ${share.length}`);
+  assert(share.endsWith("…") || share.length <= 80, "ellipsis o corto");
+  assert(/Sinaloa|Viviendas|Proyectan/i.test(share), `queda sentido: ${share}`);
+  assert(share !== share.toUpperCase(), "no grita en mayúsculas");
+  assert(
+    !share.includes("PROYECTAN") && !share.includes("VIVIENDAS"),
+    `title case, got ${share}`,
+  );
+  assert(/Proyectan|Viviendas/.test(share), `title case positivo: ${share}`);
+
+  assert(truncateAtWord("hola mundo feliz", 10) === "hola…", truncateAtWord("hola mundo feliz", 10));
 
   console.log("displayTitle.test.ts OK");
 }
