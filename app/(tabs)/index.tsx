@@ -55,7 +55,9 @@ import {
 import { isAboutCuliacan, isCommunityVideo } from "../../lib/alerty/communityLabel";
 import { placeIcon, searchCuliacanPlaces, type PlaceResult } from "../../lib/alerty/placeSearch";
 import { CommunityMarker } from "../../components/CommunityMarker";
+import { AlertPinPreview } from "../../components/AlertPinPreview";
 import { CommunityPostPreview } from "../../components/CommunityPostPreview";
+import { SponsorPinPreview } from "../../components/SponsorPinPreview";
 import { SOSButton } from "../../components/SOSButton";
 import {
   getActiveCityLabel,
@@ -74,7 +76,7 @@ import { useAlertyTheme } from "../../lib/useAlertyTheme";
 import { DARK_MAP_STYLE } from "../../lib/theme";
 import { useAlertyStore } from "../../lib/alerty/store";
 import { supabase } from "../../lib/supabase";
-import type { AlertCategory, CommunityPost } from "../../lib/alerty/types";
+import type { AlertCategory, AlertItem, CommunityPost, SponsoredZone } from "../../lib/alerty/types";
 import { isOperativoCategory } from "../../lib/alerty/operativoPolicy";
 import { CityPickerModal } from "../../components/CityPickerModal";
 import {
@@ -113,6 +115,8 @@ export default function MapScreen() {
   } | null>(null);
   const [selectedCommunity, setSelectedCommunity] = useState<CommunityPost | null>(null);
   const [selectedSources, setSelectedSources] = useState(1);
+  const [selectedAlert, setSelectedAlert] = useState<AlertItem | null>(null);
+  const [selectedSponsor, setSelectedSponsor] = useState<SponsoredZone | null>(null);
   const [timeMenuOpen, setTimeMenuOpen] = useState(false);
   const [pinTracks, setPinTracks] = useState(true);
   const [citySlug, setCitySlug] = useState<CitySlug>(getActiveCitySlug);
@@ -476,6 +480,8 @@ export default function MapScreen() {
 
   const runRiskCheck = (lat: number, lng: number, label: string, destination = false) => {
     setSelectedCommunity(null);
+    setSelectedAlert(null);
+    setSelectedSponsor(null);
     setRiskResult({ assessment: scoreAtPoints(heatSources, lat, lng), label, destination, lat, lng });
   };
 
@@ -503,10 +509,20 @@ export default function MapScreen() {
     if (!best) return;
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     if (best.kind === "alert") {
-      router.push(`/alert/${best.id}`);
+      const alert = filteredAlerts.find((a) => a.id === best.id);
+      if (alert) {
+        setRiskResult(null);
+        setSelectedCommunity(null);
+        setSelectedSponsor(null);
+        setSelectedAlert(alert);
+      } else {
+        router.push(`/alert/${best.id}`);
+      }
       return;
     }
     setRiskResult(null);
+    setSelectedAlert(null);
+    setSelectedSponsor(null);
     setSelectedCommunity(best.post);
     setSelectedSources(best.sources);
   };
@@ -682,12 +698,14 @@ export default function MapScreen() {
                 onPress={() => {
                   void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                   setSelectedCommunity(null);
+                  setSelectedSponsor(null);
+                  setRiskResult(null);
                   if (alert.media.some((x) => x.type === "video")) {
                     openReels(alert.id);
                     goToPulsos();
                     return;
                   }
-                  router.push(`/alert/${alert.id}`);
+                  setSelectedAlert(alert);
                 }}
               >
                 <GlowMarker
@@ -718,14 +736,15 @@ export default function MapScreen() {
                 onPress={() => {
                   void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                   setRiskResult(null);
-                  if (sources > 1) {
-                    setSelectedCommunity(post);
-                    setSelectedSources(sources);
+                  setSelectedAlert(null);
+                  setSelectedSponsor(null);
+                  if (isCommunityVideo(post) && sources <= 1) {
+                    openReels(`c-${post.id}`);
+                    goToPulsos();
                     return;
                   }
-                  if (isCommunityVideo(post)) openReels(`c-${post.id}`);
-                  else focusCommunity(post.id);
-                  goToPulsos();
+                  setSelectedCommunity(post);
+                  setSelectedSources(sources);
                 }}
               >
                 <CommunityMarker
@@ -754,10 +773,10 @@ export default function MapScreen() {
                 tracksViewChanges={Boolean(zone.logoUrl) || showSponsorNames}
                 onPress={() => {
                   void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  Alert.alert(
-                    zone.type === "refugio" ? "Refugio" : "Aliado", 
-                    `${zone.name}\n\n${zone.description}`
-                  );
+                  setRiskResult(null);
+                  setSelectedAlert(null);
+                  setSelectedCommunity(null);
+                  setSelectedSponsor(zone);
                 }}
               >
                 <SponsorPin
@@ -1154,6 +1173,25 @@ export default function MapScreen() {
               setSelectedCommunity(null);
               setSelectedSources(1);
             }}
+          />
+        ) : null}
+
+        {selectedAlert ? (
+          <AlertPinPreview
+            alert={selectedAlert}
+            onClose={() => setSelectedAlert(null)}
+            onOpenDetail={() => {
+              const id = selectedAlert.id;
+              setSelectedAlert(null);
+              router.push(`/alert/${id}`);
+            }}
+          />
+        ) : null}
+
+        {selectedSponsor ? (
+          <SponsorPinPreview
+            zone={selectedSponsor}
+            onClose={() => setSelectedSponsor(null)}
           />
         ) : null}
 

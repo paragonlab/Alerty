@@ -221,6 +221,8 @@ function stripNoise(text) {
     .replace(/https?:\/\/\S+|www\.\S+|\b(?:t\.co|bit\.ly|goo\.gl|tinyurl\.com)\/\S+/gi, " ")
     .replace(/\p{Extended_Pictographic}/gu, " ")
     .replace(/[\u{1F6A8}\u{1F525}\u{26A0}\u{1F4A5}\u{FE0F}\u{200D}]/gu, " ")
+    .replace(/#(\p{L}[\p{L}\p{N}_]*)/gu, "$1")
+    .replace(/(?:\s*@[A-Za-z0-9_]+)+\s*$/g, "")
     .replace(/[\r\n\t]+/g, " ")
     .replace(/\s{2,}/g, " ")
     .replace(/\b(más\s+info|más\s+detalles|ver\s+más|lee\s+más|click\s+aquí)\.?$/i, "")

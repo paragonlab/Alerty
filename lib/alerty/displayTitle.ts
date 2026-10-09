@@ -157,13 +157,15 @@ export function applyGazetteerCasing(text: string): string {
   return out;
 }
 
-/** Quita URLs, emojis y saltos; colapsa espacios. */
+/** Quita URLs, emojis, #hashtags (deja la palabra), @menciones finales y saltos. */
 export function stripNoise(text: string): string {
   return text
     .replace(URL_RE, " ")
     .replace(ANY_EMOJI, " ")
     .replace(ALARMIST_EMOJI, " ")
     .replace(/[\u{FE0F}\u{200D}]/gu, "")
+    .replace(/#(\p{L}[\p{L}\p{N}_]*)/gu, "$1")
+    .replace(/(?:\s*@[A-Za-z0-9_]+)+\s*$/g, "")
     .replace(/[\r\n\t]+/g, " ")
     .replace(/\s{2,}/g, " ")
     .replace(/\b(más\s+info|más\s+detalles|ver\s+más|lee\s+más|click\s+aquí)\.?$/i, "")
