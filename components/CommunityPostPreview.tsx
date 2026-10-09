@@ -19,6 +19,7 @@ import { communitySourceLabel, isNewsPost } from "../lib/alerty/communityLabel";
 import { CATEGORY_LABELS } from "../lib/alerty/constants";
 import { useAlertyTheme } from "../lib/useAlertyTheme";
 import { CommunityVoteBar } from "./CommunityVoteBar";
+import { SharePulseButton } from "./SharePulseButton";
 
 const X_ACCENT = "#1D9BF0";
 const NEWS_ACCENT = "#0D9488";
@@ -202,6 +203,8 @@ export function CommunityPostPreview({ post: rawPost, sourceCount = 1, onClose }
         )}
 
         {!post.isDemo ? <CommunityVoteBar postId={post.id} /> : null}
+
+        <SharePulseButton post={rawPost} variant="full" />
 
         <View style={styles.actions}>
           <Pressable

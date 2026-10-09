@@ -15,6 +15,7 @@ import {
   dailySummaryShareMessage,
   pulsePublicUrl,
 } from "./shareCore";
+import { appShareMessage, activeColoniaTagline } from "./brandCopy";
 
 export {
   APP_SHARE_URL,
@@ -22,6 +23,8 @@ export {
   alertDeepLink,
   dailySummaryShareMessage,
   pulsePublicUrl,
+  appShareMessage,
+  activeColoniaTagline,
 };
 
 export const zoneShareMessage = (
@@ -207,6 +210,32 @@ export async function shareDailySummary(
       return;
     }
     await Share.share({ message });
+  } catch {
+    /* cancelado */
+  }
+}
+
+/** Comparte la app (tagline con ciudad activa). */
+export async function shareApp(cityName?: string | null): Promise<void> {
+  const message = appShareMessage(cityName);
+  try {
+    if (Platform.OS === "web" && typeof navigator !== "undefined") {
+      if (typeof navigator.share === "function") {
+        await navigator.share({
+          title: "Pulso",
+          text: message,
+          url: APP_SHARE_URL,
+        });
+        return;
+      }
+      await copyFallback(message);
+      return;
+    }
+    await Share.share(
+      Platform.OS === "web"
+        ? { message, title: "Pulso", url: APP_SHARE_URL }
+        : { message },
+    );
   } catch {
     /* cancelado */
   }

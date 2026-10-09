@@ -60,6 +60,14 @@ assert(/\bmil\b/.test(cleaned) && /\bviviendas\b/.test(cleaned), `sentence case:
 assert(cleaned.includes("Sinaloa") && cleaned.includes("Bienestar"), `gazetteer: ${cleaned}`);
 assert(cleaned !== cleaned.toUpperCase(), `no ALL CAPS: ${cleaned}`);
 
+const withHash = cleanShareTitle(
+  "URGENTE: OBRAS DEL BIENESTAR EN #Sinaloa @NoticiasMX",
+  "Aviso",
+  100,
+);
+assert(!withHash.includes("#") && !withHash.includes("@"), `sin #/@: ${withHash}`);
+assert(withHash.includes("Sinaloa"), `conserva Sinaloa: ${withHash}`);
+
 assert(actionLineFor("alerta") === "", "community alerta sin action");
 assert(actionLineFor("bloqueo").length > 0, "bloqueo sí tiene action");
 

@@ -24,7 +24,7 @@ export default function PrivacyScreen() {
         <Text style={styles.meta}>Última actualización: 7 de octubre de 2026</Text>
         <Text style={styles.p}>
           Pulso (la app también aparece como Alerty) es un mapa de alertas ciudadanas para
-          Culiacán. Esta política describe qué datos recabamos, para qué los usamos y con
+          Culiacán y Mazatlán. Esta política describe qué datos recabamos, para qué los usamos y con
           quién los compartimos.
         </Text>
 

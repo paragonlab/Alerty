@@ -82,6 +82,17 @@ function run() {
   assert(share.includes("Sinaloa"), `gazetteer Sinaloa: ${share}`);
   assert(share.includes("Bienestar"), `gazetteer Bienestar: ${share}`);
 
+  const tagged =
+    "PROYECTAN VIVIENDAS EN #Sinaloa y #Culiacán para familias @MedioLocal @otra_cuenta";
+  const cleanedTag = cleanShareTitle(tagged, "Aviso", 100);
+  assert(!cleanedTag.includes("#"), `sin hashtags: ${cleanedTag}`);
+  assert(cleanedTag.includes("Sinaloa"), `conserva Sinaloa: ${cleanedTag}`);
+  assert(!/@\w+$/.test(cleanedTag) && !cleanedTag.includes("@"), `sin @final: ${cleanedTag}`);
+  assert(
+    stripNoise("Aviso en #Sinaloa @foo") === "Aviso en Sinaloa",
+    `strip # y @: ${stripNoise("Aviso en #Sinaloa @foo")}`,
+  );
+
   assert(truncateAtWord("hola mundo feliz", 10) === "hola…", truncateAtWord("hola mundo feliz", 10));
 
   console.log("displayTitle.test.ts OK");

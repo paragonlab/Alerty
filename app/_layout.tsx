@@ -1,6 +1,6 @@
 import { Stack, usePathname, useRootNavigationState, useRouter, useSegments } from "expo-router";
 import { useEffect, useRef, useState } from "react";
-import { Alert } from "react-native";
+import { Alert, Platform } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 import * as Linking from "expo-linking";
@@ -10,6 +10,8 @@ import { darkHighVisibility, lightTheme } from "../lib/theme";
 import { isSupabaseConfigured, supabase } from "../lib/supabase";
 import { useAlertyStore } from "../lib/alerty/store";
 import { hydrateCityPreference } from "../lib/alerty/cityPreference";
+import { subscribeCityChange } from "../lib/alerty/city";
+import { activeSiteDocumentTitle } from "../lib/alerty/brandCopy";
 import { consumeAuthNext, setAuthNext } from "../lib/alerty/session";
 import { authCodeFromUrl, exchangeAuthCodeOnce } from "../lib/alerty/oauth";
 import { isDemoEnabled } from "../lib/alerty/mock";
@@ -152,6 +154,9 @@ export default function RootLayout() {
     void (async () => {
       await hydrateCityPreference();
       if (cancelled) return;
+      if (Platform.OS === "web" && typeof document !== "undefined") {
+        document.title = activeSiteDocumentTitle();
+      }
       if (isDemoEnabled) {
         startDemo();
         return;
@@ -164,6 +169,17 @@ export default function RootLayout() {
     return () => {
       cancelled = true;
     };
+  }, []);
+
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    const syncTitle = () => {
+      if (typeof document !== "undefined") {
+        document.title = activeSiteDocumentTitle();
+      }
+    };
+    syncTitle();
+    return subscribeCityChange(syncTitle);
   }, []);
 
   useEffect(() => {
