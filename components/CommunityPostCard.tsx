@@ -4,9 +4,12 @@ import { forCommunityListDisplay, formatRelativeTime } from "../lib/alerty/utils
 import type { CommunityPost } from "../lib/alerty/types";
 import { communitySourceLabel, isNewsPost } from "../lib/alerty/communityLabel";
 import { CATEGORY_LABELS } from "../lib/alerty/constants";
+import { displayTitle } from "../lib/alerty/displayTitle";
+import { actionLineFor } from "../lib/alerty/actionLines";
 import { isOperativoCategory } from "../lib/alerty/operativoPolicy";
 import { useAlertyTheme } from "../lib/useAlertyTheme";
 import { CommunityVoteBar } from "./CommunityVoteBar";
+import { SharePulseButton } from "./SharePulseButton";
 
 type CommunityPostCardProps = {
   post: CommunityPost;
@@ -72,12 +75,20 @@ export function CommunityPostCard({ post: rawPost, onPress }: CommunityPostCardP
               </View>
             ) : null}
           </View>
-          <Text style={styles.timeText}>{formatRelativeTime(post.createdAt)}</Text>
+          <View style={styles.headerRight}>
+            <SharePulseButton post={rawPost} variant="compact" />
+            <Text style={styles.timeText}>{formatRelativeTime(post.createdAt)}</Text>
+          </View>
         </View>
 
         <Text style={styles.bodyText} numberOfLines={4}>
-          {post.text}
+          {displayTitle(post.text)}
         </Text>
+        {post.categoryGuess ? (
+          <Text style={styles.actionHint} numberOfLines={2}>
+            {actionLineFor(post.categoryGuess)}
+          </Text>
+        ) : null}
 
         {post.mediaUrl ? (
           <Image
@@ -135,6 +146,18 @@ const createStyles = (theme: any) =>
       alignItems: "center",
       justifyContent: "space-between",
       gap: 8,
+    },
+    headerRight: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+      flexShrink: 0,
+    },
+    actionHint: {
+      color: theme.colors.textMuted,
+      fontSize: 12,
+      fontFamily: theme.fonts.body,
+      lineHeight: 17,
     },
     badgeRow: {
       flexDirection: "row",
