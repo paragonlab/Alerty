@@ -14,6 +14,8 @@ const {
   renderImage,
   countDarkPixels,
   cleanShareTitle,
+  fitHeadline,
+  actionLineFor,
   FONT_REGULAR,
   FONT_BOLD,
 } = require("./_pulseShared.js");
@@ -46,13 +48,40 @@ const communityModel = {
   showMap: true,
 };
 
-const cleaned = cleanShareTitle(communityRaw, "Aviso", 80);
+const longCommunityRaw =
+  "URGENTE: ANUNCIAN AMPLIACIÓN DE OBRAS DEL PROGRAMA DEL BIENESTAR EN VARIAS COLONIAS DE Culiacán Y Mazatlán CON ENTREGA GRADUAL DE VIVIENDAS https://t.co/xyz999 más detalles en el enlace";
+
+const cleaned = cleanShareTitle(communityRaw, "Aviso", 100);
 assert(!/t\.co|https?:/i.test(cleaned), `sin links: ${cleaned}`);
 assert(!cleaned.includes("🏠") && !cleaned.includes("🚨"), `sin emojis: ${cleaned}`);
 assert(!/\n/.test(cleaned), "sin saltos");
-assert(cleaned.length <= 81, `max ~80: ${cleaned.length} «${cleaned}»`);
-assert(/Sinaloa|Viviendas|Proyectan/i.test(cleaned), `contenido útil: ${cleaned}`);
+assert(cleaned.startsWith("Proyectan"), `oración: ${cleaned}`);
+assert(/\bmil\b/.test(cleaned) && /\bviviendas\b/.test(cleaned), `sentence case: ${cleaned}`);
+assert(cleaned.includes("Sinaloa") && cleaned.includes("Bienestar"), `gazetteer: ${cleaned}`);
 assert(cleaned !== cleaned.toUpperCase(), `no ALL CAPS: ${cleaned}`);
+
+assert(actionLineFor("alerta") === "", "community alerta sin action");
+assert(actionLineFor("bloqueo").length > 0, "bloqueo sí tiene action");
+
+const wrapped = fitHeadline(cleaned);
+assert(wrapped.lines.length >= 1 && wrapped.lines.length <= 3, `wrap 1–3: ${wrapped.lines.length}`);
+assert(
+  wrapped.lines.every((l) => l.length <= 50),
+  `líneas acotadas: ${JSON.stringify(wrapped.lines)}`,
+);
+
+const longClean = cleanShareTitle(longCommunityRaw, "Aviso", 140);
+const longWrap = fitHeadline(longClean);
+assert(longWrap.lines.length <= 3, `largo ≤3 líneas: ${longWrap.lines.length}`);
+assert(
+  longWrap.truncated || longWrap.lines.join(" ").length <= longClean.length,
+  "largo trunca o cabe",
+);
+assert(longWrap.lines[longWrap.lines.length - 1].includes("…") || !longWrap.truncated, "… si truncado");
+
+const shortWrap = fitHeadline("Choque menor en Centro");
+assert(shortWrap.lines.length === 1, "corto en 1 línea");
+assert(shortWrap.fontSize === 40, "corto usa fuente grande");
 
 const withText = renderImage(svgFor(alertModel), { withFonts: true });
 const shapesOnly = renderImage(svgShapesOnly(alertModel), { withFonts: true });
@@ -64,13 +93,23 @@ assert(
   `texto debe pintar tinta en la zona del título (con=${darkWith}, formas=${darkShapes})`,
 );
 
-// Sin fuentes: resvg no pinta glyphs → poca tinta (simula el bug de prod).
 const noFont = renderImage(svgFor(alertModel), { withFonts: false });
 const darkNoFont = countDarkPixels(noFont);
 assert(
   darkWith > darkNoFont * 3 + 80,
   `con TTF debe haber mucho más texto que sin fuentes (con=${darkWith}, sin=${darkNoFont})`,
 );
+
+const alertSvg = svgFor(alertModel);
+assert(alertSvg.includes("tspan"), "alerta usa wrap/tspan");
+assert(alertSvg.includes("Mejor rodea"), "alerta riesgo muestra action");
+assert(!alertSvg.includes("Échale un ojo"), "sin copy viejo de alerta");
+
+const communitySvg = svgFor(communityModel);
+assert(communitySvg.includes("tspan"), "community wrap");
+assert((communitySvg.match(/<tspan/g) || []).length >= 2, "community ≥2 líneas");
+assert(!communitySvg.includes("Échale un ojo"), "community sin action alarmista");
+assert(!/y="${270 + 56}"|decide con calma/i.test(communitySvg), "sin línea de acción info");
 
 const outDir = "/opt/cursor/artifacts";
 mkdirSync(outDir, { recursive: true });
@@ -84,7 +123,28 @@ const communityDark = countDarkPixels(communityRendered);
 assert(communityDark > 100, `community OG con texto (${communityDark} px)`);
 writeFileSync(join(outDir, "og-community-with-text.png"), communityRendered.asPng());
 
-// Sanity: renderPng sigue exportando buffer
+const longModel = {
+  ...communityModel,
+  title: longCommunityRaw,
+};
+writeFileSync(
+  join(outDir, "og-community-long-with-text.png"),
+  renderImage(svgFor(longModel), { withFonts: true }).asPng(),
+);
+
+const shortModel = {
+  category: "accidente",
+  title: "Choque menor en Centro",
+  place: "Centro",
+  cityName: "Mazatlán",
+  status: "active",
+  showMap: true,
+};
+writeFileSync(
+  join(outDir, "og-alert-short-with-text.png"),
+  renderImage(svgFor(shortModel), { withFonts: true }).asPng(),
+);
+
 const viaHelper = renderPng(svgFor(alertModel));
 assert(viaHelper && viaHelper.length > 5000, "renderPng size");
 
@@ -93,6 +153,8 @@ console.log("og.png.test.mjs OK", {
   darkShapes,
   darkNoFont,
   cleaned,
+  wrapLines: wrapped.lines,
+  longLines: longWrap.lines,
   communityDark,
   alertBytes: alertPng.length,
 });

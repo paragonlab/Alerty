@@ -84,7 +84,7 @@ export function CommunityPostCard({ post: rawPost, onPress }: CommunityPostCardP
         <Text style={styles.bodyText} numberOfLines={4}>
           {cleanShareTitle(post.text, undefined, 160)}
         </Text>
-        {post.categoryGuess ? (
+        {post.categoryGuess && actionLineFor(post.categoryGuess) ? (
           <Text style={styles.actionHint} numberOfLines={2}>
             {actionLineFor(post.categoryGuess)}
           </Text>

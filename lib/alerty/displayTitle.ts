@@ -76,6 +76,14 @@ export function toTitleCaseEs(text: string): string {
     .join("");
 }
 
+/** Oración: solo la primera letra en mayúscula; el gazetteer corrige nombres propios. */
+export function toSentenceCaseEs(text: string): string {
+  const lower = text.toLocaleLowerCase("es-MX");
+  const m = lower.match(/^(\P{L}*)(\p{L})(.*)$/u);
+  if (!m) return lower;
+  return `${m[1]}${m[2].toLocaleUpperCase("es-MX")}${m[3]}`;
+}
+
 type PlaceEntry = { name: string; aliases?: string[] };
 
 function fold(s: string): string {
@@ -95,7 +103,14 @@ function buildPlaceCatalog(extra: PlaceEntry[] = []): { needle: string; canonica
       pairs.push({ needle: fold(a), canonical: p.name });
     }
   }
-  for (const name of ["La Obregón", "Obregón", "Culiacán", "Mazatlán", "Sinaloa"]) {
+  for (const name of [
+    "La Obregón",
+    "Obregón",
+    "Culiacán",
+    "Mazatlán",
+    "Sinaloa",
+    "Bienestar",
+  ]) {
     pairs.push({ needle: fold(name), canonical: name });
   }
   pairs.sort((a, b) => b.needle.length - a.needle.length);
@@ -109,6 +124,24 @@ function buildPlaceCatalog(extra: PlaceEntry[] = []): { needle: string; canonica
 
 const PLACE_CATALOG = buildPlaceCatalog();
 
+/** Patrón que tolera tildes/ñ al buscar un nombre del gazetteer. */
+function esFlexiblePattern(name: string): string {
+  const vowel: Record<string, string> = {
+    a: "[aáàäâ]",
+    e: "[eéèëê]",
+    i: "[iíìïî]",
+    o: "[oóòöô]",
+    u: "[uúùüû]",
+    n: "[nñ]",
+  };
+  return [...name].map((ch) => {
+    if (/\s/.test(ch)) return "\\s+";
+    const lower = ch.toLocaleLowerCase("es-MX");
+    if (vowel[lower]) return vowel[lower];
+    return lower.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  }).join("");
+}
+
 /**
  * Sustituye menciones de colonias/ciudades por su casing canónico,
  * sin alterar el resto del texto.
@@ -116,8 +149,9 @@ const PLACE_CATALOG = buildPlaceCatalog();
 export function applyGazetteerCasing(text: string): string {
   let out = text;
   for (const { needle, canonical } of PLACE_CATALOG) {
-    const escaped = needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
-    const re = new RegExp(`(^|[^\\p{L}])(${escaped})(?![\\p{L}])`, "giu");
+    // needle está folded; reconstruimos patrón flexible desde el canónico.
+    const flexible = esFlexiblePattern(canonical);
+    const re = new RegExp(`(^|[^\\p{L}])(${flexible})(?![\\p{L}])`, "giu");
     out = out.replace(re, (_m, pre: string) => `${pre}${canonical}`);
   }
   return out;
@@ -131,6 +165,8 @@ export function stripNoise(text: string): string {
     .replace(ALARMIST_EMOJI, " ")
     .replace(/[\u{FE0F}\u{200D}]/gu, "")
     .replace(/[\r\n\t]+/g, " ")
+    .replace(/\s{2,}/g, " ")
+    .replace(/\b(más\s+info|más\s+detalles|ver\s+más|lee\s+más|click\s+aquí)\.?$/i, "")
     .replace(/\s{2,}/g, " ")
     .trim();
 }
@@ -160,7 +196,7 @@ export function displayTitle(
   let out = base.replace(REDUNDANT_PREFIX, "").trim() || base;
 
   if (mostlyShouting(out)) {
-    out = toTitleCaseEs(out);
+    out = toSentenceCaseEs(out);
   }
 
   out = applyGazetteerCasing(out);

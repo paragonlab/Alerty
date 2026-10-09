@@ -6,8 +6,8 @@
 
 const {
   APP,
-  ACTION,
   CATEGORY_LABELS,
+  actionLineFor,
   cleanShareTitle,
   esc,
   loadPulse,
@@ -19,14 +19,14 @@ function pageHtml(pulse) {
   const citySlug = pulse.citySlug;
   const label = CATEGORY_LABELS[cat] || cat;
   // loadPulse ya limpia community; re-aplicar por si es alerta o cache viejo.
-  const headline = cleanShareTitle(pulse.title, label, 80);
-  const action = ACTION[cat] || ACTION.otro;
+  const headline = cleanShareTitle(pulse.title, label, 100);
+  const action = actionLineFor(cat);
   const cleared = pulse.status === "resolved";
   const place = pulse.place;
   const publicId = pulse.publicId;
   const url = `${APP}/p/${publicId}`;
   const ogImage = `${APP}/api/og?id=${encodeURIComponent(publicId)}`;
-  const desc = `${action} · ${place}`;
+  const desc = action ? `${action} · ${place}` : `${place} · Pulso ${city}`;
   const appLink = `${APP}/?city=${encodeURIComponent(citySlug)}`;
   const source = pulse.sourceHint || "aviso de vecinos";
 
@@ -97,7 +97,7 @@ function pageHtml(pulse) {
     <article class="card">
       <span class="pill">${esc(label)}</span>
       <h1>${esc(headline)}</h1>
-      <p class="action">${esc(action)}</p>
+      ${action ? `<p class="action">${esc(action)}</p>` : ""}
       <p class="meta">${esc(place)} · ${esc(source)}</p>
       ${cleared ? '<span class="cleared">Ya se despejó</span>' : ""}
     </article>

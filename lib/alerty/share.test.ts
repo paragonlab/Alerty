@@ -76,6 +76,21 @@ function run() {
   });
   assert(community.url.includes("/p/c-"), `community url: ${community.url}`);
 
+  const news = buildShareCardModel({
+    id,
+    kind: "community",
+    category: "alerta",
+    title: "PROYECTAN 37 MIL VIVIENDAS DEL BIENESTAR PARA Sinaloa",
+    placeLabel: "Culiacán",
+    cityName: "Culiacán",
+  });
+  assert(news.actionLine === "", "noticia informativa sin action line");
+  assert(news.headline.startsWith("Proyectan"), `oración: ${news.headline}`);
+  assert(/\bmil\b/.test(news.headline), `sentence case mil: ${news.headline}`);
+  assert(!sharePulseMessage(news).includes("Échale un ojo"), "mensaje sin action info");
+  assert(shareCardSvg(news).includes("tspan"), "SVG wrap");
+  assert(!shareCardSvg(news).includes("Échale un ojo"), "SVG sin action info");
+
   const thanks = neighborThanksLine({ username: "vecina", notifiedCount: 12 });
   assert(thanks === "Gracias a @vecina se avisó a 12 personas", `thanks: ${thanks}`);
   assert(neighborThanksLine({ username: "x", notifiedCount: 0 }) === null, "sin gracias si N=0");

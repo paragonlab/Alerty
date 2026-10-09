@@ -1,9 +1,13 @@
 /**
  * Una línea útil por categoría: qué conviene hacer, sin tono de nota roja.
  * Se muestra bajo el título en feed/detalle/share/OG.
+ * Categorías informativas (alerta/otro) no llevan línea de acción.
  */
 
 import type { PinCategory } from "./types";
+
+/** Noticias / avisos genéricos: sin consejo de “evitar la zona”. */
+const NO_ACTION_CATEGORIES = new Set(["alerta", "otro"]);
 
 export const CATEGORY_ACTION_LINE: Record<PinCategory, string> = {
   balacera: "Mejor evita la zona un rato y espera más avisos.",
@@ -20,16 +24,21 @@ export const CATEGORY_ACTION_LINE: Record<PinCategory, string> = {
   sos: "Si puedes ayudar con seguridad, abre el mapa. No sustituye al 911.",
   desaparecida: "Comparte solo datos verificados; evita rumores.",
   operativo: "Información con retraso · sin ubicación en vivo.",
-  alerta: "Échale un ojo a la zona y decide con calma.",
-  otro: "Revisa el aviso y confirma con otras fuentes.",
+  alerta: "",
+  otro: "",
 };
+
+export function showsActionLine(
+  category: string | null | undefined,
+): boolean {
+  if (!category) return false;
+  if (NO_ACTION_CATEGORIES.has(category)) return false;
+  return Boolean(CATEGORY_ACTION_LINE[category as PinCategory]);
+}
 
 export function actionLineFor(
   category: string | null | undefined,
 ): string {
-  if (!category) return "Infórmate y decide con calma.";
-  return (
-    CATEGORY_ACTION_LINE[category as PinCategory] ??
-    "Infórmate y decide con calma."
-  );
+  if (!category || NO_ACTION_CATEGORIES.has(category)) return "";
+  return CATEGORY_ACTION_LINE[category as PinCategory] ?? "";
 }

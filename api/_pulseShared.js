@@ -76,11 +76,20 @@ const ACTION = {
   sos: "Si puedes ayudar con seguridad, abre el mapa. No sustituye al 911.",
   desaparecida: "Comparte solo datos verificados; evita rumores.",
   operativo: "Información con retraso · sin ubicación en vivo.",
-  alerta: "Échale un ojo a la zona y decide con calma.",
-  otro: "Revisa el aviso y confirma con otras fuentes.",
+  /** Informativos: sin consejo de “evitar la zona”. */
+  alerta: "",
+  otro: "",
 };
 
-const SMALL = new Set(["a", "al", "con", "de", "del", "el", "en", "la", "las", "los", "para", "por", "un", "una", "y"]);
+/** Categorías de noticia/aviso genérico — sin línea de acción. */
+const NO_ACTION_CATEGORIES = new Set(["alerta", "otro"]);
+
+/** Área de título OG: x=64 → margen antes del círculo (cx=980, r=90 → ~890). */
+const TITLE_MAX_WIDTH_PX = 760;
+const TITLE_FONT_SIZES = [40, 36, 32];
+const TITLE_MAX_LINES = 3;
+/** Avance aprox. Noto Sans Bold (em) — ligeramente conservador para no rozar el círculo. */
+const TITLE_CHAR_EM = 0.62;
 
 const PLACE_CANON = [
   "Las Quintas",
@@ -95,6 +104,7 @@ const PLACE_CANON = [
   "Culiacán",
   "Mazatlán",
   "Sinaloa",
+  "Bienestar",
   "Centro",
   "Zona Dorada",
   "Olas Altas",
@@ -115,16 +125,82 @@ function fold(s) {
     .toLocaleLowerCase("es-MX");
 }
 
-function toTitleCaseEs(text) {
-  const parts = text.toLocaleLowerCase("es-MX").split(/(\s+)/);
-  let wordIndex = 0;
-  return parts
-    .map((part) => {
-      if (/^\s+$/.test(part) || !part) return part;
-      const isFirst = wordIndex === 0;
-      wordIndex += 1;
-      if (!isFirst && SMALL.has(part)) return part;
-      return part.charAt(0).toLocaleUpperCase("es-MX") + part.slice(1);
+function toSentenceCaseEs(text) {
+  const lower = String(text).toLocaleLowerCase("es-MX");
+  const m = lower.match(/^(\P{L}*)(\p{L})(.*)$/u);
+  if (!m) return lower;
+  return `${m[1]}${m[2].toLocaleUpperCase("es-MX")}${m[3]}`;
+}
+
+function actionLineFor(category) {
+  if (!category || NO_ACTION_CATEGORIES.has(category)) return "";
+  return ACTION[category] || "";
+}
+
+/**
+ * Envuelve el titular en ≤ maxLines dentro del ancho útil (sin cruzar el círculo).
+ * Baja el font-size si hace falta; elipsis tipográfico si aún no cabe.
+ */
+function fitHeadline(text, opts = {}) {
+  const maxWidthPx = opts.maxWidthPx ?? TITLE_MAX_WIDTH_PX;
+  const maxLines = opts.maxLines ?? TITLE_MAX_LINES;
+  const fontSizes = opts.fontSizes ?? TITLE_FONT_SIZES;
+  const words = String(text || "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (!words.length) {
+    return { lines: ["Aviso en tu zona"], fontSize: fontSizes[0], truncated: false };
+  }
+
+  let lastAttempt = null;
+  for (const fontSize of fontSizes) {
+    const maxChars = Math.max(10, Math.floor(maxWidthPx / (fontSize * TITLE_CHAR_EM)));
+    const lines = [];
+    let i = 0;
+    while (i < words.length && lines.length < maxLines) {
+      let line = words[i++];
+      while (i < words.length) {
+        const trial = `${line} ${words[i]}`;
+        if (trial.length > maxChars) break;
+        line = trial;
+        i += 1;
+      }
+      lines.push(line);
+    }
+    lastAttempt = { lines, fontSize, i, maxChars };
+    if (i >= words.length) {
+      return { lines, fontSize, truncated: false };
+    }
+  }
+
+  const { lines, fontSize, maxChars } = lastAttempt;
+  let last = lines[lines.length - 1];
+  const budget = Math.max(8, maxChars - 1);
+  if (last.length > budget) {
+    const cut = last.slice(0, budget);
+    const sp = cut.lastIndexOf(" ");
+    last = (sp >= Math.floor(budget * 0.45) ? cut.slice(0, sp) : cut).trimEnd();
+  }
+  lines[lines.length - 1] = `${last.replace(/…$/u, "").trimEnd()}…`;
+  return { lines, fontSize, truncated: true };
+}
+
+function esFlexiblePattern(name) {
+  const vowel = {
+    a: "[aáàäâ]",
+    e: "[eéèëê]",
+    i: "[iíìïî]",
+    o: "[oóòöô]",
+    u: "[uúùüû]",
+    n: "[nñ]",
+  };
+  return [...name]
+    .map((ch) => {
+      if (/\s/.test(ch)) return "\\s+";
+      const lower = ch.toLocaleLowerCase("es-MX");
+      if (vowel[lower]) return vowel[lower];
+      return lower.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     })
     .join("");
 }
@@ -133,8 +209,8 @@ function applyGazetteerCasing(text) {
   let out = text;
   const sorted = [...PLACE_CANON].sort((a, b) => b.length - a.length);
   for (const name of sorted) {
-    const needle = fold(name).replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
-    const re = new RegExp(`(^|[^\\p{L}])(${needle})(?![\\p{L}])`, "giu");
+    const flexible = esFlexiblePattern(name);
+    const re = new RegExp(`(^|[^\\p{L}])(${flexible})(?![\\p{L}])`, "giu");
     out = out.replace(re, (_, pre) => `${pre}${name}`);
   }
   return out;
@@ -146,6 +222,8 @@ function stripNoise(text) {
     .replace(/\p{Extended_Pictographic}/gu, " ")
     .replace(/[\u{1F6A8}\u{1F525}\u{26A0}\u{1F4A5}\u{FE0F}\u{200D}]/gu, " ")
     .replace(/[\r\n\t]+/g, " ")
+    .replace(/\s{2,}/g, " ")
+    .replace(/\b(más\s+info|más\s+detalles|ver\s+más|lee\s+más|click\s+aquí)\.?$/i, "")
     .replace(/\s{2,}/g, " ")
     .trim();
 }
@@ -182,7 +260,7 @@ function displayTitle(raw, fallback) {
       shouting = caps.length / words.length >= 0.5;
     }
   }
-  if (shouting) out = toTitleCaseEs(out);
+  if (shouting) out = toSentenceCaseEs(out);
   return applyGazetteerCasing(out).replace(/([!?¡¿]){2,}/g, "$1");
 }
 
@@ -286,8 +364,25 @@ async function loadPulse(rawId) {
 function svgFor(model) {
   const accent = CATEGORY_COLORS[model.category] || "#6B7280";
   const cat = CATEGORY_LABELS[model.category] || model.category;
-  const headline = cleanShareTitle(model.title, cat, 80);
-  const action = (ACTION[model.category] || ACTION.otro).slice(0, 80);
+  // Sin recorte agresivo a 80: el wrap a 2–3 líneas decide el límite visual.
+  const headline = cleanShareTitle(model.title, cat, 140);
+  const { lines, fontSize } = fitHeadline(headline);
+  const lineHeight = Math.round(fontSize * 1.22);
+  const titleY = 270;
+  const titleTspans = lines
+    .map((line, idx) =>
+      idx === 0
+        ? `<tspan x="64" y="${titleY}">${esc(line)}</tspan>`
+        : `<tspan x="64" dy="${lineHeight}">${esc(line)}</tspan>`,
+    )
+    .join("");
+  const titleBottom = titleY + (lines.length - 1) * lineHeight;
+  const placeY = titleBottom + 48;
+  const action = actionLineFor(model.category).slice(0, 80);
+  const actionY = placeY + 56;
+  const actionSvg = action
+    ? `<text x="64" y="${actionY}" fill="#1B1A17" font-family="${FONT_FAMILY}" font-size="26">${esc(action)}</text>`
+    : "";
   const cleared = model.status === "resolved";
   const ff = FONT_FAMILY;
   const badge = cleared
@@ -314,9 +409,9 @@ function svgFor(model) {
   <text x="64" y="122" fill="#6A6257" font-family="${ff}" font-size="20">${esc(model.cityName)}</text>
   <rect x="64" y="160" rx="18" width="${Math.min(360, 48 + cat.length * 14)}" height="40" fill="${accent}" fill-opacity="0.14"/>
   <text x="84" y="187" fill="${accent}" font-family="${ff}" font-size="20" font-weight="600">${esc(cat)}</text>
-  <text x="64" y="280" fill="#1B1A17" font-family="${ff}" font-size="40" font-weight="700">${esc(headline)}</text>
-  <text x="64" y="340" fill="#6A6257" font-family="${ff}" font-size="24">${esc(model.place)}</text>
-  <text x="64" y="400" fill="#1B1A17" font-family="${ff}" font-size="26">${esc(action)}</text>
+  <text fill="#1B1A17" font-family="${ff}" font-size="${fontSize}" font-weight="700">${titleTspans}</text>
+  <text x="64" y="${placeY}" fill="#6A6257" font-family="${ff}" font-size="24">${esc(model.place)}</text>
+  ${actionSvg}
   ${badge}
   ${map}
   <text x="64" y="590" fill="#6A6257" font-family="${ff}" font-size="18">Informar para cuidarse · pulso-ciudadano.com</text>
@@ -379,7 +474,7 @@ function countDarkPixels(rendered, opts = {}) {
     x0 = 50,
     x1 = 900,
     y0 = 230,
-    y1 = 310,
+    y1 = 400,
     threshold = 140,
   } = opts;
   const { width, height, pixels } = rendered;
@@ -413,6 +508,9 @@ module.exports = {
   cleanShareTitle,
   stripNoise,
   truncateAtWord,
+  toSentenceCaseEs,
+  fitHeadline,
+  actionLineFor,
   esc,
   loadPulse,
   svgFor,
