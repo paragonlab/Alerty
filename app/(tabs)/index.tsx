@@ -926,7 +926,9 @@ export default function MapScreen() {
                 }
                 if (!nearbyAlert) return;
                 void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                router.push(`/alert/${nearbyAlert.alert.id}`);
+                setSelectedCommunity(null);
+                setSelectedSponsor(null);
+                setSelectedAlert(nearbyAlert.alert);
               }}
               accessibilityLabel={
                 riskResult
