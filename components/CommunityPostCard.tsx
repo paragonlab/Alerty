@@ -4,7 +4,7 @@ import { forCommunityListDisplay, formatRelativeTime } from "../lib/alerty/utils
 import type { CommunityPost } from "../lib/alerty/types";
 import { communitySourceLabel, isNewsPost } from "../lib/alerty/communityLabel";
 import { CATEGORY_LABELS } from "../lib/alerty/constants";
-import { displayTitle } from "../lib/alerty/displayTitle";
+import { cleanShareTitle } from "../lib/alerty/displayTitle";
 import { actionLineFor } from "../lib/alerty/actionLines";
 import { isOperativoCategory } from "../lib/alerty/operativoPolicy";
 import { useAlertyTheme } from "../lib/useAlertyTheme";
@@ -82,9 +82,9 @@ export function CommunityPostCard({ post: rawPost, onPress }: CommunityPostCardP
         </View>
 
         <Text style={styles.bodyText} numberOfLines={4}>
-          {displayTitle(post.text)}
+          {cleanShareTitle(post.text, undefined, 160)}
         </Text>
-        {post.categoryGuess ? (
+        {post.categoryGuess && actionLineFor(post.categoryGuess) ? (
           <Text style={styles.actionHint} numberOfLines={2}>
             {actionLineFor(post.categoryGuess)}
           </Text>

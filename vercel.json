@@ -2,6 +2,14 @@
   "installCommand": "npm install",
   "buildCommand": "npm run vercel-build",
   "outputDirectory": "dist",
+  "functions": {
+    "api/og.js": {
+      "includeFiles": "api/fonts/**"
+    },
+    "api/p.js": {
+      "includeFiles": "api/fonts/**"
+    }
+  },
   "routes": [
     {
       "src": "/privacy",

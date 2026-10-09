@@ -2,7 +2,15 @@
  * Helpers compartidos por /api/p y /api/og (CommonJS, sin deps de la app Expo).
  */
 
+const path = require("path");
+const fs = require("fs");
+
 const APP = "https://pulso-ciudadano.com";
+const FONT_DIR = path.join(__dirname, "fonts");
+const FONT_REGULAR = path.join(FONT_DIR, "NotoSans-Regular.ttf");
+const FONT_BOLD = path.join(FONT_DIR, "NotoSans-Bold.ttf");
+/** Familia declarada en el SVG — debe coincidir con el nombre interno de Noto. */
+const FONT_FAMILY = "Noto Sans";
 const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
 const SUPABASE_ANON =
   process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
@@ -68,11 +76,20 @@ const ACTION = {
   sos: "Si puedes ayudar con seguridad, abre el mapa. No sustituye al 911.",
   desaparecida: "Comparte solo datos verificados; evita rumores.",
   operativo: "Información con retraso · sin ubicación en vivo.",
-  alerta: "Échale un ojo a la zona y decide con calma.",
-  otro: "Revisa el aviso y confirma con otras fuentes.",
+  /** Informativos: sin consejo de “evitar la zona”. */
+  alerta: "",
+  otro: "",
 };
 
-const SMALL = new Set(["a", "al", "con", "de", "del", "el", "en", "la", "las", "los", "para", "por", "un", "una", "y"]);
+/** Categorías de noticia/aviso genérico — sin línea de acción. */
+const NO_ACTION_CATEGORIES = new Set(["alerta", "otro"]);
+
+/** Área de título OG: x=64 → margen antes del círculo (cx=980, r=90 → ~890). */
+const TITLE_MAX_WIDTH_PX = 760;
+const TITLE_FONT_SIZES = [40, 36, 32];
+const TITLE_MAX_LINES = 3;
+/** Avance aprox. Noto Sans Bold (em) — ligeramente conservador para no rozar el círculo. */
+const TITLE_CHAR_EM = 0.62;
 
 const PLACE_CANON = [
   "Las Quintas",
@@ -87,6 +104,7 @@ const PLACE_CANON = [
   "Culiacán",
   "Mazatlán",
   "Sinaloa",
+  "Bienestar",
   "Centro",
   "Zona Dorada",
   "Olas Altas",
@@ -107,16 +125,82 @@ function fold(s) {
     .toLocaleLowerCase("es-MX");
 }
 
-function toTitleCaseEs(text) {
-  const parts = text.toLocaleLowerCase("es-MX").split(/(\s+)/);
-  let wordIndex = 0;
-  return parts
-    .map((part) => {
-      if (/^\s+$/.test(part) || !part) return part;
-      const isFirst = wordIndex === 0;
-      wordIndex += 1;
-      if (!isFirst && SMALL.has(part)) return part;
-      return part.charAt(0).toLocaleUpperCase("es-MX") + part.slice(1);
+function toSentenceCaseEs(text) {
+  const lower = String(text).toLocaleLowerCase("es-MX");
+  const m = lower.match(/^(\P{L}*)(\p{L})(.*)$/u);
+  if (!m) return lower;
+  return `${m[1]}${m[2].toLocaleUpperCase("es-MX")}${m[3]}`;
+}
+
+function actionLineFor(category) {
+  if (!category || NO_ACTION_CATEGORIES.has(category)) return "";
+  return ACTION[category] || "";
+}
+
+/**
+ * Envuelve el titular en ≤ maxLines dentro del ancho útil (sin cruzar el círculo).
+ * Baja el font-size si hace falta; elipsis tipográfico si aún no cabe.
+ */
+function fitHeadline(text, opts = {}) {
+  const maxWidthPx = opts.maxWidthPx ?? TITLE_MAX_WIDTH_PX;
+  const maxLines = opts.maxLines ?? TITLE_MAX_LINES;
+  const fontSizes = opts.fontSizes ?? TITLE_FONT_SIZES;
+  const words = String(text || "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (!words.length) {
+    return { lines: ["Aviso en tu zona"], fontSize: fontSizes[0], truncated: false };
+  }
+
+  let lastAttempt = null;
+  for (const fontSize of fontSizes) {
+    const maxChars = Math.max(10, Math.floor(maxWidthPx / (fontSize * TITLE_CHAR_EM)));
+    const lines = [];
+    let i = 0;
+    while (i < words.length && lines.length < maxLines) {
+      let line = words[i++];
+      while (i < words.length) {
+        const trial = `${line} ${words[i]}`;
+        if (trial.length > maxChars) break;
+        line = trial;
+        i += 1;
+      }
+      lines.push(line);
+    }
+    lastAttempt = { lines, fontSize, i, maxChars };
+    if (i >= words.length) {
+      return { lines, fontSize, truncated: false };
+    }
+  }
+
+  const { lines, fontSize, maxChars } = lastAttempt;
+  let last = lines[lines.length - 1];
+  const budget = Math.max(8, maxChars - 1);
+  if (last.length > budget) {
+    const cut = last.slice(0, budget);
+    const sp = cut.lastIndexOf(" ");
+    last = (sp >= Math.floor(budget * 0.45) ? cut.slice(0, sp) : cut).trimEnd();
+  }
+  lines[lines.length - 1] = `${last.replace(/…$/u, "").trimEnd()}…`;
+  return { lines, fontSize, truncated: true };
+}
+
+function esFlexiblePattern(name) {
+  const vowel = {
+    a: "[aáàäâ]",
+    e: "[eéèëê]",
+    i: "[iíìïî]",
+    o: "[oóòöô]",
+    u: "[uúùüû]",
+    n: "[nñ]",
+  };
+  return [...name]
+    .map((ch) => {
+      if (/\s/.test(ch)) return "\\s+";
+      const lower = ch.toLocaleLowerCase("es-MX");
+      if (vowel[lower]) return vowel[lower];
+      return lower.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     })
     .join("");
 }
@@ -125,24 +209,63 @@ function applyGazetteerCasing(text) {
   let out = text;
   const sorted = [...PLACE_CANON].sort((a, b) => b.length - a.length);
   for (const name of sorted) {
-    const needle = fold(name).replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
-    const re = new RegExp(`(^|[^\\p{L}])(${needle})(?![\\p{L}])`, "giu");
+    const flexible = esFlexiblePattern(name);
+    const re = new RegExp(`(^|[^\\p{L}])(${flexible})(?![\\p{L}])`, "giu");
     out = out.replace(re, (_, pre) => `${pre}${name}`);
   }
   return out;
 }
 
+function stripNoise(text) {
+  return String(text || "")
+    .replace(/https?:\/\/\S+|www\.\S+|\b(?:t\.co|bit\.ly|goo\.gl|tinyurl\.com)\/\S+/gi, " ")
+    .replace(/\p{Extended_Pictographic}/gu, " ")
+    .replace(/[\u{1F6A8}\u{1F525}\u{26A0}\u{1F4A5}\u{FE0F}\u{200D}]/gu, " ")
+    .replace(/[\r\n\t]+/g, " ")
+    .replace(/\s{2,}/g, " ")
+    .replace(/\b(más\s+info|más\s+detalles|ver\s+más|lee\s+más|click\s+aquí)\.?$/i, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
+function truncateAtWord(text, maxLen) {
+  const t = String(text || "").trim();
+  if (t.length <= maxLen) return t;
+  const budget = Math.max(8, maxLen - 1);
+  const cut = t.slice(0, budget);
+  const sp = cut.lastIndexOf(" ");
+  const base = (sp >= Math.floor(budget * 0.45) ? cut.slice(0, sp) : cut).trimEnd();
+  return `${base}…`;
+}
+
 function displayTitle(raw, fallback) {
-  let out = String(raw || fallback || "Aviso en tu zona").trim();
-  out = out.replace(/[\u{1F6A8}\u{1F525}\u{26A0}\u{1F4A5}]/gu, "").replace(/\s{2,}/g, " ").trim();
+  let out = stripNoise(raw || fallback || "Aviso en tu zona");
+  if (!out) out = "Aviso en tu zona";
+  out = out
+    .replace(/^(urgente|última\s*hora|breaking|alerta\s*roja|atención|aviso\s*importante)\s*[:\-–—!]+\s*/i, "")
+    .trim() || out;
   const letters = out.replace(/[^A-Za-zÁÉÍÓÚÜÑáéíóúüñ]/g, "");
+  let shouting = false;
   if (letters.length >= 8) {
     const upper = letters.replace(/[^A-ZÁÉÍÓÚÜÑ]/g, "").length;
-    if (upper / letters.length >= 0.75) {
-      out = toTitleCaseEs(out);
+    shouting = upper / letters.length >= 0.75;
+  }
+  if (!shouting) {
+    const words = out.split(/\s+/).filter((w) => /[\p{L}]{3,}/u.test(w));
+    if (words.length >= 2) {
+      const caps = words.filter((w) => {
+        const L = w.replace(/[^A-Za-zÁÉÍÓÚÜÑáéíóúüñ]/g, "");
+        return L.length >= 3 && L === L.toLocaleUpperCase("es-MX") && /[A-ZÁÉÍÓÚÜÑ]/.test(L);
+      });
+      shouting = caps.length / words.length >= 0.5;
     }
   }
-  return applyGazetteerCasing(out);
+  if (shouting) out = toSentenceCaseEs(out);
+  return applyGazetteerCasing(out).replace(/([!?¡¿]){2,}/g, "$1");
+}
+
+function cleanShareTitle(raw, fallback, maxLen = 80) {
+  return truncateAtWord(displayTitle(raw, fallback), maxLen);
 }
 
 function parsePublicId(rawId) {
@@ -205,7 +328,7 @@ async function loadPulse(rawId) {
       kind: "community",
       publicId,
       category: cat,
-      title: row.text || CATEGORY_LABELS[cat] || cat,
+      title: cleanShareTitle(row.text, CATEGORY_LABELS[cat] || cat, 80),
       place,
       cityName: cityMeta.name,
       citySlug: cityMeta.slug,
@@ -241,18 +364,36 @@ async function loadPulse(rawId) {
 function svgFor(model) {
   const accent = CATEGORY_COLORS[model.category] || "#6B7280";
   const cat = CATEGORY_LABELS[model.category] || model.category;
-  const headline = displayTitle(model.title, cat).slice(0, 90);
-  const action = (ACTION[model.category] || ACTION.otro).slice(0, 80);
+  // Sin recorte agresivo a 80: el wrap a 2–3 líneas decide el límite visual.
+  const headline = cleanShareTitle(model.title, cat, 140);
+  const { lines, fontSize } = fitHeadline(headline);
+  const lineHeight = Math.round(fontSize * 1.22);
+  const titleY = 270;
+  const titleTspans = lines
+    .map((line, idx) =>
+      idx === 0
+        ? `<tspan x="64" y="${titleY}">${esc(line)}</tspan>`
+        : `<tspan x="64" dy="${lineHeight}">${esc(line)}</tspan>`,
+    )
+    .join("");
+  const titleBottom = titleY + (lines.length - 1) * lineHeight;
+  const placeY = titleBottom + 48;
+  const action = actionLineFor(model.category).slice(0, 80);
+  const actionY = placeY + 56;
+  const actionSvg = action
+    ? `<text x="64" y="${actionY}" fill="#1B1A17" font-family="${FONT_FAMILY}" font-size="26">${esc(action)}</text>`
+    : "";
   const cleared = model.status === "resolved";
+  const ff = FONT_FAMILY;
   const badge = cleared
     ? `<rect x="64" y="520" rx="16" width="200" height="44" fill="#1F9D6E"/>
-       <text x="164" y="549" text-anchor="middle" fill="#fff" font-family="DejaVu Sans,system-ui,sans-serif" font-size="22" font-weight="700">Ya se despejó</text>`
+       <text x="164" y="549" text-anchor="middle" fill="#fff" font-family="${ff}" font-size="22" font-weight="700">Ya se despejó</text>`
     : "";
   const map = model.showMap
     ? `<circle cx="980" cy="220" r="90" fill="${accent}" fill-opacity="0.12"/>
        <circle cx="980" cy="220" r="28" fill="${accent}"/>
        <circle cx="980" cy="220" r="10" fill="#F6F2EA"/>`
-    : `<text x="980" y="230" text-anchor="middle" fill="#6A6257" font-family="DejaVu Sans,system-ui,sans-serif" font-size="20">Sin mapa en vivo</text>`;
+    : `<text x="980" y="230" text-anchor="middle" fill="#6A6257" font-family="${ff}" font-size="20">Sin mapa en vivo</text>`;
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
@@ -264,31 +405,95 @@ function svgFor(model) {
   </defs>
   <rect width="1200" height="630" fill="url(#bg)"/>
   <rect x="0" y="0" width="12" height="630" fill="${accent}"/>
-  <text x="64" y="88" fill="#1B1A17" font-family="DejaVu Sans,system-ui,sans-serif" font-size="28" font-weight="700" letter-spacing="1">PULSO</text>
-  <text x="64" y="122" fill="#6A6257" font-family="DejaVu Sans,system-ui,sans-serif" font-size="20">${esc(model.cityName)}</text>
+  <text x="64" y="88" fill="#1B1A17" font-family="${ff}" font-size="28" font-weight="700" letter-spacing="1">PULSO</text>
+  <text x="64" y="122" fill="#6A6257" font-family="${ff}" font-size="20">${esc(model.cityName)}</text>
   <rect x="64" y="160" rx="18" width="${Math.min(360, 48 + cat.length * 14)}" height="40" fill="${accent}" fill-opacity="0.14"/>
-  <text x="84" y="187" fill="${accent}" font-family="DejaVu Sans,system-ui,sans-serif" font-size="20" font-weight="600">${esc(cat)}</text>
-  <text x="64" y="280" fill="#1B1A17" font-family="DejaVu Sans,system-ui,sans-serif" font-size="40" font-weight="700">${esc(headline)}</text>
-  <text x="64" y="340" fill="#6A6257" font-family="DejaVu Sans,system-ui,sans-serif" font-size="24">${esc(model.place)}</text>
-  <text x="64" y="400" fill="#1B1A17" font-family="DejaVu Sans,system-ui,sans-serif" font-size="26">${esc(action)}</text>
+  <text x="84" y="187" fill="${accent}" font-family="${ff}" font-size="20" font-weight="600">${esc(cat)}</text>
+  <text fill="#1B1A17" font-family="${ff}" font-size="${fontSize}" font-weight="700">${titleTspans}</text>
+  <text x="64" y="${placeY}" fill="#6A6257" font-family="${ff}" font-size="24">${esc(model.place)}</text>
+  ${actionSvg}
   ${badge}
   ${map}
-  <text x="64" y="590" fill="#6A6257" font-family="DejaVu Sans,system-ui,sans-serif" font-size="18">Informar para cuidarse · pulso-ciudadano.com</text>
+  <text x="64" y="590" fill="#6A6257" font-family="${ff}" font-size="18">Informar para cuidarse · pulso-ciudadano.com</text>
 </svg>`;
+}
+
+/** SVG solo con formas (sin <text>) — baseline para el test de píxeles. */
+function svgShapesOnly(model) {
+  const accent = CATEGORY_COLORS[model.category] || "#6B7280";
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <rect width="1200" height="630" fill="#F6F2EA"/>
+  <rect x="0" y="0" width="12" height="630" fill="${accent}"/>
+  <rect x="64" y="160" rx="18" width="180" height="40" fill="${accent}" fill-opacity="0.14"/>
+  <circle cx="980" cy="220" r="90" fill="${accent}" fill-opacity="0.12"/>
+  <circle cx="980" cy="220" r="28" fill="${accent}"/>
+  <circle cx="980" cy="220" r="10" fill="#F6F2EA"/>
+</svg>`;
+}
+
+function fontFiles() {
+  const files = [];
+  if (fs.existsSync(FONT_REGULAR)) files.push(FONT_REGULAR);
+  if (fs.existsSync(FONT_BOLD)) files.push(FONT_BOLD);
+  return files;
+}
+
+function renderImage(svg, { withFonts = true } = {}) {
+  const { Resvg } = require("@resvg/resvg-js");
+  const files = withFonts ? fontFiles() : [];
+  if (withFonts && files.length === 0) {
+    throw new Error("Faltan TTF en api/fonts (NotoSans-Regular/Bold.ttf)");
+  }
+  const resvg = new Resvg(svg, {
+    fitTo: { mode: "width", value: 1200 },
+    font: {
+      loadSystemFonts: false,
+      fontFiles: files,
+      defaultFontFamily: FONT_FAMILY,
+    },
+  });
+  return resvg.render();
 }
 
 function renderPng(svg) {
   try {
-    const { Resvg } = require("@resvg/resvg-js");
-    const resvg = new Resvg(svg, {
-      fitTo: { mode: "width", value: 1200 },
-      font: { loadSystemFonts: true },
-    });
-    return resvg.render().asPng();
+    return renderImage(svg, { withFonts: true }).asPng();
   } catch (err) {
     console.error("PNG render failed", err && err.message);
     return null;
   }
+}
+
+/**
+ * Cuenta píxeles “de tinta” (RGB bajos) en una banda — útil para detectar texto.
+ * Región por defecto: zona del titular (y≈230–310).
+ */
+function countDarkPixels(rendered, opts = {}) {
+  const {
+    x0 = 50,
+    x1 = 900,
+    y0 = 230,
+    y1 = 400,
+    threshold = 140,
+  } = opts;
+  const { width, height, pixels } = rendered;
+  let dark = 0;
+  const xStart = Math.max(0, Math.floor(x0));
+  const xEnd = Math.min(width, Math.ceil(x1));
+  const yStart = Math.max(0, Math.floor(y0));
+  const yEnd = Math.min(height, Math.ceil(y1));
+  for (let y = yStart; y < yEnd; y++) {
+    for (let x = xStart; x < xEnd; x++) {
+      const i = (y * width + x) * 4;
+      const r = pixels[i];
+      const g = pixels[i + 1];
+      const b = pixels[i + 2];
+      const a = pixels[i + 3];
+      if (a > 200 && r + g + b < threshold * 3) dark += 1;
+    }
+  }
+  return dark;
 }
 
 module.exports = {
@@ -296,10 +501,23 @@ module.exports = {
   ACTION,
   CATEGORY_LABELS,
   CATEGORY_COLORS,
+  FONT_FAMILY,
+  FONT_REGULAR,
+  FONT_BOLD,
   displayTitle,
+  cleanShareTitle,
+  stripNoise,
+  truncateAtWord,
+  toSentenceCaseEs,
+  fitHeadline,
+  actionLineFor,
   esc,
   loadPulse,
   svgFor,
+  svgShapesOnly,
   renderPng,
+  renderImage,
+  countDarkPixels,
+  fontFiles,
   parsePublicId,
 };

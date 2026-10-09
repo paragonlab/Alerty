@@ -2,7 +2,7 @@ import { useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { getActiveCityName } from "../lib/alerty/city";
-import { displayTitle } from "../lib/alerty/displayTitle";
+import { cleanShareTitle } from "../lib/alerty/displayTitle";
 import { CATEGORY_LABELS } from "../lib/alerty/constants";
 import { shareAlertPulse, shareAlertToWhatsApp } from "../lib/alerty/share";
 import type { AlertItem, CommunityPost } from "../lib/alerty/types";
@@ -29,9 +29,10 @@ export function SharePulseButton(props: Props) {
 
   const payload = props.alert
     ? {
-        title: displayTitle(
+        title: cleanShareTitle(
           props.alert.title,
           CATEGORY_LABELS[props.alert.category] ?? props.alert.category,
+          80,
         ),
         neighborhood: props.alert.neighborhood,
         alertId: props.alert.id,
@@ -41,11 +42,12 @@ export function SharePulseButton(props: Props) {
         kind: "alert" as const,
       }
     : {
-        title: displayTitle(
+        title: cleanShareTitle(
           props.post.text,
           props.post.categoryGuess
             ? (CATEGORY_LABELS as Record<string, string>)[props.post.categoryGuess]
             : "Aviso",
+          80,
         ),
         neighborhood: props.post.placeLabel,
         alertId: props.post.id,
