@@ -130,7 +130,7 @@ export default function RootLayout() {
               if (dist <= SOS_RADIUS_KM) {
                 void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
                 Alert.alert(
-                  "EMERGENCIA SOS CERCANA",
+                  "SOS cerca de ti",
                   `Se ha reportado una emergencia crítica a ${dist < 1 ? `${Math.round(dist * 1000)} m` : `${dist.toFixed(1)} km`} de tu ubicación.`,
                   [
                     { text: "Ver en mapa", onPress: () => router.push("/(tabs)") },

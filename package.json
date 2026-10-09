@@ -20,10 +20,12 @@
     "test:avatars": "npx --yes tsx lib/alerty/avatars.test.ts",
     "test:guessCategory": "npx --yes tsx scripts/guessCategoryParity.test.ts",
     "test:operativo": "npx --yes tsx lib/alerty/operativoPolicy.test.ts",
+    "test:share": "npx --yes tsx lib/alerty/share.test.ts && npx --yes tsx lib/alerty/displayTitle.test.ts && npx --yes tsx lib/alerty/actionLines.test.ts && npx --yes tsx lib/alerty/neighborThanks.test.ts",
     "test:city": "npx --yes tsx lib/alerty/city.test.ts && npx --yes tsx lib/alerty/cityFeeds.test.ts && npx --yes tsx lib/alerty/cityPreference.test.ts",
     "test:notifyCity": "deno test --allow-env supabase/functions/_shared/notifyCityScope.test.ts",
     "test:citySync": "deno test --allow-env supabase/functions/_shared/citySyncConfig.test.ts",
     "test:phase2": "npm run test:city && npm run test:colonia && npm run test:citySync && npm run test:notifyCity",
+    "test:community": "npm run test:share && npm run test:summary && npm run test:operativo",
     "supabase:db:push": "npx supabase db push"
   },
   "dependencies": {

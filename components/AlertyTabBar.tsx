@@ -352,7 +352,7 @@ export function AlertyTabBar({ state, navigation }: TabBarProps) {
     }
     const loc = await Location.getCurrentPositionAsync({});
     const { latitude, longitude } = loc.coords;
-    const title = "EMERGENCIA SOS";
+    const title = "SOS";
     const description = `Alerta especial a ${SOS_RADIUS_KM} km a la redonda`;
 
     if (supabase && isSupabaseConfigured) {

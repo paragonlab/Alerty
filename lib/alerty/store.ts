@@ -172,6 +172,8 @@ type AlertyState = {
   }) => Promise<{ error: string | null }>;
   deleteWatchedZone: (id: string) => Promise<{ error: string | null }>;
   flagAlert: (alertId: string, reason?: string) => Promise<{ error: string | null }>;
+  /** Marca “ya se despejó” (autor) o suma voto de vecino (RPC). */
+  markAlertCleared: (alertId: string) => Promise<{ error: string | null; resolved: boolean }>;
   /** Cuentas bloqueadas por el vecino: su contenido no se le muestra. */
   blockedUserIds: string[];
   loadBlockedUsers: () => Promise<void>;
@@ -305,6 +307,15 @@ const mapUserFromRow = (row: any, fallbackId?: string): AlertUser => {
 
 const ALERT_SELECT = `
   id,category,lat,lng,title,description,created_at,status,parent_alert_id,
+  resolved_at,resolved_via,
+  users!alerts_user_id_fkey(id,username,avatar_url,character,is_verified,is_premium,trust_score,followers_count,reporter_stats(confirmations_received)),
+  media(id,media_url,media_type,update_id),
+  alert_updates(id,content,created_at,user_id,users(id,username,avatar_url,character,is_verified,is_premium))
+`;
+
+/** Select sin columnas nuevas (migración aún no aplicada). */
+const ALERT_SELECT_LEGACY = `
+  id,category,lat,lng,title,description,created_at,status,parent_alert_id,
   users!alerts_user_id_fkey(id,username,avatar_url,character,is_verified,is_premium,trust_score,followers_count,reporter_stats(confirmations_received)),
   media(id,media_url,media_type,update_id),
   alert_updates(id,content,created_at,user_id,users(id,username,avatar_url,character,is_verified,is_premium))
@@ -313,6 +324,7 @@ const ALERT_SELECT = `
 const mapAlertRow = (
   row: any,
   counts: { up: number; down: number } = { up: 0, down: 0 },
+  extras: { clearanceVotes?: number; notifiedCount?: number } = {},
 ): AlertItem => ({
   id: row.id,
   category: row.category,
@@ -322,6 +334,15 @@ const mapAlertRow = (
   description: row.description ?? undefined,
   createdAt: row.created_at,
   status: row.status ?? "active",
+  resolvedAt: row.resolved_at ?? null,
+  resolvedVia:
+    row.resolved_via === "author" ||
+    row.resolved_via === "votes" ||
+    row.resolved_via === "expiry"
+      ? row.resolved_via
+      : null,
+  clearanceVotes: extras.clearanceVotes,
+  notifiedCount: extras.notifiedCount,
   neighborhood: undefined,
   parentAlertId: row.parent_alert_id ?? undefined,
   upvotes: counts.up,
@@ -1195,14 +1216,89 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
     }));
     return { error: null };
   },
+  markAlertCleared: async (alertId) => {
+    if (!isSupabaseConfigured || !supabase || !isDbId(alertId)) {
+      return { error: "Sin conexión", resolved: false };
+    }
+    try {
+      const { data, error } = await supabase.rpc("mark_alert_cleared", {
+        p_alert_id: alertId,
+      });
+      if (error) {
+        // Fallback local si la migración aún no está: solo autor puede update.
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session?.user) return { error: "Inicia sesión para marcar", resolved: false };
+        const mine = get().alerts.find((a) => a.id === alertId);
+        if (mine && mine.user.id === session.user.id) {
+          const { error: upErr } = await supabase
+            .from("alerts")
+            .update({ status: "resolved" })
+            .eq("id", alertId)
+            .eq("user_id", session.user.id);
+          if (upErr) return { error: upErr.message, resolved: false };
+          set((state) => ({
+            alerts: state.alerts.map((a) =>
+              a.id === alertId
+                ? {
+                    ...a,
+                    status: "resolved" as const,
+                    resolvedAt: new Date().toISOString(),
+                    resolvedVia: "author" as const,
+                  }
+                : a,
+            ),
+          }));
+          void supabase.functions.invoke("notify-on-alert", {
+            body: { type: "cleared", alertId },
+          });
+          return { error: null, resolved: true };
+        }
+        return { error: error.message, resolved: false };
+      }
+      const row = Array.isArray(data) ? data[0] : data;
+      const resolved = row?.status === "resolved";
+      set((state) => ({
+        alerts: state.alerts.map((a) =>
+          a.id === alertId
+            ? {
+                ...a,
+                status: (row?.status ?? a.status) as "active" | "resolved",
+                resolvedAt: row?.resolved_at ?? a.resolvedAt,
+                resolvedVia: row?.resolved_via ?? a.resolvedVia,
+              }
+            : a,
+        ),
+      }));
+      if (resolved) {
+        void supabase.functions.invoke("notify-on-alert", {
+          body: { type: "cleared", alertId },
+        });
+      }
+      return { error: null, resolved };
+    } catch (err) {
+      console.warn("markAlertCleared failed", err);
+      return { error: "No se pudo marcar", resolved: false };
+    }
+  },
   fetchAlertById: async (id) => {
     if (!isSupabaseConfigured || !supabase || !isDbId(id)) return false;
     try {
-      const { data: row } = await supabase
+      let row: any = null;
+      const primary = await supabase
         .from("alerts")
         .select(ALERT_SELECT)
         .eq("id", id)
         .maybeSingle();
+      if (primary.error) {
+        const legacy = await supabase
+          .from("alerts")
+          .select(ALERT_SELECT_LEGACY)
+          .eq("id", id)
+          .maybeSingle();
+        row = legacy.data;
+      } else {
+        row = primary.data;
+      }
       if (!row || row.category === "operativo") return false;
       const { data: votes } = await supabase
         .from("verifications")
@@ -1232,12 +1328,24 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
     }
 
     try {
-    const { data } = await supabase
+    let data: any[] | null = null;
+    const primary = await supabase
       .from("alerts")
       .select(ALERT_SELECT)
       .eq("city_id", getActiveCityId())
       .order("created_at", { ascending: false })
       .limit(100);
+    if (primary.error) {
+      const legacy = await supabase
+        .from("alerts")
+        .select(ALERT_SELECT_LEGACY)
+        .eq("city_id", getActiveCityId())
+        .order("created_at", { ascending: false })
+        .limit(100);
+      data = legacy.data;
+    } else {
+      data = primary.data;
+    }
 
     if (!data || data.length === 0) {
       set({ alerts: [], alertsLoaded: true });
@@ -1247,7 +1355,7 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
 
     const blocked = get().blockedUserIds;
     const toItems = (voteCounts: Map<string, { up: number; down: number }>): AlertItem[] =>
-      data
+      data!
         .map((row: any) => mapAlertRow(row, voteCounts.get(row.id)))
         .filter(
           (alert: AlertItem) =>

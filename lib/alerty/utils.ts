@@ -132,8 +132,10 @@ export const matchInboxAlert = (
   followingIds: readonly string[],
   radiusKm = AVISOS_RADIUS_KM,
 ): InboxMatch | null => {
-  if (alert.status !== "active") return null;
+  // Despejados siguen visibles si los seguías (para ver el cierre).
+  if (alert.status !== "active" && alert.status !== "resolved") return null;
   const following = followingIds.includes(alert.id);
+  if (alert.status === "resolved" && !following) return null;
   const distanceKm = coords
     ? calculateDistance(coords.latitude, coords.longitude, alert.lat, alert.lng)
     : null;

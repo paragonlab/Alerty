@@ -2,9 +2,13 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Video, ResizeMode } from "expo-av";
 import { Ionicons } from "@expo/vector-icons";
 import { CATEGORY_ICONS, CATEGORY_LABELS, REPUTATION_LEVELS } from "../lib/alerty/constants";
+import { displayTitle } from "../lib/alerty/displayTitle";
 import { formatRelativeTime, getAlertAgeMinutes, getIntensityColor } from "../lib/alerty/utils";
 import type { AlertItem } from "../lib/alerty/types";
 import { useAlertyTheme } from "../lib/useAlertyTheme";
+import { ActionLine } from "./ActionLine";
+import { ClearedBadge } from "./ClearedBadge";
+import { SharePulseButton } from "./SharePulseButton";
 
 type AlertCardProps = {
   alert: AlertItem;
@@ -32,8 +36,12 @@ export function AlertCard({ alert, onPress, onPressVideo }: AlertCardProps) {
   const levelKey = (alert.user.level as keyof typeof REPUTATION_LEVELS) || "CIUDADANO";
   const levelInfo = REPUTATION_LEVELS[levelKey];
 
-  const primaryText = alert.title ?? alert.description ?? "Sin descripción";
+  const primaryText = displayTitle(
+    alert.title ?? alert.description,
+    CATEGORY_LABELS[alert.category],
+  );
   const secondaryText = alert.title && alert.description ? alert.description : null;
+  const isCleared = alert.status === "resolved";
   const hasVideo = alert.media.some((m) => m.type === "video");
   const video = alert.media.find((m) => m.type === "video");
   const hasAudio = alert.media.some((m) => m.type === "audio");
@@ -56,23 +64,30 @@ export function AlertCard({ alert, onPress, onPressVideo }: AlertCardProps) {
               <Ionicons name={CATEGORY_ICONS[alert.category] as any} size={11} color={color} />
               <Text style={[styles.categoryText, { color }]}>{CATEGORY_LABELS[alert.category]}</Text>
             </View>
-            {isCritical && (
+            {isCleared ? (
+              <ClearedBadge compact />
+            ) : isCritical ? (
               <View style={styles.criticalBadge}>
-                <Text style={styles.criticalBadgeText}>CRÍTICO</Text>
+                <Text style={styles.criticalBadgeText}>Urgente</Text>
               </View>
-            )}
-            {isFresh && !isCritical && (
+            ) : null}
+            {isFresh && !isCritical && !isCleared && (
               <View style={[styles.freshBadge, { borderColor: color + "50", backgroundColor: color + "18" }]}>
-                <Text style={[styles.freshBadgeText, { color }]}>AHORA</Text>
+                <Text style={[styles.freshBadgeText, { color }]}>Reciente</Text>
               </View>
             )}
           </View>
-          <Text style={styles.timeText}>{formatRelativeTime(alert.createdAt)}</Text>
+          <View style={styles.headerRight}>
+            <SharePulseButton alert={alert} variant="compact" />
+            <Text style={styles.timeText}>{formatRelativeTime(alert.createdAt)}</Text>
+          </View>
         </View>
 
         <Text style={[styles.titleText, isCritical && styles.titleCritical]} numberOfLines={2}>
           {primaryText}
         </Text>
+
+        <ActionLine category={alert.category} />
 
         {secondaryText ? (
           <Text style={styles.descriptionText} numberOfLines={1}>{secondaryText}</Text>
@@ -191,6 +206,12 @@ const createStyles = (theme: any) => StyleSheet.create({
     gap: 6,
     flex: 1,
     flexWrap: "wrap",
+  },
+  headerRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    flexShrink: 0,
   },
   categoryPill: {
     flexDirection: "row",

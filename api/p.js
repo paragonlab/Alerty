@@ -1,0 +1,226 @@
+/**
+ * Landing pública /p/<id> con OG tags para WhatsApp.
+ * Abre sin forzar descarga: muestra el aviso + CTA suave.
+ * vercel.json reescribe /p/:id → /api/p?id=:id
+ */
+
+const APP = "https://pulso-ciudadano.com";
+const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
+const SUPABASE_ANON =
+  process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
+
+const CATEGORY_LABELS = {
+  balacera: "Balacera",
+  narcobloqueo: "Narcobloqueo",
+  enfrentamiento: "Enfrentamiento",
+  detonaciones: "Detonaciones",
+  bloqueo: "Bloqueo vial",
+  captura: "Captura",
+  robo: "Robo",
+  accidente: "Accidente vial",
+  incendio: "Incendio",
+  inundacion: "Inundación",
+  "zona segura": "Zona segura",
+  sos: "SOS",
+  desaparecida: "Persona desaparecida",
+  operativo: "Operativo",
+  alerta: "Aviso",
+  otro: "Noticia",
+};
+
+const ACTION = {
+  balacera: "Mejor evita la zona un rato y espera más avisos.",
+  narcobloqueo: "Busca otra ruta; no te acerques a grabar.",
+  enfrentamiento: "Aléjate con calma y no pases por ahí.",
+  detonaciones: "Mantente lejos hasta que haya más reportes.",
+  bloqueo: "Mejor rodea; el tráfico puede estar parado.",
+  captura: "Puede haber retenes cercanos; pasa con paciencia.",
+  robo: "Ten cuidado en la zona y avisa si ves algo raro.",
+  accidente: "Pasa con precaución; puede haber lentitud.",
+  incendio: "Aléjate del humo; no te acerques a grabar.",
+  inundacion: "Evita calles bajas y zonas anegadas.",
+  "zona segura": "Punto de referencia de vecinos en la zona.",
+  sos: "Si puedes ayudar con seguridad, abre el mapa. No sustituye al 911.",
+  desaparecida: "Comparte solo datos verificados; evita rumores.",
+  operativo: "Información con retraso · sin ubicación en vivo.",
+  alerta: "Échale un ojo a la zona y decide con calma.",
+  otro: "Revisa el aviso y confirma con otras fuentes.",
+};
+
+function esc(s) {
+  return String(s || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function displayTitle(raw, fallback) {
+  let out = String(raw || fallback || "Aviso en tu zona").trim();
+  out = out.replace(/[\u{1F6A8}\u{1F525}\u{26A0}\u{1F4A5}]/gu, "").replace(/\s{2,}/g, " ").trim();
+  const letters = out.replace(/[^A-Za-zÁÉÍÓÚÜÑáéíóúüñ]/g, "");
+  if (letters.length >= 8) {
+    const upper = letters.replace(/[^A-ZÁÉÍÓÚÜÑ]/g, "").length;
+    if (upper / letters.length >= 0.75) {
+      out = out.toLocaleLowerCase("es-MX");
+      out = out.charAt(0).toUpperCase() + out.slice(1);
+    }
+  }
+  return out;
+}
+
+const CITY_BY_ID = {
+  "c0a1c000-0001-4000-8000-000000000001": { name: "Culiacán", slug: "culiacan" },
+  "c0a1c000-0002-4000-8000-000000000002": { name: "Mazatlán", slug: "mazatlan" },
+};
+
+async function fetchAlert(id) {
+  if (!id || !SUPABASE_URL || !SUPABASE_ANON) return null;
+  const url =
+    `${SUPABASE_URL}/rest/v1/alerts?id=eq.${encodeURIComponent(id)}` +
+    `&select=id,category,title,description,status,created_at,resolved_at,city_id`;
+  const r = await fetch(url, {
+    headers: {
+      apikey: SUPABASE_ANON,
+      Authorization: `Bearer ${SUPABASE_ANON}`,
+    },
+  });
+  if (!r.ok) return null;
+  const rows = await r.json();
+  return Array.isArray(rows) ? rows[0] : null;
+}
+
+function pageHtml(pulse) {
+  const cat = pulse?.category || "otro";
+  const cityMeta = CITY_BY_ID[pulse?.city_id] || { name: "Culiacán", slug: "culiacan" };
+  const city = cityMeta.name;
+  const citySlug = cityMeta.slug;
+  const label = CATEGORY_LABELS[cat] || cat;
+  const headline = displayTitle(pulse?.title, label);
+  const action = ACTION[cat] || ACTION.otro;
+  const cleared = pulse?.status === "resolved";
+  const place = cat === "operativo" ? city : city;
+  const id = pulse?.id || "";
+  const url = `${APP}/p/${id}`;
+  const ogImage = `${APP}/api/og?id=${encodeURIComponent(id)}`;
+  const desc = `${action} · ${place}`;
+  const appLink = `${APP}/?city=${encodeURIComponent(citySlug)}`;
+
+  return `<!DOCTYPE html>
+<html lang="es-MX">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>${esc(headline)} · Pulso ${esc(city)}</title>
+  <meta name="description" content="${esc(desc)}"/>
+  <link rel="canonical" href="${esc(url)}"/>
+  <meta property="og:type" content="article"/>
+  <meta property="og:locale" content="es_MX"/>
+  <meta property="og:site_name" content="Pulso Ciudadano"/>
+  <meta property="og:title" content="${esc(headline)} · ${esc(city)}"/>
+  <meta property="og:description" content="${esc(desc)}"/>
+  <meta property="og:url" content="${esc(url)}"/>
+  <meta property="og:image" content="${esc(ogImage)}"/>
+  <meta property="og:image:width" content="1200"/>
+  <meta property="og:image:height" content="630"/>
+  <meta name="twitter:card" content="summary_large_image"/>
+  <meta name="twitter:title" content="${esc(headline)} · ${esc(city)}"/>
+  <meta name="twitter:description" content="${esc(desc)}"/>
+  <meta name="twitter:image" content="${esc(ogImage)}"/>
+  <meta name="theme-color" content="#F6F2EA"/>
+  <style>
+    :root { color-scheme: light; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; min-height: 100vh;
+      font-family: "Segoe UI", system-ui, sans-serif;
+      background: linear-gradient(145deg, #F6F2EA 0%, #EFE6D7 100%);
+      color: #1B1A17;
+    }
+    main { max-width: 520px; margin: 0 auto; padding: 32px 20px 48px; }
+    .brand { font-weight: 800; letter-spacing: 0.08em; font-size: 14px; }
+    .city { color: #6A6257; margin-top: 4px; font-size: 15px; }
+    .card {
+      margin-top: 28px; background: #fff; border: 1px solid #E1D4C2;
+      border-radius: 18px; padding: 22px; border-left: 5px solid #D9552B;
+    }
+    .pill {
+      display: inline-block; font-size: 12px; font-weight: 700;
+      color: #D9552B; background: rgba(217,85,43,0.12);
+      padding: 6px 12px; border-radius: 999px; margin-bottom: 12px;
+    }
+    h1 { font-size: 1.45rem; line-height: 1.3; margin: 0 0 12px; }
+    .action { color: #1B1A17; font-size: 1.05rem; margin: 0 0 16px; }
+    .meta { color: #6A6257; font-size: 0.9rem; }
+    .cleared {
+      display: inline-block; margin-top: 14px; background: #1F9D6E; color: #fff;
+      font-weight: 700; font-size: 13px; padding: 8px 14px; border-radius: 999px;
+    }
+    .cta {
+      display: block; margin-top: 28px; text-align: center; text-decoration: none;
+      background: #1B1A17; color: #F6F2EA; font-weight: 700;
+      padding: 16px 20px; border-radius: 14px;
+    }
+    .cta-sub { text-align: center; color: #6A6257; font-size: 0.9rem; margin-top: 12px; }
+    .foot { margin-top: 36px; color: #6A6257; font-size: 0.8rem; line-height: 1.45; }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="brand">PULSO</div>
+    <div class="city">${esc(city)}</div>
+    <article class="card">
+      <span class="pill">${esc(label)}</span>
+      <h1>${esc(headline)}</h1>
+      <p class="action">${esc(action)}</p>
+      <p class="meta">${esc(place)} · aviso de vecinos</p>
+      ${cleared ? '<span class="cleared">Ya se despejó</span>' : ""}
+    </article>
+    <a class="cta" href="${esc(appLink)}">Recibe avisos de tu colonia</a>
+    <p class="cta-sub">Sin descarga obligatoria · abre Pulso en el navegador</p>
+    <p class="foot">Pulso informa para cuidarse. No es denuncia ni sustituye al 911. Los operativos van con retraso y sin ubicación en vivo.</p>
+  </main>
+</body>
+</html>`;
+}
+
+function notFoundHtml() {
+  return `<!DOCTYPE html><html lang="es-MX"><head>
+<meta charset="utf-8"/><title>Pulso · aviso no encontrado</title>
+<meta name="robots" content="noindex"/>
+<style>body{font-family:system-ui;background:#F6F2EA;color:#1B1A17;padding:40px 20px;text-align:center}
+a{color:#D9552B}</style></head>
+<body><h1>Este aviso ya no está disponible</h1>
+<p>Puede haberse despejado o retirado.</p>
+<p><a href="${APP}">Ir a Pulso</a></p></body></html>`;
+}
+
+module.exports = async function handler(req, res) {
+  const id = (req.query && req.query.id) || "";
+  let pulse = null;
+  try {
+    pulse = await fetchAlert(id);
+  } catch {
+    pulse = null;
+  }
+
+  if (!pulse) {
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.status(404).send(notFoundHtml());
+    return;
+  }
+
+  // Operativo sin delay: no exponer en landing pública (misma política).
+  if (pulse.category === "operativo") {
+    const created = new Date(pulse.created_at).getTime();
+    if (Date.now() - created < 2 * 60 * 60 * 1000) {
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      res.status(404).send(notFoundHtml());
+      return;
+    }
+  }
+
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  res.setHeader("Cache-Control", "public, s-maxage=60, stale-while-revalidate=300");
+  res.status(200).send(pageHtml(pulse));
+};

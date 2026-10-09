@@ -38,6 +38,8 @@ export type AlertUpdate = {
   media?: AlertMedia[];
 };
 
+export type AlertResolvedVia = "author" | "votes" | "expiry";
+
 export type AlertItem = {
   id: string;
   user: AlertUser;
@@ -48,6 +50,13 @@ export type AlertItem = {
   description?: string;
   createdAt: string;
   status: "active" | "resolved";
+  /** Presente cuando status === "resolved" (migración community_tone). */
+  resolvedAt?: string | null;
+  resolvedVia?: AlertResolvedVia | null;
+  /** Votos de vecinos “ya se despejó” (si la columna existe). */
+  clearanceVotes?: number;
+  /** Personas avisadas / vistas (reconocimiento al autor). */
+  notifiedCount?: number;
   media: AlertMedia[];
   upvotes: number;
   downvotes: number;

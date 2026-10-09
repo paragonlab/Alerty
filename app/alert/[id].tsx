@@ -5,7 +5,6 @@ import {
   Image,
   Pressable,
   ScrollView,
-  Share,
   StyleSheet,
   Text,
   TextInput,
@@ -26,17 +25,27 @@ import { useAlertyTheme } from "../../lib/useAlertyTheme";
 import { GlassView, GlassContainer } from "expo-glass-effect";
 import { LinearGradient } from "expo-linear-gradient";
 import { CATEGORY_ICONS, CATEGORY_LABELS, REPUTATION_LEVELS } from "../../lib/alerty/constants";
+import { displayTitle } from "../../lib/alerty/displayTitle";
 import { useAlertyStore } from "../../lib/alerty/store";
 import { requireSession } from "../../lib/alerty/session";
 import { Sounds } from "../../lib/sounds";
 import { calculateDistance, formatRelativeTime, getIntensityColor } from "../../lib/alerty/utils";
 import type { AlertMedia, AlertUpdate } from "../../lib/alerty/types";
+import { ActionLine } from "../../components/ActionLine";
+import { ClearedBadge } from "../../components/ClearedBadge";
+import { FamilyInviteButton } from "../../components/FamilyInviteButton";
+import { NeighborThanks } from "../../components/NeighborThanks";
+import { ShareCardPreview } from "../../components/ShareCardPreview";
+import { SharePulseButton } from "../../components/SharePulseButton";
+import { buildShareCardModel } from "../../lib/alerty/shareCard";
+import { getActiveCityName } from "../../lib/alerty/city";
 
 
 export default function AlertDetailScreen() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { alerts, voteAlert, votedAlerts, followingAlertIds, toggleFollowAlert, addUpdateToAlert, getReportingRange, themeMode, openReels, flagAlert, fetchAlertById, blockUser } = useAlertyStore();
+  const { alerts, voteAlert, votedAlerts, followingAlertIds, toggleFollowAlert, addUpdateToAlert, getReportingRange, themeMode, openReels, flagAlert, fetchAlertById, blockUser, markAlertCleared, currentUser } = useAlertyStore();
+  const [clearing, setClearing] = useState(false);
   const theme = useAlertyTheme();
   const isDark = themeMode === "darkHighVisibility";
   const styles = createStyles(theme, themeMode);
@@ -151,14 +160,21 @@ export default function AlertDetailScreen() {
     );
   }
 
-  const handleShare = async () => {
-    try {
-      await Share.share({
-        message: `Alerta en Pulso: ${alert.title ?? CATEGORY_LABELS[alert.category]}\n\n${alert.description ?? ""}\n\nUbicación: ${alert.neighborhood ?? "Culiacán"}`,
-      });
-    } catch (error) {
-      console.error(error);
+  const handleMarkCleared = async () => {
+    if (!(await requireSession(`/alert/${alert.id}`))) return;
+    setClearing(true);
+    const { error, resolved } = await markAlertCleared(alert.id);
+    setClearing(false);
+    if (error) {
+      Alert.alert("No se pudo marcar", error);
+      return;
     }
+    Alert.alert(
+      resolved ? "Ya se despejó" : "Gracias",
+      resolved
+        ? "Avisamos con calma a quien seguía este pulso."
+        : "Tu voto cuenta. Con unos vecinos más se marca despejado.",
+    );
   };
 
   const handleFlag = async () => {
@@ -309,9 +325,7 @@ export default function AlertDetailScreen() {
           <Ionicons name="chevron-back" size={22} color={theme.colors.text} />
         </Pressable>
         <Text style={styles.title}>Detalle</Text>
-        <Pressable style={styles.shareButton} onPress={handleShare} hitSlop={12}>
-          <Ionicons name="share-outline" size={20} color={theme.colors.text} />
-        </Pressable>
+        <SharePulseButton alert={alert} variant="compact" />
       </View>
 
       <ScrollView contentContainerStyle={styles.container}>
@@ -320,11 +334,14 @@ export default function AlertDetailScreen() {
             <Ionicons name={CATEGORY_ICONS[alert.category] as any} size={14} color={intensityColor} />
             <Text style={styles.categoryText}>{CATEGORY_LABELS[alert.category]}</Text>
           </View>
+          {alert.status === "resolved" ? <ClearedBadge compact /> : null}
           <Text style={styles.timeText}>{formatRelativeTime(alert.createdAt)}</Text>
         </View>
 
         <View style={styles.titleSection}>
-          <Text style={styles.alertTitle}>{alert.title ?? CATEGORY_LABELS[alert.category]}</Text>
+          <Text style={styles.alertTitle}>
+            {displayTitle(alert.title, CATEGORY_LABELS[alert.category])}
+          </Text>
           <Pressable 
             style={[styles.followButton, isFollowing && styles.followButtonActive]}
             onPress={() => {
@@ -346,18 +363,63 @@ export default function AlertDetailScreen() {
           </Pressable>
         </View>
 
+        <ActionLine category={alert.category} />
         <Text style={styles.description}>{alert.description ?? "Sin descripción adicional."}</Text>
 
         <View style={styles.metaRow}>
           <View style={styles.metaCard}>
             <Text style={styles.metaLabel}>Zona</Text>
-            <Text style={styles.metaValue}>{alert.neighborhood ?? "Culiacán"}</Text>
+            <Text style={styles.metaValue}>{alert.neighborhood ?? getActiveCityName()}</Text>
           </View>
           <View style={styles.metaCard}>
             <Text style={styles.metaLabel}>Estado</Text>
-            <Text style={styles.metaValue}>{alert.status === "active" ? "Activa" : "Resuelta"}</Text>
+            <Text style={styles.metaValue}>
+              {alert.status === "resolved" ? "Ya se despejó" : "Activo"}
+            </Text>
           </View>
         </View>
+
+        <NeighborThanks
+          username={alert.user.username}
+          notifiedCount={
+            alert.notifiedCount ??
+            Math.max(alert.upvotes, alert.user.confirmationsReceived ?? 0)
+          }
+        />
+
+        <SharePulseButton alert={alert} variant="full" />
+
+        <ShareCardPreview
+          model={buildShareCardModel({
+            id: alert.id,
+            category: alert.category,
+            title: alert.title,
+            placeLabel: alert.neighborhood,
+            cityName: getActiveCityName(),
+            status: alert.status,
+          })}
+        />
+
+        <FamilyInviteButton
+          zoneLabel={alert.neighborhood ?? getActiveCityName()}
+          lat={alert.lat}
+          lng={alert.lng}
+        />
+
+        {alert.status !== "resolved" ? (
+          <Pressable
+            style={[styles.clearBtn, clearing && { opacity: 0.6 }]}
+            onPress={handleMarkCleared}
+            disabled={clearing}
+          >
+            <Ionicons name="checkmark-circle-outline" size={18} color={theme.colors.success} />
+            <Text style={[styles.clearBtnText, { color: theme.colors.success }]}>
+              {alert.user.id === currentUser.id ? "Marcar: ya se despejó" : "Votar: ya se despejó"}
+            </Text>
+          </Pressable>
+        ) : (
+          <ClearedBadge />
+        )}
 
         {alert.media.length > 0 ? (
           <View>
@@ -699,6 +761,22 @@ const createStyles = (theme: any, themeMode: string) => StyleSheet.create({
     backgroundColor: theme.colors.surface,
     alignItems: "center",
     justifyContent: "center",
+  },
+  clearBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    borderWidth: 1,
+    borderColor: theme.colors.success + "55",
+    backgroundColor: theme.colors.success + "12",
+    borderRadius: theme.radius.pill,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+  },
+  clearBtnText: {
+    fontSize: 14,
+    fontFamily: theme.fonts.heading,
   },
   title: {
     color: theme.colors.text,

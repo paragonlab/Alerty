@@ -80,7 +80,7 @@ export default function FeedScreen() {
     () =>
       alerts.filter(
         (alert) =>
-          alert.status === "active" &&
+          (alert.status === "active" || alert.status === "resolved") &&
           !isOperativoCategory(alert.category) &&
           activeCategories.includes(alert.category) &&
           isAlertInWindow(alert, timeFilter) &&
@@ -110,7 +110,7 @@ export default function FeedScreen() {
     () =>
       alerts.filter(
         (alert) =>
-          alert.status === "active" &&
+          (alert.status === "active" || alert.status === "resolved") &&
           !isOperativoCategory(alert.category) &&
           activeCategories.includes(alert.category) &&
           isAlertInWindow(alert, timeFilter) &&
@@ -257,10 +257,10 @@ export default function FeedScreen() {
     </View>
   ) : (
     <View style={styles.emptyState}>
-      <Ionicons name="shield-outline" size={42} color={theme.colors.border} />
-      <Text style={styles.emptyTitle}>Nadie ha reportado aún en esta ventana</Text>
+      <Ionicons name="pulse-outline" size={42} color={theme.colors.border} />
+      <Text style={styles.emptyTitle}>Todo tranquilo por aquí</Text>
       <Text style={styles.emptySubtitle}>
-        Sé el primero en avisar a tu colonia. Un reporte anónimo puede ayudar a quien está cerca.
+        Si ves algo en tu colonia, un aviso calmado puede ayudar a quien está cerca.
       </Text>
       <Pressable
         style={styles.emptyCta}
@@ -270,8 +270,8 @@ export default function FeedScreen() {
           });
         }}
       >
-        <Ionicons name="warning" size={16} color="#fff" />
-        <Text style={styles.emptyCtaText}>NUEVO PULSO</Text>
+        <Ionicons name="add" size={16} color="#fff" />
+        <Text style={styles.emptyCtaText}>Publicar un pulso</Text>
       </Pressable>
       <Text style={styles.emptyHint}>
         O amplía el filtro de tiempo / revisa categorías en Ajustes.
