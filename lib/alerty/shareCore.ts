@@ -3,8 +3,36 @@
 export const APP_SHARE_URL = "https://pulso-ciudadano.com";
 export const APP_PRIVACY_URL = `${APP_SHARE_URL}/privacy`;
 
-export function pulsePublicUrl(alertId: string): string {
-  return `${APP_SHARE_URL}/p/${alertId}`;
+export type PulseShareKind = "alert" | "community";
+
+/** Prefijo público para posts de comunidad (X/RSS). */
+export const COMMUNITY_PUBLIC_PREFIX = "c-";
+
+export function isCommunityPublicId(id: string): boolean {
+  return id.startsWith(COMMUNITY_PUBLIC_PREFIX);
+}
+
+export function communityPublicId(postId: string): string {
+  return postId.startsWith(COMMUNITY_PUBLIC_PREFIX)
+    ? postId
+    : `${COMMUNITY_PUBLIC_PREFIX}${postId}`;
+}
+
+export function stripCommunityPublicId(id: string): string {
+  return id.startsWith(COMMUNITY_PUBLIC_PREFIX)
+    ? id.slice(COMMUNITY_PUBLIC_PREFIX.length)
+    : id;
+}
+
+/** Link público corto (OG + landing). Alertas: /p/<uuid>. Comunidad: /p/c-<uuid>. */
+export function pulsePublicUrl(
+  id: string,
+  kind: PulseShareKind = "alert",
+): string {
+  if (kind === "community" || isCommunityPublicId(id)) {
+    return `${APP_SHARE_URL}/p/${communityPublicId(id)}`;
+  }
+  return `${APP_SHARE_URL}/p/${id}`;
 }
 
 export function alertDeepLink(alertId: string): string {

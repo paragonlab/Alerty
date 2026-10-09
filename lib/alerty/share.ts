@@ -82,6 +82,7 @@ export async function shareAlertPulse(opts: {
   category?: string;
   status?: "active" | "resolved";
   cityName?: string;
+  kind?: "alert" | "community";
 }): Promise<void> {
   const cityName = opts.cityName ?? getActiveCityName();
   const input: ShareCardInput = {
@@ -91,6 +92,7 @@ export async function shareAlertPulse(opts: {
     placeLabel: opts.neighborhood,
     cityName,
     status: opts.status,
+    kind: opts.kind ?? "alert",
   };
   const model = buildShareCardModel(input);
   const message = sharePulseMessage(model);
@@ -141,6 +143,7 @@ export async function shareAlertToWhatsApp(opts: {
   category?: string;
   status?: "active" | "resolved";
   cityName?: string;
+  kind?: "alert" | "community";
 }): Promise<void> {
   const cityName = opts.cityName ?? getActiveCityName();
   const model = buildShareCardModel({
@@ -150,6 +153,7 @@ export async function shareAlertToWhatsApp(opts: {
     placeLabel: opts.neighborhood,
     cityName,
     status: opts.status,
+    kind: opts.kind ?? "alert",
   });
   const text = sharePulseMessage(model);
   const wa = `https://wa.me/?text=${encodeURIComponent(text)}`;

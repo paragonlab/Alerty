@@ -375,14 +375,62 @@ Deno.serve(async (req) => {
     }
   } else if (body.type === "cleared" && body.alertId) {
     // Push suave a quien sigue la alerta: “ya se despejó”.
-    const { data: alert } = await admin
-      .from("alerts")
-      .select("id,category,title,status")
-      .eq("id", body.alertId)
-      .single();
+    // Solo si está resolved en DB (prod v24) y una sola vez por alerta.
+    let alert: {
+      id: string;
+      category: string;
+      title?: string | null;
+      status: string;
+      cleared_push_sent_at?: string | null;
+    } | null = null;
+
+    {
+      const primary = await admin
+        .from("alerts")
+        .select("id,category,title,status,cleared_push_sent_at")
+        .eq("id", body.alertId)
+        .single();
+      if (primary.error) {
+        const legacy = await admin
+          .from("alerts")
+          .select("id,category,title,status")
+          .eq("id", body.alertId)
+          .single();
+        alert = legacy.data;
+      } else {
+        alert = primary.data;
+      }
+    }
 
     if (!alert || alert.category === "operativo") {
       return json({ sent: 0, skipped: "operativo_or_missing" });
+    }
+
+    if (alert.status !== "resolved") {
+      return json({ sent: 0, skipped: "not_resolved" });
+    }
+
+    // Claim atómico: solo el primer request envía push (columna nueva).
+    if (Object.prototype.hasOwnProperty.call(alert, "cleared_push_sent_at")) {
+      if (alert.cleared_push_sent_at) {
+        return json({ sent: 0, skipped: "already_notified" });
+      }
+      const { data: claimed, error: claimErr } = await admin
+        .from("alerts")
+        .update({ cleared_push_sent_at: new Date().toISOString() })
+        .eq("id", alert.id)
+        .eq("status", "resolved")
+        .is("cleared_push_sent_at", null)
+        .select("id")
+        .maybeSingle();
+
+      if (claimErr) {
+        console.error("cleared push claim failed", claimErr.message);
+        return json({ sent: 0, skipped: "claim_failed" });
+      }
+      if (!claimed) {
+        return json({ sent: 0, skipped: "already_notified" });
+      }
     }
 
     const { data: follows } = await admin

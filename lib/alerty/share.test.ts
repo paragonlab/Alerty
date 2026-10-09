@@ -1,7 +1,13 @@
 /**
  * Run: npx tsx lib/alerty/share.test.ts
  */
-import { pulsePublicUrl, dailySummaryShareMessage, APP_SHARE_URL } from "./shareCore";
+import {
+  pulsePublicUrl,
+  dailySummaryShareMessage,
+  APP_SHARE_URL,
+  communityPublicId,
+  isCommunityPublicId,
+} from "./shareCore";
 import { buildShareCardModel, sharePulseMessage, shareCardSvg } from "./shareCard";
 import { neighborThanksLine } from "./neighborThanks";
 import { familyInviteUrl, familyInviteMessage } from "./familyInvite";
@@ -13,6 +19,11 @@ function assert(cond: unknown, msg: string): asserts cond {
 function run() {
   const id = "11111111-1111-4111-8111-111111111111";
   assert(pulsePublicUrl(id) === `${APP_SHARE_URL}/p/${id}`, "URL pública /p/<id>");
+  assert(
+    pulsePublicUrl(id, "community") === `${APP_SHARE_URL}/p/c-${id}`,
+    "URL comunidad /p/c-<id>",
+  );
+  assert(isCommunityPublicId(communityPublicId(id)), "prefijo c-");
 
   const model = buildShareCardModel({
     id,
@@ -54,6 +65,16 @@ function run() {
   });
   assert(operativo.placeLine === "Culiacán", "operativo generaliza a ciudad");
   assert(!operativo.showMapHint, "operativo sin hint de mapa");
+
+  const community = buildShareCardModel({
+    id,
+    kind: "community",
+    category: "bloqueo",
+    title: "Tráfico lento cerca de Boulevares",
+    placeLabel: "Boulevares",
+    cityName: "Culiacán",
+  });
+  assert(community.url.includes("/p/c-"), `community url: ${community.url}`);
 
   const thanks = neighborThanksLine({ username: "vecina", notifiedCount: 12 });
   assert(thanks === "Gracias a @vecina se avisó a 12 personas", `thanks: ${thanks}`);

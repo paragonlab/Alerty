@@ -1,110 +1,33 @@
 /**
  * Landing pública /p/<id> con OG tags para WhatsApp.
- * Abre sin forzar descarga: muestra el aviso + CTA suave.
- * vercel.json reescribe /p/:id → /api/p?id=:id
+ * id = uuid (alerta) o c-<uuid> (community post).
+ * Abre sin forzar descarga. vercel.json reescribe /p/:id → /api/p?id=:id
  */
 
-const APP = "https://pulso-ciudadano.com";
-const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
-const SUPABASE_ANON =
-  process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
-
-const CATEGORY_LABELS = {
-  balacera: "Balacera",
-  narcobloqueo: "Narcobloqueo",
-  enfrentamiento: "Enfrentamiento",
-  detonaciones: "Detonaciones",
-  bloqueo: "Bloqueo vial",
-  captura: "Captura",
-  robo: "Robo",
-  accidente: "Accidente vial",
-  incendio: "Incendio",
-  inundacion: "Inundación",
-  "zona segura": "Zona segura",
-  sos: "SOS",
-  desaparecida: "Persona desaparecida",
-  operativo: "Operativo",
-  alerta: "Aviso",
-  otro: "Noticia",
-};
-
-const ACTION = {
-  balacera: "Mejor evita la zona un rato y espera más avisos.",
-  narcobloqueo: "Busca otra ruta; no te acerques a grabar.",
-  enfrentamiento: "Aléjate con calma y no pases por ahí.",
-  detonaciones: "Mantente lejos hasta que haya más reportes.",
-  bloqueo: "Mejor rodea; el tráfico puede estar parado.",
-  captura: "Puede haber retenes cercanos; pasa con paciencia.",
-  robo: "Ten cuidado en la zona y avisa si ves algo raro.",
-  accidente: "Pasa con precaución; puede haber lentitud.",
-  incendio: "Aléjate del humo; no te acerques a grabar.",
-  inundacion: "Evita calles bajas y zonas anegadas.",
-  "zona segura": "Punto de referencia de vecinos en la zona.",
-  sos: "Si puedes ayudar con seguridad, abre el mapa. No sustituye al 911.",
-  desaparecida: "Comparte solo datos verificados; evita rumores.",
-  operativo: "Información con retraso · sin ubicación en vivo.",
-  alerta: "Échale un ojo a la zona y decide con calma.",
-  otro: "Revisa el aviso y confirma con otras fuentes.",
-};
-
-function esc(s) {
-  return String(s || "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
-function displayTitle(raw, fallback) {
-  let out = String(raw || fallback || "Aviso en tu zona").trim();
-  out = out.replace(/[\u{1F6A8}\u{1F525}\u{26A0}\u{1F4A5}]/gu, "").replace(/\s{2,}/g, " ").trim();
-  const letters = out.replace(/[^A-Za-zÁÉÍÓÚÜÑáéíóúüñ]/g, "");
-  if (letters.length >= 8) {
-    const upper = letters.replace(/[^A-ZÁÉÍÓÚÜÑ]/g, "").length;
-    if (upper / letters.length >= 0.75) {
-      out = out.toLocaleLowerCase("es-MX");
-      out = out.charAt(0).toUpperCase() + out.slice(1);
-    }
-  }
-  return out;
-}
-
-const CITY_BY_ID = {
-  "c0a1c000-0001-4000-8000-000000000001": { name: "Culiacán", slug: "culiacan" },
-  "c0a1c000-0002-4000-8000-000000000002": { name: "Mazatlán", slug: "mazatlan" },
-};
-
-async function fetchAlert(id) {
-  if (!id || !SUPABASE_URL || !SUPABASE_ANON) return null;
-  const url =
-    `${SUPABASE_URL}/rest/v1/alerts?id=eq.${encodeURIComponent(id)}` +
-    `&select=id,category,title,description,status,created_at,resolved_at,city_id`;
-  const r = await fetch(url, {
-    headers: {
-      apikey: SUPABASE_ANON,
-      Authorization: `Bearer ${SUPABASE_ANON}`,
-    },
-  });
-  if (!r.ok) return null;
-  const rows = await r.json();
-  return Array.isArray(rows) ? rows[0] : null;
-}
+const {
+  APP,
+  ACTION,
+  CATEGORY_LABELS,
+  displayTitle,
+  esc,
+  loadPulse,
+} = require("./_pulseShared");
 
 function pageHtml(pulse) {
-  const cat = pulse?.category || "otro";
-  const cityMeta = CITY_BY_ID[pulse?.city_id] || { name: "Culiacán", slug: "culiacan" };
-  const city = cityMeta.name;
-  const citySlug = cityMeta.slug;
+  const cat = pulse.category || "otro";
+  const city = pulse.cityName;
+  const citySlug = pulse.citySlug;
   const label = CATEGORY_LABELS[cat] || cat;
-  const headline = displayTitle(pulse?.title, label);
+  const headline = displayTitle(pulse.title, label).slice(0, 140);
   const action = ACTION[cat] || ACTION.otro;
-  const cleared = pulse?.status === "resolved";
-  const place = cat === "operativo" ? city : city;
-  const id = pulse?.id || "";
-  const url = `${APP}/p/${id}`;
-  const ogImage = `${APP}/api/og?id=${encodeURIComponent(id)}`;
+  const cleared = pulse.status === "resolved";
+  const place = pulse.place;
+  const publicId = pulse.publicId;
+  const url = `${APP}/p/${publicId}`;
+  const ogImage = `${APP}/api/og?id=${encodeURIComponent(publicId)}`;
   const desc = `${action} · ${place}`;
   const appLink = `${APP}/?city=${encodeURIComponent(citySlug)}`;
+  const source = pulse.sourceHint || "aviso de vecinos";
 
   return `<!DOCTYPE html>
 <html lang="es-MX">
@@ -121,6 +44,7 @@ function pageHtml(pulse) {
   <meta property="og:description" content="${esc(desc)}"/>
   <meta property="og:url" content="${esc(url)}"/>
   <meta property="og:image" content="${esc(ogImage)}"/>
+  <meta property="og:image:type" content="image/png"/>
   <meta property="og:image:width" content="1200"/>
   <meta property="og:image:height" content="630"/>
   <meta name="twitter:card" content="summary_large_image"/>
@@ -173,7 +97,7 @@ function pageHtml(pulse) {
       <span class="pill">${esc(label)}</span>
       <h1>${esc(headline)}</h1>
       <p class="action">${esc(action)}</p>
-      <p class="meta">${esc(place)} · aviso de vecinos</p>
+      <p class="meta">${esc(place)} · ${esc(source)}</p>
       ${cleared ? '<span class="cleared">Ya se despejó</span>' : ""}
     </article>
     <a class="cta" href="${esc(appLink)}">Recibe avisos de tu colonia</a>
@@ -199,7 +123,7 @@ module.exports = async function handler(req, res) {
   const id = (req.query && req.query.id) || "";
   let pulse = null;
   try {
-    pulse = await fetchAlert(id);
+    pulse = await loadPulse(id);
   } catch {
     pulse = null;
   }
@@ -208,16 +132,6 @@ module.exports = async function handler(req, res) {
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.status(404).send(notFoundHtml());
     return;
-  }
-
-  // Operativo sin delay: no exponer en landing pública (misma política).
-  if (pulse.category === "operativo") {
-    const created = new Date(pulse.created_at).getTime();
-    if (Date.now() - created < 2 * 60 * 60 * 1000) {
-      res.setHeader("Content-Type", "text/html; charset=utf-8");
-      res.status(404).send(notFoundHtml());
-      return;
-    }
   }
 
   res.setHeader("Content-Type", "text/html; charset=utf-8");

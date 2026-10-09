@@ -8,13 +8,11 @@ import { actionLineFor } from "./actionLines";
 import { CATEGORY_LABELS, CATEGORY_PIN_COLORS } from "./constants";
 import { displayTitle } from "./displayTitle";
 import { isOperativoCategory } from "./operativoPolicy";
-
-/** Evita ciclo con share.ts — misma URL canónica. */
-const APP_SHARE_URL = "https://pulso-ciudadano.com";
-
-function pulsePublicUrl(alertId: string): string {
-  return `${APP_SHARE_URL}/p/${alertId}`;
-}
+import {
+  APP_SHARE_URL,
+  pulsePublicUrl,
+  type PulseShareKind,
+} from "./shareCore";
 
 export type ShareCardInput = {
   id: string;
@@ -26,6 +24,7 @@ export type ShareCardInput = {
   createdAt?: string | null;
   status?: "active" | "resolved";
   actionLine?: string;
+  kind?: PulseShareKind;
 };
 
 export type ShareCardModel = {
@@ -56,7 +55,7 @@ export function buildShareCardModel(input: ShareCardInput): ShareCardModel {
   const accent = CATEGORY_PIN_COLORS[input.category] ?? "#6B7280";
 
   return {
-    url: pulsePublicUrl(input.id),
+    url: pulsePublicUrl(input.id, input.kind ?? "alert"),
     headline,
     categoryLabel,
     placeLine: place,

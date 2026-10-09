@@ -5,31 +5,54 @@ import { getActiveCityName } from "../lib/alerty/city";
 import { displayTitle } from "../lib/alerty/displayTitle";
 import { CATEGORY_LABELS } from "../lib/alerty/constants";
 import { shareAlertPulse, shareAlertToWhatsApp } from "../lib/alerty/share";
-import type { AlertItem } from "../lib/alerty/types";
+import type { AlertItem, CommunityPost } from "../lib/alerty/types";
 import { useAlertyTheme } from "../lib/useAlertyTheme";
 
-type Props = {
+type AlertProps = {
   alert: AlertItem;
-  /** compact = solo icono; full = Compartir + WhatsApp */
+  post?: never;
   variant?: "compact" | "full";
 };
 
-export function SharePulseButton({ alert, variant = "compact" }: Props) {
+type PostProps = {
+  post: CommunityPost;
+  alert?: never;
+  variant?: "compact" | "full";
+};
+
+type Props = AlertProps | PostProps;
+
+export function SharePulseButton(props: Props) {
   const theme = useAlertyTheme();
   const [busy, setBusy] = useState(false);
-  const title = displayTitle(
-    alert.title,
-    CATEGORY_LABELS[alert.category] ?? alert.category,
-  );
+  const variant = props.variant ?? "compact";
 
-  const payload = {
-    title,
-    neighborhood: alert.neighborhood,
-    alertId: alert.id,
-    category: alert.category,
-    status: alert.status,
-    cityName: getActiveCityName(),
-  };
+  const payload = props.alert
+    ? {
+        title: displayTitle(
+          props.alert.title,
+          CATEGORY_LABELS[props.alert.category] ?? props.alert.category,
+        ),
+        neighborhood: props.alert.neighborhood,
+        alertId: props.alert.id,
+        category: props.alert.category,
+        status: props.alert.status,
+        cityName: getActiveCityName(),
+        kind: "alert" as const,
+      }
+    : {
+        title: displayTitle(
+          props.post.text,
+          props.post.categoryGuess
+            ? (CATEGORY_LABELS as Record<string, string>)[props.post.categoryGuess]
+            : "Aviso",
+        ),
+        neighborhood: props.post.placeLabel,
+        alertId: props.post.id,
+        category: props.post.categoryGuess ?? "otro",
+        cityName: getActiveCityName(),
+        kind: "community" as const,
+      };
 
   const onShare = async () => {
     setBusy(true);
@@ -43,7 +66,7 @@ export function SharePulseButton({ alert, variant = "compact" }: Props) {
   const onWhatsApp = async () => {
     setBusy(true);
     try {
-      await shareAlertToWhatsApp(payload);
+      await shareAlertToWhatsApp({ ...payload, alertId: payload.alertId });
     } finally {
       setBusy(false);
     }
