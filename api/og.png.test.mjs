@@ -156,6 +156,35 @@ writeFileSync(
 const viaHelper = renderPng(svgFor(alertModel));
 assert(viaHelper && viaHelper.length > 5000, "renderPng size");
 
+/** 8×8 PNG sólido (naranja) para probar miniatura embutida en OG video. */
+const TINY_PNG =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAAFElEQVQYV2P8z8Dwn4EIwDiqIFQAAKUAAf8p9aSFAAAAAElFTkSuQmCC";
+
+const videoModel = {
+  category: "bloqueo",
+  title: "Tráfico lento en Boulevares",
+  place: "Boulevares",
+  cityName: "Culiacán",
+  status: "active",
+  showMap: true,
+  surface: "video",
+  thumbDataUri: TINY_PNG,
+};
+const videoSvg = svgFor(videoModel);
+assert(videoSvg.includes("Video"), "OG video badge");
+assert(videoSvg.includes("<image"), "OG video embute miniatura");
+assert(!videoSvg.includes("24.809"), "video OG sin coords");
+const videoPng = renderImage(videoSvg, { withFonts: true }).asPng();
+assert(videoPng[0] === 0x89, "video OG PNG magic");
+writeFileSync(join(outDir, "og-video-with-thumb.png"), videoPng);
+
+const videoFallback = svgFor({
+  ...alertModel,
+  surface: "video",
+  thumbDataUri: null,
+});
+assert(videoFallback.includes("Video en Pulso") || videoFallback.includes("Video"), "fallback video");
+
 console.log("og.png.test.mjs OK", {
   darkWith,
   darkShapes,

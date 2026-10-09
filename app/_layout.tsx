@@ -157,6 +157,18 @@ export default function RootLayout() {
       if (Platform.OS === "web" && typeof document !== "undefined") {
         document.title = activeSiteDocumentTitle();
       }
+      // Deep link web: /?reels=<uuid|c-uuid> → pestaña Videos
+      if (Platform.OS === "web" && typeof window !== "undefined") {
+        try {
+          const reelsId = new URLSearchParams(window.location.search).get("reels");
+          if (reelsId) {
+            useAlertyStore.getState().openReels(reelsId);
+            router.replace("/(tabs)/pulsos" as any);
+          }
+        } catch {
+          /* ignore */
+        }
+      }
       if (isDemoEnabled) {
         startDemo();
         return;

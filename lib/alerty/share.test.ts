@@ -3,6 +3,7 @@
  */
 import {
   pulsePublicUrl,
+  videoPublicUrl,
   dailySummaryShareMessage,
   APP_SHARE_URL,
   communityPublicId,
@@ -23,6 +24,11 @@ function run() {
   assert(
     pulsePublicUrl(id, "community") === `${APP_SHARE_URL}/p/c-${id}`,
     "URL comunidad /p/c-<id>",
+  );
+  assert(videoPublicUrl(id) === `${APP_SHARE_URL}/v/${id}`, "URL video /v/<id>");
+  assert(
+    videoPublicUrl(id, "community") === `${APP_SHARE_URL}/v/c-${id}`,
+    "URL video comunidad /v/c-<id>",
   );
   assert(isCommunityPublicId(communityPublicId(id)), "prefijo c-");
 
@@ -76,6 +82,18 @@ function run() {
     cityName: "Culiacán",
   });
   assert(community.url.includes("/p/c-"), `community url: ${community.url}`);
+
+  const videoShare = buildShareCardModel({
+    id,
+    kind: "community",
+    surface: "video",
+    category: "bloqueo",
+    title: "Video en Boulevares",
+    placeLabel: "Boulevares",
+    cityName: "Culiacán",
+  });
+  assert(videoShare.url.includes("/v/c-"), `video url: ${videoShare.url}`);
+  assert(sharePulseMessage(videoShare).includes("/v/c-"), "mensaje video con /v/");
 
   const news = buildShareCardModel({
     id,

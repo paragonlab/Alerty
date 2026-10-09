@@ -34,7 +34,6 @@ import {
   getIntensityColor,
 } from "../lib/alerty/utils";
 import { Sounds } from "../lib/sounds";
-import { shareAlertPulse } from "../lib/alerty/share";
 import type { AlertItem, CommunityPost } from "../lib/alerty/types";
 import { communitySourceLabel, isNewsPost } from "../lib/alerty/communityLabel";
 import { recordAlertView } from "../lib/alerty/impact";
@@ -44,6 +43,7 @@ import { setPlaybackAudioMode } from "../lib/alerty/audioMode";
 import { CommunityVoteBar } from "./CommunityVoteBar";
 import { MapBackdrop } from "./MapBackdrop";
 import { ReelsTimeFilter } from "./ReelsTimeFilter";
+import { SharePulseButton } from "./SharePulseButton";
 
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
 
@@ -820,26 +820,7 @@ export function VideoReelCard({
           <Text style={styles.actionLabel}>Es falsa</Text>
         </View>
 
-        <View style={styles.actionItem}>
-          <Pressable
-            style={styles.actionIconBtn}
-            onPress={() => {
-              void Sounds.tap();
-              void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              void shareAlertPulse({
-                title: alert.title ?? CATEGORY_LABELS[alert.category],
-                neighborhood: alert.neighborhood,
-                alertId: alert.id,
-                category: alert.category,
-                status: alert.status,
-              });
-            }}
-            accessibilityLabel="Compartir este pulso"
-          >
-            <Ionicons name="share-social-outline" size={28} color="rgba(255,255,255,0.85)" />
-          </Pressable>
-          <Text style={styles.actionLabel}>Compartir</Text>
-        </View>
+        <SharePulseButton alert={alert} variant="reels" />
 
         <View style={styles.actionItem}>
           <Pressable
@@ -1066,6 +1047,10 @@ function CommunityReelCard({
           </View>
           <CommunityVoteBar postId={post.id} dark />
         </View>
+
+        <View style={styles.actionsCol} pointerEvents="box-none">
+          <SharePulseButton post={post} variant="reels" />
+        </View>
       </View>
     );
   }
@@ -1139,6 +1124,10 @@ function CommunityReelCard({
           <Ionicons name="open-outline" size={14} color="#0A0A0A" />
           <Text style={styles.sourceCtaText}>Ver video en {news ? source : "X"}</Text>
         </Pressable>
+      </View>
+
+      <View style={styles.actionsCol} pointerEvents="box-none">
+        <SharePulseButton post={post} variant="reels" />
       </View>
     </View>
   );

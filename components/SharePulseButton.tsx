@@ -11,13 +11,13 @@ import { useAlertyTheme } from "../lib/useAlertyTheme";
 type AlertProps = {
   alert: AlertItem;
   post?: never;
-  variant?: "compact" | "full";
+  variant?: "compact" | "full" | "reels";
 };
 
 type PostProps = {
   post: CommunityPost;
   alert?: never;
-  variant?: "compact" | "full";
+  variant?: "compact" | "full" | "reels";
 };
 
 type Props = AlertProps | PostProps;
@@ -26,6 +26,7 @@ export function SharePulseButton(props: Props) {
   const theme = useAlertyTheme();
   const [busy, setBusy] = useState(false);
   const variant = props.variant ?? "compact";
+  const surface = variant === "reels" ? ("video" as const) : ("feed" as const);
 
   const payload = props.alert
     ? {
@@ -40,6 +41,7 @@ export function SharePulseButton(props: Props) {
         status: props.alert.status,
         cityName: getActiveCityName(),
         kind: "alert" as const,
+        surface,
       }
     : {
         title: cleanShareTitle(
@@ -54,6 +56,7 @@ export function SharePulseButton(props: Props) {
         category: props.post.categoryGuess ?? "otro",
         cityName: getActiveCityName(),
         kind: "community" as const,
+        surface,
       };
 
   const onShare = async () => {
@@ -88,6 +91,36 @@ export function SharePulseButton(props: Props) {
           <Ionicons name="share-outline" size={20} color={theme.colors.text} />
         )}
       </Pressable>
+    );
+  }
+
+  /** Columna vertical para overlay de Videos (fondo oscuro). */
+  if (variant === "reels") {
+    return (
+      <View style={styles.reelsCol}>
+        <Pressable
+          style={styles.reelsBtn}
+          onPress={onShare}
+          disabled={busy}
+          accessibilityLabel="Compartir este video"
+        >
+          {busy ? (
+            <ActivityIndicator size="small" color="#fff" />
+          ) : (
+            <Ionicons name="share-outline" size={26} color="rgba(255,255,255,0.92)" />
+          )}
+        </Pressable>
+        <Text style={styles.reelsLabel}>Compartir</Text>
+        <Pressable
+          style={[styles.reelsBtn, styles.reelsWa]}
+          onPress={onWhatsApp}
+          disabled={busy}
+          accessibilityLabel="Compartir por WhatsApp"
+        >
+          <Ionicons name="logo-whatsapp" size={24} color="#25D366" />
+        </Pressable>
+        <Text style={styles.reelsLabel}>WhatsApp</Text>
+      </View>
     );
   }
 
@@ -126,4 +159,26 @@ const styles = StyleSheet.create({
   },
   wa: { backgroundColor: "rgba(37,211,102,0.1)" },
   btnText: { fontSize: 13, fontFamily: "SpaceGrotesk_500Medium" },
+  reelsCol: { alignItems: "center", gap: 4 },
+  reelsBtn: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(0,0,0,0.35)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.22)",
+  },
+  reelsWa: {
+    marginTop: 8,
+    backgroundColor: "rgba(37,211,102,0.12)",
+    borderColor: "rgba(37,211,102,0.45)",
+  },
+  reelsLabel: {
+    color: "rgba(255,255,255,0.85)",
+    fontSize: 11,
+    fontFamily: "SpaceGrotesk_500Medium",
+    textAlign: "center",
+  },
 });

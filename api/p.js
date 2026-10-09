@@ -1,7 +1,7 @@
 /**
- * Landing pública /p/<id> con OG tags para WhatsApp.
+ * Landing pública /p/<id> o /v/<id> (surface=video) con OG tags para WhatsApp.
  * id = uuid (alerta) o c-<uuid> (community post).
- * Abre sin forzar descarga. vercel.json reescribe /p/:id → /api/p?id=:id
+ * Abre sin forzar descarga. vercel.json reescribe /p/:id y /v/:id → /api/p
  */
 
 const {
@@ -13,7 +13,7 @@ const {
   loadPulse,
 } = require("./_pulseShared");
 
-function pageHtml(pulse) {
+function pageHtml(pulse, surface) {
   const cat = pulse.category || "otro";
   const city = pulse.cityName;
   const citySlug = pulse.citySlug;
@@ -24,11 +24,25 @@ function pageHtml(pulse) {
   const cleared = pulse.status === "resolved";
   const place = pulse.place;
   const publicId = pulse.publicId;
-  const url = `${APP}/p/${publicId}`;
-  const ogImage = `${APP}/api/og?id=${encodeURIComponent(publicId)}`;
-  const desc = action ? `${action} · ${place}` : `${place} · Pulso ${city}`;
-  const appLink = `${APP}/?city=${encodeURIComponent(citySlug)}`;
+  const isVideo = surface === "video";
+  const pathPrefix = isVideo ? "v" : "p";
+  const url = `${APP}/${pathPrefix}/${publicId}`;
+  const ogImage = `${APP}/api/og?id=${encodeURIComponent(publicId)}${isVideo ? "&surface=video" : ""}`;
+  const desc = isVideo
+    ? action
+      ? `${action} · Video en ${place}`
+      : `Video de vecinos en ${place} · Pulso ${city}`
+    : action
+      ? `${action} · ${place}`
+      : `${place} · Pulso ${city}`;
+  const appLink = isVideo
+    ? `${APP}/?city=${encodeURIComponent(citySlug)}&reels=${encodeURIComponent(publicId)}`
+    : `${APP}/?city=${encodeURIComponent(citySlug)}`;
   const source = pulse.sourceHint || "aviso de vecinos";
+  const cta = isVideo ? "Ver este video en Pulso" : "Recibe avisos de tu colonia";
+  const ctaSub = isVideo
+    ? "Sin descarga obligatoria · se abre en Videos"
+    : "Sin descarga obligatoria · abre Pulso en el navegador";
 
   return `<!DOCTYPE html>
 <html lang="es-MX">
@@ -74,6 +88,9 @@ function pageHtml(pulse) {
       color: #D9552B; background: rgba(217,85,43,0.12);
       padding: 6px 12px; border-radius: 999px; margin-bottom: 12px;
     }
+    .pill-video {
+      color: #F6F2EA; background: #1B1A17; margin-left: 8px;
+    }
     h1 { font-size: 1.45rem; line-height: 1.3; margin: 0 0 12px; }
     .action { color: #1B1A17; font-size: 1.05rem; margin: 0 0 16px; }
     .meta { color: #6A6257; font-size: 0.9rem; }
@@ -95,14 +112,14 @@ function pageHtml(pulse) {
     <div class="brand">PULSO</div>
     <div class="city">${esc(city)}</div>
     <article class="card">
-      <span class="pill">${esc(label)}</span>
+      <span class="pill">${esc(label)}</span>${isVideo ? '<span class="pill pill-video">Video</span>' : ""}
       <h1>${esc(headline)}</h1>
       ${action ? `<p class="action">${esc(action)}</p>` : ""}
       <p class="meta">${esc(place)} · ${esc(source)}</p>
       ${cleared ? '<span class="cleared">Ya se despejó</span>' : ""}
     </article>
-    <a class="cta" href="${esc(appLink)}">Recibe avisos de tu colonia</a>
-    <p class="cta-sub">Sin descarga obligatoria · abre Pulso en el navegador</p>
+    <a class="cta" href="${esc(appLink)}">${esc(cta)}</a>
+    <p class="cta-sub">${esc(ctaSub)}</p>
     <p class="foot">Pulso informa para cuidarse. No es denuncia ni sustituye al 911. Los operativos van con retraso y sin ubicación en vivo.</p>
   </main>
 </body>
@@ -122,6 +139,7 @@ a{color:#D9552B}</style></head>
 
 module.exports = async function handler(req, res) {
   const id = (req.query && req.query.id) || "";
+  const surface = (req.query && req.query.surface) === "video" ? "video" : "feed";
   let pulse = null;
   try {
     pulse = await loadPulse(id);
@@ -137,5 +155,5 @@ module.exports = async function handler(req, res) {
 
   res.setHeader("Content-Type", "text/html; charset=utf-8");
   res.setHeader("Cache-Control", "public, s-maxage=60, stale-while-revalidate=300");
-  res.status(200).send(pageHtml(pulse));
+  res.status(200).send(pageHtml(pulse, surface));
 };

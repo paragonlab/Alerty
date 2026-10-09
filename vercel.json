@@ -32,6 +32,10 @@
       "dest": "/api/p?id=$id"
     },
     {
+      "src": "/v/(?<id>[^/]+)",
+      "dest": "/api/p?id=$id&surface=video"
+    },
+    {
       "handle": "filesystem"
     },
     {

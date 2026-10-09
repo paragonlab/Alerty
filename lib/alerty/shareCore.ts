@@ -35,6 +35,21 @@ export function pulsePublicUrl(
   return `${APP_SHARE_URL}/p/${id}`;
 }
 
+/**
+ * Link público para compartir desde la pestaña Videos.
+ * Misma entidad que /p/, con OG orientado a video (miniatura).
+ * Alertas: /v/<uuid>. Comunidad: /v/c-<uuid>.
+ */
+export function videoPublicUrl(
+  id: string,
+  kind: PulseShareKind = "alert",
+): string {
+  if (kind === "community" || isCommunityPublicId(id)) {
+    return `${APP_SHARE_URL}/v/${communityPublicId(id)}`;
+  }
+  return `${APP_SHARE_URL}/v/${id}`;
+}
+
 export function alertDeepLink(alertId: string): string {
   return `${APP_SHARE_URL}/alert/${alertId}`;
 }
