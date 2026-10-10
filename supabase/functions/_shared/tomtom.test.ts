@@ -8,6 +8,8 @@ import {
   TOMTOM_BUDGET,
   TOMTOM_MAX_BBOX_KM2,
   ALIADO_CORRIDOR_MAX_KM,
+  CURATED_MEX15D_TOLL_BOOTHS,
+  POI_DEDUPE_METERS,
   TOMTOM_POI_CACHE_KEY,
   TOMTOM_POI_CACHE_TTL_EMPTY_SEC,
   TOMTOM_POI_CATEGORIES,
@@ -22,9 +24,11 @@ import {
   calmIncidentText,
   cityIdForIncident,
   clientIpFromHeaders,
+  dedupePoisByNamePos,
   extraMinutesFromFlow,
   isFreshTomtomIncident,
   isAllowedTravelPoint,
+  isGenericTollName,
   mapTomtomCategory,
   mergeAliadosIntoPois,
   minKmToCorridor,
@@ -38,11 +42,13 @@ import {
   poiMatchesExpectedCategory,
   pointFromIncidentGeometry,
   pointInBbox,
+  poisNearDuplicate,
   rateLimitBucket,
   rateLimitCacheKey,
   resolveTravelEndpoints,
   selectIncidentsToResolve,
   tomtomDuplicatesAliado,
+  withCuratedTollFallback,
 } from "./tomtom.ts";
 import {
   FIXTURE_CALCULATE_ROUTE,
@@ -262,17 +268,18 @@ Deno.test("rate limit keys / IP header", () => {
   );
 });
 
-Deno.test("POI: categorías, radio, cache v4, filtro y round-robin", () => {
+Deno.test("POI: categorías, radio, cache v5, filtro y round-robin", () => {
   assertEquals(TOMTOM_POI_CATEGORIES.gas_station, "7311");
   assertEquals(TOMTOM_POI_CATEGORIES.ev_charging, "7309");
   assertEquals(TOMTOM_POI_CATEGORIES.hospital, "7321");
   assertEquals(TOMTOM_POI_CATEGORIES.pharmacy, "7326");
   assertEquals(TOMTOM_POI_CATEGORIES.toll, "7375");
   assertEquals(TOMTOM_POI_MAX_RADIUS_M, 50_000);
-  assertEquals(TOMTOM_POI_CACHE_KEY, "poi:corridor:v4");
+  assertEquals(TOMTOM_POI_CACHE_KEY, "poi:corridor:v5");
   assertEquals(TOMTOM_POI_CACHE_TTL_EMPTY_SEC, 10 * 60);
   assertEquals(TOMTOM_POI_REQUEST_GAP_MS, 250);
   assertEquals(TOMTOM_POI_SAMPLE_POINTS.length, 3);
+  assertEquals(POI_DEDUPE_METERS, 300);
 
   assertEquals(poiCacheTtlSeconds({ empty: false, anyFailed: false }), 6 * 3600);
   assertEquals(poiCacheTtlSeconds({ empty: true, anyFailed: false }), 10 * 60);
@@ -334,6 +341,120 @@ Deno.test("POI: categorías, radio, cache v4, filtro y round-robin", () => {
     }),
     true,
   );
+});
+
+Deno.test("POI calidad: gas sin talleres, peajes útiles + fallback, dedupe ~300 m", () => {
+  // Gas: talleres aunque vengan con categorySet 7311
+  assertEquals(
+    poiMatchesExpectedCategory("gas_station", {
+      name: "Taller José Natividad",
+      categoryIds: [7311],
+      categories: ["petrol station", "repair facility"],
+    }),
+    false,
+  );
+  assertEquals(
+    poiMatchesExpectedCategory("gas_station", {
+      name: "Refacciones El Camino",
+      categoryIds: [7311],
+      categories: ["petrol station"],
+    }),
+    false,
+  );
+  assertEquals(
+    poiMatchesExpectedCategory("gas_station", {
+      name: "Llantera del Sur",
+      categoryIds: [7311],
+      categories: [],
+    }),
+    false,
+  );
+  assertEquals(
+    poiMatchesExpectedCategory("gas_station", {
+      name: "Pemex Costa Rica",
+      categoryIds: [7311],
+      categories: ["petrol station"],
+    }),
+    true,
+  );
+  // Sin categorySet correcto → no pasa (taller 7310)
+  assertEquals(
+    poiMatchesExpectedCategory("gas_station", {
+      name: "Taller Mecánico",
+      categoryIds: [7310],
+      categories: ["repair facility"],
+    }),
+    false,
+  );
+
+  // Toll: nombres genéricos fuera; caseta/plaza/peaje o clasificación real
+  assertEquals(isGenericTollName("Culiacán"), true);
+  assertEquals(isGenericTollName("POI"), true);
+  assertEquals(isGenericTollName("Culiacán Rosales"), true);
+  assertEquals(
+    poiMatchesExpectedCategory("toll", {
+      name: "Culiacán",
+      categoryIds: [7375],
+      categories: ["toll gate"],
+    }),
+    false,
+  );
+  assertEquals(
+    poiMatchesExpectedCategory("toll", {
+      name: "POI",
+      categoryIds: [7375],
+      categories: [],
+    }),
+    false,
+  );
+  assertEquals(
+    poiMatchesExpectedCategory("toll", {
+      name: "Caseta Costa Rica",
+      categoryIds: [7375],
+      categories: ["toll gate"],
+    }),
+    true,
+  );
+  assertEquals(
+    poiMatchesExpectedCategory("toll", {
+      name: "Plaza de cobro Mármol",
+      categoryIds: [],
+      categories: [],
+    }),
+    true,
+  );
+
+  const curated = withCuratedTollFallback([]);
+  assertEquals(curated.length, CURATED_MEX15D_TOLL_BOOTHS.length);
+  assertEquals(curated[0].name.includes("Costa Rica"), true);
+  assertEquals(
+    withCuratedTollFallback([
+      { name: "Caseta Quilá", lat: 24.4, lng: -107.27, distKm: 0.2 },
+    ]).length,
+    1,
+  );
+
+  // Dedupe EV Tesla ~200 m + nombre
+  const teslaA = { name: "Tesla", lat: 24.55, lng: -107.45, distKm: 0.1 };
+  const teslaB = { name: "Tesla Supercharger", lat: 24.5515, lng: -107.4512, distKm: 0.2 };
+  assertEquals(poisNearDuplicate(teslaA, teslaB), true);
+  const deduped = dedupePoisByNamePos([teslaA, teslaB, {
+    name: "Cargador CFE",
+    lat: 23.95,
+    lng: -107.02,
+    distKm: 1,
+  }], 5);
+  assertEquals(deduped.length, 2);
+  assertEquals(deduped[0].name, "Tesla");
+  assertEquals(deduped[1].name, "Cargador CFE");
+
+  // Round-robin también dedupea por proximidad
+  const rr = pickPoisRoundRobinBySample([
+    [teslaA],
+    [teslaB],
+    [{ name: "Otro EV", lat: 23.28, lng: -106.35, distKm: 0.5 }],
+  ], 5);
+  assertEquals(rr.map((p) => p.name), ["Tesla", "Otro EV"]);
 });
 
 Deno.test("Aliados: categoría, corredor 2 km, merge + dedupe TomTom", () => {

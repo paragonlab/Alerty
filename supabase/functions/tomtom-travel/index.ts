@@ -23,6 +23,7 @@ import {
   TOMTOM_TRAVEL_RATE,
   buildPoiFetchPlan,
   clientIpFromHeaders,
+  dedupePoisByNamePos,
   extraMinutesFromFlow,
   mergeAliadosIntoPois,
   parseCalculateRoute,
@@ -36,6 +37,7 @@ import {
   resolveTravelEndpoints,
   tomtomGetJson,
   tomtomKey,
+  withCuratedTollFallback,
   type AliadoForPoi,
   type TomtomPoiKind,
   type TravelPoi,
@@ -324,7 +326,13 @@ async function fetchTomtomPoisCached(
 
   const out: Record<string, PoiRow[]> = {};
   for (const kind of Object.keys(TOMTOM_POI_CATEGORIES) as TomtomPoiKind[]) {
-    out[kind] = pickPoisRoundRobinBySample(byKindSample[kind], 5);
+    const picked = dedupePoisByNamePos(
+      pickPoisRoundRobinBySample(byKindSample[kind], 8),
+      5,
+    );
+    out[kind] = kind === "toll"
+      ? withCuratedTollFallback(picked) as PoiRow[]
+      : picked;
   }
 
   const empty = poiListsAreEmpty(out);
