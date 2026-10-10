@@ -5,6 +5,7 @@
 
 import { supabase } from "../supabase";
 import type { TravelDirection } from "./travel/travelMode";
+import type { TripPlace } from "./travel/tripPlaces";
 
 export type TomtomDelay = { id: string; label: string; extraMinutes: number };
 
@@ -14,6 +15,7 @@ export type TomtomRouteInfo = {
   travelTimeMinutes: number | null;
   trafficDelayMinutes: number | null;
   lengthKm: number | null;
+  points?: Array<{ lat: number; lng: number }>;
   alternates: Array<{
     summary: string;
     travelTimeMinutes: number;
@@ -34,12 +36,31 @@ export type TomtomPoi = {
   id?: string;
 };
 
+export type TomtomTravelPulse = {
+  id: string;
+  kind: "community" | "alert";
+  category: string;
+  title: string;
+  placeLabel: string;
+  createdAt: string;
+  status?: string;
+  lat: number | null;
+  lng: number | null;
+  onCorridor: boolean;
+  inDestination: boolean;
+};
+
 export type TomtomTravelInsights = {
   mock: boolean;
   attribution: string;
   delays: TomtomDelay[];
   route: TomtomRouteInfo | null;
   pois: Record<string, TomtomPoi[]>;
+  pulses?: TomtomTravelPulse[];
+  originName?: string | null;
+  destinationName?: string | null;
+  error?: string;
+  message?: string;
 };
 
 const POI_LABELS: Record<string, string> = {
@@ -50,7 +71,6 @@ const POI_LABELS: Record<string, string> = {
   toll: "Casetas / plazas",
 };
 
-/** Orden estable de secciones en Antes de salir. */
 export const POI_SECTION_ORDER = [
   "gas_station",
   "ev_charging",
@@ -82,58 +102,43 @@ export function poiSectionIcon(
   }
 }
 
-/** Fallback local si la edge no responde (screenshots / offline). */
-export function mockTravelInsights(direction: TravelDirection): TomtomTravelInsights {
+export function mockTravelInsights(
+  origin: TripPlace,
+  destination: TripPlace,
+): TomtomTravelInsights {
   return {
     mock: true,
     attribution: "Datos de tráfico © TomTom",
-    delays: [
-      { id: "elota", label: "cerca de Elota", extraMinutes: 12 },
-      { id: "dimas", label: "cerca de Dimas", extraMinutes: 5 },
-    ],
+    delays: [{ id: "tramo", label: "en el camino", extraMinutes: 8 }],
     route: {
       source: "mock",
-      summary: "México 15D · con tráfico (demo)",
-      travelTimeMinutes: 168,
-      trafficDelayMinutes: 18,
-      lengthKm: 218,
-      alternates: [
-        { summary: "México 15 libre", travelTimeMinutes: 195, trafficDelayMinutes: 10 },
+      summary: "Ruta con tráfico (demo)",
+      travelTimeMinutes: 120,
+      trafficDelayMinutes: 10,
+      lengthKm: 150,
+      points: [
+        { lat: origin.lat, lng: origin.lng },
+        { lat: destination.lat, lng: destination.lng },
       ],
+      alternates: [],
     },
     pois: {
       gas_station: [
         {
-          name: "Gasolinera demo · Costa Rica",
-          lat: 24.55,
-          lng: -107.44,
+          name: "Gasolinera demo",
+          lat: origin.lat,
+          lng: origin.lng,
           distKm: 0.4,
           source: "tomtom",
         },
       ],
-      ev_charging: [
-        {
-          name: "Cargador demo · Elota",
-          lat: 23.95,
-          lng: -107.02,
-          distKm: 0.5,
-          source: "tomtom",
-        },
-      ],
-      hospital: [
-        {
-          name: "Hospital demo · Villa Unión",
-          lat: 23.3,
-          lng: -106.36,
-          distKm: 1.2,
-          source: "tomtom",
-        },
-      ],
+      ev_charging: [],
+      hospital: [],
       pharmacy: [
         {
-          name: "Farmacia Aliada · Dimas",
-          lat: 23.72,
-          lng: -106.78,
+          name: "Farmacia Aliada",
+          lat: (origin.lat + destination.lat) / 2,
+          lng: (origin.lng + destination.lng) / 2,
           distKm: 0.8,
           source: "aliado",
           aliado: true,
@@ -141,40 +146,65 @@ export function mockTravelInsights(direction: TravelDirection): TomtomTravelInsi
           promo: "Descuento a vecinos Pulso",
         },
       ],
-      toll: [
-        { name: "Caseta demo · 15D", lat: 24.4, lng: -107.4, distKm: 0.2, source: "tomtom" },
-      ],
+      toll: [],
     },
+    pulses: [],
+    originName: origin.name,
+    destinationName: destination.name,
   };
 }
 
 export async function fetchTomtomTravelInsights(opts: {
-  direction: TravelDirection;
-  origin?: { lat: number; lng: number } | null;
+  origin: TripPlace;
+  destination: TripPlace;
+  direction?: TravelDirection | null;
   fromLabel?: string | null;
+  window?: "6h" | "24h";
 }): Promise<TomtomTravelInsights> {
   if (!supabase) {
-    return mockTravelInsights(opts.direction);
+    return mockTravelInsights(opts.origin, opts.destination);
   }
   try {
     const { data, error } = await supabase.functions.invoke("tomtom-travel", {
       body: {
-        direction: opts.direction,
-        origin: opts.origin ?? undefined,
-        fromLabel: opts.fromLabel ?? undefined,
+        origin: {
+          lat: opts.origin.lat,
+          lng: opts.origin.lng,
+          name: opts.origin.name,
+        },
+        destination: {
+          lat: opts.destination.lat,
+          lng: opts.destination.lng,
+          name: opts.destination.name,
+        },
+        direction: opts.direction || undefined,
+        fromLabel: opts.fromLabel || null,
+        window: opts.window || "6h",
       },
     });
     if (error || !data) {
-      return mockTravelInsights(opts.direction);
+      return mockTravelInsights(opts.origin, opts.destination);
+    }
+    const payload = data as TomtomTravelInsights & { error?: string; message?: string };
+    if (payload.error) {
+      return {
+        ...mockTravelInsights(opts.origin, opts.destination),
+        error: payload.error,
+        message: payload.message,
+        mock: true,
+      };
     }
     return {
-      mock: Boolean(data.mock),
-      attribution: data.attribution || "Datos de tráfico © TomTom",
-      delays: Array.isArray(data.delays) ? data.delays : [],
-      route: data.route ?? null,
-      pois: data.pois && typeof data.pois === "object" ? data.pois : {},
+      mock: Boolean(payload.mock),
+      attribution: payload.attribution || "Datos de tráfico © TomTom",
+      delays: payload.delays || [],
+      route: payload.route || null,
+      pois: payload.pois || {},
+      pulses: payload.pulses || [],
+      originName: payload.originName || opts.origin.name,
+      destinationName: payload.destinationName || opts.destination.name,
     };
   } catch {
-    return mockTravelInsights(opts.direction);
+    return mockTravelInsights(opts.origin, opts.destination);
   }
 }

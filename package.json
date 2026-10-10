@@ -25,7 +25,7 @@
     "test:notifyCity": "deno test --allow-env supabase/functions/_shared/notifyCityScope.test.ts",
     "test:citySync": "deno test --allow-env supabase/functions/_shared/citySyncConfig.test.ts",
     "test:phase2": "npm run test:city && npm run test:colonia && npm run test:citySync && npm run test:notifyCity",
-    "test:travel": "npx --yes tsx lib/alerty/travel/travelMode.test.ts && npx --yes tsx lib/alerty/trafficConfig.test.ts",
+    "test:travel": "npx --yes tsx lib/alerty/travel/travelMode.test.ts && npx --yes tsx lib/alerty/travel/tripPlaces.test.ts && npx --yes tsx lib/alerty/trafficConfig.test.ts",
     "test:tomtom": "deno test --allow-env supabase/functions/_shared/tomtom.test.ts",
     "tomtom:smoke": "node scripts/tomtom-smoke.mjs",
     "tomtom:smoke:edge": "node scripts/tomtom-smoke.mjs --edge",

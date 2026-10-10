@@ -698,17 +698,50 @@ export function travelPresets(direction: string): {
     : { origin: cul, destination: mzt };
 }
 
+/**
+ * Endpoints de viaje.
+ * - Con origin+destination en México y ≤1500 km: se usan tal cual.
+ * - Sin coords / inválidos: cae al preset del corredor (compat chips CUL↔MZT).
+ */
 export function resolveTravelEndpoints(opts: {
   direction: string;
   origin?: { lat: number; lng: number } | null;
   destination?: { lat: number; lng: number } | null;
+  /** Si true, exige México (no solo corredor). Default true cuando hay ambas coords. */
+  mexicoWide?: boolean;
 }): {
   origin: { lat: number; lng: number };
   destination: { lat: number; lng: number };
   originClamped: boolean;
   destinationClamped: boolean;
+  error?: string;
+  distanceKm?: number;
 } {
   const presets = travelPresets(opts.direction);
+  const hasBoth = Boolean(opts.origin && opts.destination);
+  const mexicoWide = opts.mexicoWide ?? hasBoth;
+
+  if (mexicoWide && opts.origin && opts.destination) {
+    const v = validateTripEndpoints(opts.origin, opts.destination);
+    if (!v.ok) {
+      return {
+        origin: presets.origin,
+        destination: presets.destination,
+        originClamped: true,
+        destinationClamped: true,
+        error: v.error,
+        distanceKm: v.distanceKm,
+      };
+    }
+    return {
+      origin: opts.origin,
+      destination: opts.destination,
+      originClamped: false,
+      destinationClamped: false,
+      distanceKm: v.distanceKm,
+    };
+  }
+
   const originOk = opts.origin && isAllowedTravelPoint(opts.origin);
   const destOk = opts.destination && isAllowedTravelPoint(opts.destination);
   return {
@@ -717,6 +750,245 @@ export function resolveTravelEndpoints(opts: {
     originClamped: Boolean(opts.origin) && !originOk,
     destinationClamped: Boolean(opts.destination) && !destOk,
   };
+}
+
+/** Caja aproximada de México (WGS84). */
+export const MEXICO_BOUNDS = {
+  minLat: 14.5,
+  maxLat: 32.75,
+  minLng: -118.5,
+  maxLng: -86.7,
+} as const;
+
+export const MAX_TRIP_LENGTH_KM = 1500;
+/** Rejilla ~1.1 km (2 decimales) para cache de ruta/POI. */
+export const TRIP_COORD_GRID_DECIMALS = 2;
+export const ROUTE_CACHE_TTL_SEC = 10 * 60;
+export const TRIP_POI_CACHE_TTL_SEC = 6 * 3600;
+/** Espaciado de muestras POI/flow a lo largo de la polilínea (40–60 km). */
+export const POI_SAMPLE_SPACING_KM = 50;
+export const POI_MAX_SAMPLES = 8;
+export const FLOW_MAX_SAMPLES = 6;
+export const PULSE_ROUTE_BUFFER_KM = 2;
+
+export const TOMTOM_PLACES_RATE = {
+  windowSeconds: 5 * 60,
+  maxPerIp: 40,
+  maxPerUser: 60,
+} as const;
+
+export type TripPlace = {
+  name: string;
+  lat: number;
+  lng: number;
+  municipality?: string | null;
+};
+
+/** Chips rápidos Sinaloa / oeste (coords centro ciudad). */
+export const TRIP_ROUTE_CHIPS = [
+  {
+    id: "culiacan_mazatlan",
+    label: "Culiacán – Mazatlán",
+    origin: { name: "Culiacán", lat: 24.8091, lng: -107.394 },
+    destination: { name: "Mazatlán", lat: 23.2494, lng: -106.4111 },
+    knownCorridor: "mex15d" as const,
+  },
+  {
+    id: "culiacan_los_mochis",
+    label: "Culiacán – Los Mochis",
+    origin: { name: "Culiacán", lat: 24.8091, lng: -107.394 },
+    destination: { name: "Los Mochis", lat: 25.7903, lng: -108.9859 },
+    knownCorridor: null,
+  },
+  {
+    id: "mazatlan_tepic",
+    label: "Mazatlán – Tepic",
+    origin: { name: "Mazatlán", lat: 23.2494, lng: -106.4111 },
+    destination: { name: "Tepic", lat: 21.5041, lng: -104.8946 },
+    knownCorridor: null,
+  },
+  {
+    id: "culiacan_guadalajara",
+    label: "Culiacán – Guadalajara",
+    origin: { name: "Culiacán", lat: 24.8091, lng: -107.394 },
+    destination: { name: "Guadalajara", lat: 20.6597, lng: -103.3496 },
+    knownCorridor: null,
+  },
+] as const;
+
+export function isInMexico(lat: number, lng: number): boolean {
+  return (
+    Number.isFinite(lat) &&
+    Number.isFinite(lng) &&
+    lat >= MEXICO_BOUNDS.minLat &&
+    lat <= MEXICO_BOUNDS.maxLat &&
+    lng >= MEXICO_BOUNDS.minLng &&
+    lng <= MEXICO_BOUNDS.maxLng
+  );
+}
+
+export function roundCoordGrid(
+  value: number,
+  decimals = TRIP_COORD_GRID_DECIMALS,
+): number {
+  const f = 10 ** decimals;
+  return Math.round(value * f) / f;
+}
+
+export function tripCacheKey(
+  kind: "route" | "poi" | "flow",
+  origin: { lat: number; lng: number },
+  destination: { lat: number; lng: number },
+): string {
+  const o = `${roundCoordGrid(origin.lat)},${roundCoordGrid(origin.lng)}`;
+  const d = `${roundCoordGrid(destination.lat)},${roundCoordGrid(destination.lng)}`;
+  return `${kind}:trip:v1:${o}:${d}`;
+}
+
+export function validateTripEndpoints(
+  origin: { lat: number; lng: number },
+  destination: { lat: number; lng: number },
+): { ok: true; distanceKm: number } | { ok: false; error: string; distanceKm?: number } {
+  if (!isInMexico(origin.lat, origin.lng) || !isInMexico(destination.lat, destination.lng)) {
+    return { ok: false, error: "outside_mexico" };
+  }
+  const distanceKm = haversineKm(origin.lat, origin.lng, destination.lat, destination.lng);
+  if (distanceKm > MAX_TRIP_LENGTH_KM) {
+    return { ok: false, error: "too_far", distanceKm };
+  }
+  if (distanceKm < 0.3) {
+    return { ok: false, error: "too_short", distanceKm };
+  }
+  return { ok: true, distanceKm };
+}
+
+/** ¿Parece el corredor Culiacán↔Mazatlán? (para casetas curadas). */
+export function isKnownMex15dTrip(
+  origin: { lat: number; lng: number },
+  destination: { lat: number; lng: number },
+): boolean {
+  const cul = { lat: 24.8091, lng: -107.394 };
+  const mzt = { lat: 23.2494, lng: -106.4111 };
+  const near = (a: { lat: number; lng: number }, b: { lat: number; lng: number }) =>
+    haversineKm(a.lat, a.lng, b.lat, b.lng) <= 25;
+  return (
+    (near(origin, cul) && near(destination, mzt)) ||
+    (near(origin, mzt) && near(destination, cul))
+  );
+}
+
+/**
+ * Muestrea puntos a lo largo de una polilínea (~spacingKm, máx maxSamples).
+ * Siempre incluye inicio y fin.
+ */
+export function sampleAlongPolyline(
+  points: ReadonlyArray<{ lat: number; lng: number }>,
+  spacingKm = POI_SAMPLE_SPACING_KM,
+  maxSamples = POI_MAX_SAMPLES,
+): Array<{ lat: number; lng: number; distKm: number }> {
+  if (points.length === 0) return [];
+  if (points.length === 1) {
+    return [{ lat: points[0].lat, lng: points[0].lng, distKm: 0 }];
+  }
+  const out: Array<{ lat: number; lng: number; distKm: number }> = [];
+  let traveled = 0;
+  let nextAt = 0;
+  out.push({ lat: points[0].lat, lng: points[0].lng, distKm: 0 });
+  nextAt = spacingKm;
+  for (let i = 1; i < points.length; i++) {
+    const prev = points[i - 1]!;
+    const cur = points[i]!;
+    const seg = haversineKm(prev.lat, prev.lng, cur.lat, cur.lng);
+    const segStart = traveled;
+    traveled += seg;
+    while (nextAt <= traveled + 1e-9 && out.length < maxSamples - 1) {
+      const t = seg > 0 ? (nextAt - segStart) / seg : 0;
+      const lat = prev.lat + (cur.lat - prev.lat) * Math.min(1, Math.max(0, t));
+      const lng = prev.lng + (cur.lng - prev.lng) * Math.min(1, Math.max(0, t));
+      out.push({ lat, lng, distKm: Math.round(nextAt * 10) / 10 });
+      nextAt += spacingKm;
+    }
+  }
+  const last = points[points.length - 1]!;
+  if (
+    out.length < maxSamples &&
+    (out[out.length - 1]!.lat !== last.lat || out[out.length - 1]!.lng !== last.lng)
+  ) {
+    out.push({ lat: last.lat, lng: last.lng, distKm: Math.round(traveled * 10) / 10 });
+  }
+  return out.slice(0, maxSamples);
+}
+
+/** Distancia mínima a una polilínea (km). */
+export function minKmToPolyline(
+  lat: number,
+  lng: number,
+  line: ReadonlyArray<{ lat: number; lng: number }>,
+): number {
+  if (line.length === 0) return Infinity;
+  if (line.length === 1) return haversineKm(lat, lng, line[0].lat, line[0].lng);
+  let best = Infinity;
+  for (let i = 0; i < line.length - 1; i++) {
+    const a = line[i]!;
+    const b = line[i + 1]!;
+    // Aprox: distancia a extremos + punto medio (suficiente para buffer 2 km)
+    const d = Math.min(
+      haversineKm(lat, lng, a.lat, a.lng),
+      haversineKm(lat, lng, b.lat, b.lng),
+      haversineKm(lat, lng, (a.lat + b.lat) / 2, (a.lng + b.lng) / 2),
+    );
+    if (d < best) best = d;
+  }
+  return best;
+}
+
+export function parseFuzzySearch(data: unknown): TripPlace[] {
+  if (!data || typeof data !== "object") return [];
+  const results = (data as {
+    results?: Array<{
+      type?: string;
+      address?: {
+        freeformAddress?: string;
+        municipality?: string;
+        countryCode?: string;
+      };
+      position?: { lat?: number; lon?: number };
+      poi?: { name?: string };
+    }>;
+  }).results;
+  if (!Array.isArray(results)) return [];
+  const out: TripPlace[] = [];
+  for (const r of results) {
+    const lat = r.position?.lat;
+    const lng = r.position?.lon;
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
+    if (!isInMexico(lat!, lng!)) continue;
+    const name =
+      r.poi?.name ||
+      r.address?.freeformAddress ||
+      r.address?.municipality ||
+      "Lugar";
+    out.push({
+      name: String(name).slice(0, 120),
+      lat: lat!,
+      lng: lng!,
+      municipality: r.address?.municipality ?? null,
+    });
+    if (out.length >= 6) break;
+  }
+  return out;
+}
+
+export function placesCacheKey(query: string): string {
+  const q = query
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .trim()
+    .replace(/\s+/g, "_")
+    .slice(0, 64);
+  return `places:mx:v1:${q}`;
 }
 
 /** iconCategory TomTom → categoría Pulso + copy calmado. */
@@ -893,12 +1165,35 @@ export type ParsedRoute = {
   travelTimeMinutes: number;
   trafficDelayMinutes: number;
   lengthKm: number;
+  points: Array<{ lat: number; lng: number }>;
   alternates: Array<{
     summary: string;
     travelTimeMinutes: number;
     trafficDelayMinutes: number;
   }>;
 };
+
+export function extractRoutePoints(data: unknown): Array<{ lat: number; lng: number }> {
+  if (!data || typeof data !== "object") return [];
+  const routes = (data as {
+    routes?: Array<{
+      legs?: Array<{
+        points?: Array<{ latitude?: number; longitude?: number }>;
+      }>;
+    }>;
+  }).routes;
+  const legs = routes?.[0]?.legs;
+  if (!Array.isArray(legs)) return [];
+  const out: Array<{ lat: number; lng: number }> = [];
+  for (const leg of legs) {
+    for (const p of leg.points ?? []) {
+      const lat = Number(p.latitude);
+      const lng = Number(p.longitude);
+      if (Number.isFinite(lat) && Number.isFinite(lng)) out.push({ lat, lng });
+    }
+  }
+  return out;
+}
 
 export function parseCalculateRoute(data: unknown): ParsedRoute | null {
   if (!data || typeof data !== "object") return null;
@@ -918,6 +1213,7 @@ export function parseCalculateRoute(data: unknown): ParsedRoute | null {
     travelTimeMinutes: Math.round((primary.travelTimeInSeconds || 0) / 60),
     trafficDelayMinutes: Math.round((primary.trafficDelayInSeconds || 0) / 60),
     lengthKm: Math.round(((primary.lengthInMeters || 0) / 1000) * 10) / 10,
+    points: extractRoutePoints(data),
     alternates: routes.slice(1).map((r) => ({
       summary: "Alterna",
       travelTimeMinutes: Math.round((r.summary?.travelTimeInSeconds || 0) / 60),

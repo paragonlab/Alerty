@@ -34,3 +34,6 @@ verify_jwt = true
 
 [functions.tomtom-travel]
 verify_jwt = true
+
+[functions.tomtom-places]
+verify_jwt = true

@@ -1,6 +1,6 @@
 # TomTom en Pulso
 
-Integración de tráfico (tiles cliente + APIs servidor) para Culiacán, Mazatlán y el corredor México 15 / 15D.
+Integración de tráfico (tiles cliente + APIs servidor) y **Modo viaje** con origen/destino libres dentro de México (autocomplete + ruta con tráfico + POI + pulsos cerca de la polilínea).
 
 ## Keys y secrets (nombres exactos)
 
@@ -57,7 +57,9 @@ curl -X POST "$SUPABASE_URL/functions/v1/sync-tomtom-incidents" \
   -H "Content-Type: application/json" -d '{"source":"manual"}'
 ```
 
-`tomtom-travel`: `{ "smoke": true }` solo con **service role** (ignora smoke del cliente). Origen/destino fuera del corredor/ciudades activas se clampean al preset.
+`tomtom-travel`: `{ "smoke": true }` solo con **service role**. Body libre: `{ origin, destination, window }` (México, ≤~1 500 km). Cache de ruta/flow ~10 min y POI ~6 h por rejilla ~1 km. Rate limit 12/IP y 20/user por 5 min.
+
+`tomtom-places`: proxy de Fuzzy Search (mín. 3 caracteres, `countrySet=MX`). **Preferimos proxy con `TOMTOM_API_KEY`** (cache + rate limit) frente a exponer Search en el browser key: el tile key (`EXPO_PUBLIC_TOMTOM_KEY`) puede restringirse por referrer, pero Search no debería vivir en el cliente.
 
 ## Orden de aplicación (humano / CI)
 
@@ -66,8 +68,21 @@ curl -X POST "$SUPABASE_URL/functions/v1/sync-tomtom-incidents" \
    **No aplicar desde el agente.**
 2. **Secrets** `TOMTOM_API_KEY` + `NOTIFY_HOOK_SECRET` (y Vault `notify_hook_secret` si aún no está).
 3. **Deploy edge functions**  
-   `sync-tomtom-incidents`, `tomtom-travel`, y redeploy `notify-on-alert` (tipo `tomtom_incident`).  
-   `config.toml`: ambas con `verify_jwt = true`.
+   `sync-tomtom-incidents`, `tomtom-travel`, `tomtom-places`, y redeploy `notify-on-alert` (tipo `tomtom_incident`).  
+   `config.toml`: las tres TomTom con `verify_jwt = true`.
+
+### Requests TomTom por viaje (estimado, cold cache)
+
+| Paso | Requests |
+| --- | --- |
+| Routing (+1 alterna) | 1 |
+| Flow en muestras (~50 km, máx 6) | ≤6 |
+| POI NearbySearch (5 categorías × ≤8 muestras) | ≤40 |
+| **Total cold** | **~25–47** |
+| Autocomplete (por tecla, cacheado 24 h) | 1 / query nueva |
+| Warm cache (misma rejilla origen/destino) | **0** APIs TomTom |
+
+Con rate limits y cache, el presupuesto free (~2 500 non-tile/día) aguanta uso vecinal típico; no conviene refrescar POI en cada apertura.
 4. **Cron** — la migración agenda `pulso-sync-tomtom-incidents` (`5,25,45 * * * *`) y manda `x-pulso-hook`. Verificar:
    ```sql
    select jobid, jobname, schedule, active from cron.job

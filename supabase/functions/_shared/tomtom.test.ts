@@ -10,9 +10,11 @@ import {
   ALIADO_CORRIDOR_MAX_KM,
   CURATED_MEX15D_TOLL_BOOTHS,
   EV_NAME_DEDUPE_METERS,
+  MAX_TRIP_LENGTH_KM,
   POI_DEDUPE_METERS,
   TOLL_NEAR_CURATED_KM,
   TOMTOM_POI_CACHE_KEY,
+  TRIP_ROUTE_CHIPS,
   TOMTOM_POI_CACHE_TTL_EMPTY_SEC,
   TOMTOM_POI_CATEGORIES,
   TOMTOM_POI_MAX_RADIUS_M,
@@ -31,6 +33,8 @@ import {
   isFreshTomtomIncident,
   isAllowedTravelPoint,
   isGenericTollName,
+  isInMexico,
+  isKnownMex15dTrip,
   isNearCuratedToll,
   mapTomtomCategory,
   mergeAliadosIntoPois,
@@ -38,8 +42,11 @@ import {
   minKmToCorridor,
   nameHasCasetaOrPlaza,
   parseCalculateRoute,
+  parseFuzzySearch,
   parseIncidentDetails,
   parseNearbySearch,
+  placesCacheKey,
+  sampleAlongPolyline,
   pickPoisRoundRobinBySample,
   planTomtomNotifiesPerUser,
   poiCacheTtlSeconds,
@@ -53,6 +60,8 @@ import {
   resolveTravelEndpoints,
   selectIncidentsToResolve,
   tomtomDuplicatesAliado,
+  tripCacheKey,
+  validateTripEndpoints,
 } from "./tomtom.ts";
 import {
   FIXTURE_CALCULATE_ROUTE,
@@ -253,6 +262,82 @@ Deno.test("fixture calculateRoute → ETA + alterna", () => {
   assertEquals(r?.lengthKm, 218.4);
   assertEquals(r?.alternates.length, 1);
   assertEquals(r?.alternates[0].travelTimeMinutes, 195);
+  assertEquals(Array.isArray(r?.points), true);
+});
+
+Deno.test("viaje libre: México, distancia, muestras y cache key", () => {
+  assertEquals(isInMexico(24.8, -107.4), true);
+  assertEquals(isInMexico(40.7, -74.0), false); // NYC
+  assertEquals(MAX_TRIP_LENGTH_KM, 1500);
+  assertEquals(TRIP_ROUTE_CHIPS.length, 4);
+
+  const ok = validateTripEndpoints(
+    { lat: 24.8091, lng: -107.394 },
+    { lat: 23.2494, lng: -106.4111 },
+  );
+  assertEquals(ok.ok, true);
+  if (ok.ok) assertEquals(ok.distanceKm > 100, true);
+
+  assertEquals(
+    validateTripEndpoints({ lat: 19.4, lng: -99.1 }, { lat: 25.7, lng: -100.3 }).ok,
+    true,
+  ); // CDMX→MTY
+  assertEquals(
+    validateTripEndpoints({ lat: 19.4, lng: -99.1 }, { lat: 34.05, lng: -118.2 }).ok,
+    false,
+  ); // LA fuera
+  const far = validateTripEndpoints({ lat: 14.6, lng: -90.5 }, { lat: 32.5, lng: -117.0 });
+  assertEquals(far.ok, false);
+  if (!far.ok) assertEquals(far.error, "too_far");
+
+  assertEquals(
+    isKnownMex15dTrip(
+      { lat: 24.81, lng: -107.39 },
+      { lat: 23.25, lng: -106.41 },
+    ),
+    true,
+  );
+  assertEquals(
+    isKnownMex15dTrip(
+      { lat: 24.81, lng: -107.39 },
+      { lat: 20.66, lng: -103.35 },
+    ),
+    false,
+  );
+
+  const line = [
+    { lat: 24.8, lng: -107.4 },
+    { lat: 24.4, lng: -107.3 },
+    { lat: 24.0, lng: -107.1 },
+    { lat: 23.5, lng: -106.7 },
+    { lat: 23.25, lng: -106.41 },
+  ];
+  const samples = sampleAlongPolyline(line, 50, 8);
+  assertEquals(samples.length >= 2, true);
+  assertEquals(samples[0].lat, 24.8);
+  assertEquals(samples[samples.length - 1].lat, 23.25);
+
+  const key = tripCacheKey("route", { lat: 24.8091, lng: -107.394 }, {
+    lat: 23.2494,
+    lng: -106.4111,
+  });
+  assertEquals(key.startsWith("route:trip:v1:"), true);
+  assertEquals(placesCacheKey("Culiacán Centro").includes("culiacan"), true);
+
+  const fuzzy = parseFuzzySearch({
+    results: [
+      {
+        address: { freeformAddress: "Culiacán, Sinaloa", municipality: "Culiacán", countryCode: "MX" },
+        position: { lat: 24.81, lon: -107.39 },
+      },
+      {
+        address: { freeformAddress: "New York" },
+        position: { lat: 40.7, lon: -74.0 },
+      },
+    ],
+  });
+  assertEquals(fuzzy.length, 1);
+  assertEquals(fuzzy[0].name.includes("Culiacán"), true);
 });
 
 Deno.test("fixture nearbySearch → POIs", () => {
@@ -491,10 +576,11 @@ Deno.test("Aliados: categoría, corredor 2 km, merge + dedupe TomTom", () => {
   assertEquals(merged.pharmacy[0].source, "aliado");
 });
 
-Deno.test("travel endpoints: presets y clamp de puntos fuera de zona", () => {
+Deno.test("travel endpoints: México libre + clamp legacy", () => {
   assertEquals(isAllowedTravelPoint({ lat: 24.8, lng: -107.4 }), true);
-  assertEquals(isAllowedTravelPoint({ lat: 19.4, lng: -99.1 }), false); // CDMX
+  assertEquals(isAllowedTravelPoint({ lat: 19.4, lng: -99.1 }), false); // CDMX fuera del corredor
 
+  // Solo origen: destino cae al preset
   const ok = resolveTravelEndpoints({
     direction: "culiacan_to_mazatlan",
     origin: { lat: 24.81, lng: -107.39 },
@@ -503,13 +589,24 @@ Deno.test("travel endpoints: presets y clamp de puntos fuera de zona", () => {
   assertEquals(ok.originClamped, false);
   assertEquals(ok.destination.lat, 23.2494);
 
-  const clamped = resolveTravelEndpoints({
+  // Ambos en México (CDMX→GDL): se aceptan sin clamp
+  const free = resolveTravelEndpoints({
     direction: "culiacan_to_mazatlan",
     origin: { lat: 19.4, lng: -99.1 },
     destination: { lat: 20.7, lng: -103.3 },
+    mexicoWide: true,
   });
-  assertEquals(clamped.originClamped, true);
-  assertEquals(clamped.destinationClamped, true);
-  assertEquals(clamped.origin.lat, 24.8091);
-  assertEquals(clamped.destination.lat, 23.2494);
+  assertEquals(free.error, undefined);
+  assertEquals(free.originClamped, false);
+  assertEquals(free.origin.lat, 19.4);
+  assertEquals(free.destination.lat, 20.7);
+
+  // Fuera de México: error
+  const out = resolveTravelEndpoints({
+    direction: "culiacan_to_mazatlan",
+    origin: { lat: 19.4, lng: -99.1 },
+    destination: { lat: 34.05, lng: -118.2 },
+    mexicoWide: true,
+  });
+  assertEquals(out.error, "outside_mexico");
 });
