@@ -10,6 +10,7 @@ import {
   TOMTOM_ATTRIBUTION,
   TOMTOM_PLACES_RATE,
   clientIpFromHeaders,
+  normalizePlacesQuery,
   parseFuzzySearch,
   placesCacheKey,
   rateLimitBucket,
@@ -103,7 +104,7 @@ Deno.serve(async (req) => {
     body = {};
   }
 
-  const q = String(body.q || "").trim();
+  const q = normalizePlacesQuery(String(body.q || ""));
   if (q.length < 3) {
     return json({ results: [], attribution: TOMTOM_ATTRIBUTION });
   }

@@ -73,16 +73,14 @@ curl -X POST "$SUPABASE_URL/functions/v1/sync-tomtom-incidents" \
 
 ### Requests TomTom por viaje (estimado, cold cache)
 
-| Paso | Requests |
-| --- | --- |
-| Routing (+1 alterna) | 1 |
-| Flow en muestras (~50 km, máx 6) | ≤6 |
-| POI NearbySearch (5 categorías × ≤8 muestras) | ≤40 |
-| **Total cold** | **~25–47** |
-| Autocomplete (por tecla, cacheado 24 h) | 1 / query nueva |
-| Warm cache (misma rejilla origen/destino) | **0** APIs TomTom |
+| Tipo | Routing | Flow | POI | **Total** |
+| --- | ---: | ---: | ---: | ---: |
+| No-preset (gas/hospital/toll, EV si cupo holgado) | 1 | ≤4 | ≤16 (4×4) | **~13–21** |
+| Preset MEX-15D (todas las cats, ≤6 muestras) | 1 | ≤6 | ≤30 | **~25–37** |
+| Cupo diario no-preset agotado (~1 800) | 1 | 0 | 0 | **1** (solo ruta) |
+| Warm cache (misma rejilla) | 0 | 0 | 0 | **0** |
 
-Con rate limits y cache, el presupuesto free (~2 500 non-tile/día) aguanta uso vecinal típico; no conviene refrescar POI en cada apertura.
+Autocomplete: 1 / query nueva (máx. 64 chars, cache 24 h).
 4. **Cron** — la migración agenda `pulso-sync-tomtom-incidents` (`5,25,45 * * * *`) y manda `x-pulso-hook`. Verificar:
    ```sql
    select jobid, jobname, schedule, active from cron.job

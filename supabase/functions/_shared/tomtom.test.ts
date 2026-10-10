@@ -36,6 +36,12 @@ import {
   isInMexico,
   isKnownMex15dTrip,
   isNearCuratedToll,
+  isTravelCommunityRowAllowed,
+  normalizePlacesQuery,
+  NON_PRESET_POI_SAMPLES,
+  PLACES_QUERY_MAX_LEN,
+  TOMTOM_DAILY_NON_PRESET_CAP,
+  tripPoiKindsForBudget,
   mapTomtomCategory,
   mergeAliadosIntoPois,
   mergeCuratedTolls,
@@ -268,8 +274,24 @@ Deno.test("fixture calculateRoute → ETA + alterna", () => {
 Deno.test("viaje libre: México, distancia, muestras y cache key", () => {
   assertEquals(isInMexico(24.8, -107.4), true);
   assertEquals(isInMexico(40.7, -74.0), false); // NYC
+  // Frontera: rechazar fuera de México
+  assertEquals(isInMexico(31.7619, -106.485), false); // El Paso
+  assertEquals(isInMexico(32.7157, -117.1611), false); // San Diego
+  assertEquals(isInMexico(14.6349, -90.5069), false); // Guatemala City
+  assertEquals(isInMexico(31.6904, -106.4245), true); // Juárez
+  assertEquals(isInMexico(32.5149, -117.0382), true); // Tijuana
   assertEquals(MAX_TRIP_LENGTH_KM, 1500);
   assertEquals(TRIP_ROUTE_CHIPS.length, 4);
+  assertEquals(NON_PRESET_POI_SAMPLES, 4);
+  assertEquals(TOMTOM_DAILY_NON_PRESET_CAP, 1800);
+  assertEquals(
+    tripPoiKindsForBudget({ preset: false, dailyCount: 0 }).includes("ev_charging"),
+    true,
+  );
+  assertEquals(
+    tripPoiKindsForBudget({ preset: false, dailyCount: 1800 }).includes("ev_charging"),
+    false,
+  );
 
   const ok = validateTripEndpoints(
     { lat: 24.8091, lng: -107.394 },
@@ -286,7 +308,11 @@ Deno.test("viaje libre: México, distancia, muestras y cache key", () => {
     validateTripEndpoints({ lat: 19.4, lng: -99.1 }, { lat: 34.05, lng: -118.2 }).ok,
     false,
   ); // LA fuera
-  const far = validateTripEndpoints({ lat: 14.6, lng: -90.5 }, { lat: 32.5, lng: -117.0 });
+  // Tijuana → Cancún ~3 200 km en línea recta
+  const far = validateTripEndpoints(
+    { lat: 32.5149, lng: -117.0382 },
+    { lat: 21.1619, lng: -86.8515 },
+  );
   assertEquals(far.ok, false);
   if (!far.ok) assertEquals(far.error, "too_far");
 
@@ -323,6 +349,16 @@ Deno.test("viaje libre: México, distancia, muestras y cache key", () => {
   });
   assertEquals(key.startsWith("route:trip:v1:"), true);
   assertEquals(placesCacheKey("Culiacán Centro").includes("culiacan"), true);
+  assertEquals(PLACES_QUERY_MAX_LEN, 64);
+  assertEquals(normalizePlacesQuery("a".repeat(100)).length, 64);
+  assertEquals(
+    placesCacheKey("x".repeat(80)),
+    placesCacheKey("x".repeat(64)),
+  );
+
+  assertEquals(isTravelCommunityRowAllowed({ category_guess: "bloqueo" }), true);
+  assertEquals(isTravelCommunityRowAllowed({ category_guess: "operativo" }), false);
+  assertEquals(isTravelCommunityRowAllowed({ category: "operativo" }), false);
 
   const fuzzy = parseFuzzySearch({
     results: [
@@ -351,10 +387,29 @@ Deno.test("rate limit keys / IP header", () => {
   assertEquals(TOMTOM_TRAVEL_RATE.maxPerIp > 0, true);
   const bucket = rateLimitBucket(1_700_000_000_000, 300);
   assertEquals(rateLimitCacheKey("ip", "1.2.3.4", bucket).startsWith("ratelimit:ip:"), true);
+  // Último hop de x-forwarded-for (proxy de confianza)
   assertEquals(
     clientIpFromHeaders(new Headers({ "x-forwarded-for": "203.0.113.9, 10.0.0.1" })),
-    "203.0.113.9",
+    "10.0.0.1",
   );
+  assertEquals(
+    clientIpFromHeaders(new Headers({
+      "cf-connecting-ip": "198.51.100.7",
+      "x-forwarded-for": "203.0.113.9, 10.0.0.1",
+    })),
+    "198.51.100.7",
+  );
+});
+
+Deno.test("viaje: operativo nunca en pulsos del travel", () => {
+  assertEquals(
+    isTravelCommunityRowAllowed({
+      category_guess: "operativo",
+      category: "operativo",
+    }),
+    false,
+  );
+  assertEquals(isTravelCommunityRowAllowed({ category_guess: "accidente" }), true);
 });
 
 Deno.test("POI: categorías, radio, cache v6, filtro y round-robin", () => {

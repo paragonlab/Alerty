@@ -299,19 +299,17 @@ export function collectTravelPulses(opts: {
 
   for (const alert of opts.alerts) {
     if (alert.parentAlertId) continue;
+    // Modo viaje: nunca operativo (ni con delay).
+    if (isOperativoCategory(alert.category)) continue;
     if (alert.status !== "active" && alert.status !== "resolved") continue;
-    if (!isAlertInWindow(alert, opts.window) && !isOperativoCategory(alert.category)) {
-      continue;
-    }
-    if (isOperativoCategory(alert.category) && !isAlertInWindow(alert, opts.window)) {
-      continue;
-    }
+    if (!isAlertInWindow(alert, opts.window)) continue;
     const pulse = alertToPulse(alert, opts.bundle, destinationSlug);
     if (pulse) out.push(pulse);
   }
 
   for (const post of opts.communityPosts) {
     if (!isCommunityInWindow(post, opts.window)) continue;
+    if (isOperativoCategory(post.categoryGuess)) continue;
     const pulse = communityToPulse(post, opts.bundle, destinationSlug);
     if (pulse) out.push(pulse);
   }
@@ -424,30 +422,22 @@ export function collectPulsesNearPolyline(opts: {
 
   for (const alert of opts.alerts) {
     if (alert.parentAlertId) continue;
+    if (isOperativoCategory(alert.category)) continue;
     if (alert.status !== "active" && alert.status !== "resolved") continue;
-    if (!isAlertInWindow(alert, opts.window) && !isOperativoCategory(alert.category)) {
-      continue;
-    }
-    if (isOperativoCategory(alert.category) && !isAlertInWindow(alert, opts.window)) {
-      continue;
-    }
+    if (!isAlertInWindow(alert, opts.window)) continue;
     const hasGeo = Number.isFinite(alert.lat) && Number.isFinite(alert.lng);
     if (!hasGeo) continue;
-    const onCorridor = isNearCorridor(alert.lat, alert.lng, bundle);
-    if (!onCorridor) continue;
-    const operativo = isOperativoCategory(alert.category);
+    if (!isNearCorridor(alert.lat, alert.lng, bundle)) continue;
     out.push({
       id: alert.id,
       kind: "alert",
       category: alert.category,
       title: alert.title || CATEGORY_LABELS[alert.category] || "Aviso",
-      placeLabel: operativo
-        ? "En el camino"
-        : alert.neighborhood || opts.destinationName,
+      placeLabel: alert.neighborhood || opts.destinationName,
       createdAt: alert.createdAt,
       status: alert.status,
-      lat: operativo ? null : alert.lat,
-      lng: operativo ? null : alert.lng,
+      lat: alert.lat,
+      lng: alert.lng,
       onCorridor: true,
       inDestination: false,
     });
@@ -455,28 +445,21 @@ export function collectPulsesNearPolyline(opts: {
 
   for (const post of opts.communityPosts) {
     if (!isCommunityInWindow(post, opts.window)) continue;
+    const cat = post.categoryGuess || "otro";
+    if (isOperativoCategory(cat)) continue;
     const hasGeo = typeof post.lat === "number" && typeof post.lng === "number";
     if (!hasGeo) continue;
-    const cat = post.categoryGuess || "otro";
-    const operativo = isOperativoCategory(cat);
-    if (operativo && !isOperativoFeedReady(post.createdAt)) continue;
-    if (!operativo && !isNearCorridor(post.lat!, post.lng!, bundle)) continue;
-    if (operativo) {
-      const place = (post.placeLabel || "").toLowerCase();
-      if (!place.includes("carretera") && !place.includes("camino")) continue;
-    }
+    if (!isNearCorridor(post.lat!, post.lng!, bundle)) continue;
     out.push({
       id: post.id,
       kind: "community",
       category: cat,
       title: post.text.slice(0, 120),
-      placeLabel: operativo
-        ? "En el camino"
-        : post.placeLabel || opts.destinationName,
+      placeLabel: post.placeLabel || opts.destinationName,
       createdAt: post.createdAt,
       status: post.status === "resolved" ? "resolved" : "active",
-      lat: operativo ? null : post.lat,
-      lng: operativo ? null : post.lng,
+      lat: post.lat,
+      lng: post.lng,
       onCorridor: true,
       inDestination: false,
     });

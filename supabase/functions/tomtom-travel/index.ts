@@ -16,12 +16,15 @@ import {
   CORRIDOR_FLOW_POINTS,
   CURATED_MEX15D_TOLL_BOOTHS,
   FLOW_MAX_SAMPLES,
+  NON_PRESET_FLOW_SAMPLES,
+  NON_PRESET_POI_SAMPLES,
   POI_MAX_SAMPLES,
   POI_SAMPLE_SPACING_KM,
   PULSE_ROUTE_BUFFER_KM,
   ROUTE_CACHE_TTL_SEC,
   TOMTOM_ATTRIBUTION,
   TOMTOM_BUDGET,
+  TOMTOM_DAILY_NON_PRESET_CAP,
   TOMTOM_POI_CATEGORIES,
   TOMTOM_POI_MAX_RADIUS_M,
   TOMTOM_POI_REQUEST_GAP_MS,
@@ -29,9 +32,11 @@ import {
   TOMTOM_TRAVEL_RATE,
   TRIP_POI_CACHE_TTL_SEC,
   clientIpFromHeaders,
+  dailyTomtomBudgetKey,
   dedupePoisByNamePos,
   extraMinutesFromFlow,
   isKnownMex15dTrip,
+  isTravelCommunityRowAllowed,
   mergeAliadosIntoPois,
   mergeCuratedTolls,
   minKmToPolyline,
@@ -45,6 +50,7 @@ import {
   tomtomGetJson,
   tomtomKey,
   tripCacheKey,
+  tripPoiKindsForBudget,
   type AliadoForPoi,
   type TomtomPoiKind,
   type TravelPoi,
@@ -307,36 +313,71 @@ async function fetchRoute(
   return payload;
 }
 
+async function readDailyBudget(
+  admin: ReturnType<typeof createClient>,
+): Promise<number> {
+  const key = dailyTomtomBudgetKey();
+  const cached = await cacheGet(admin, key);
+  return Number((cached as { count?: number } | null)?.count) || 0;
+}
+
+async function addDailyBudget(
+  admin: ReturnType<typeof createClient>,
+  n: number,
+): Promise<number> {
+  if (n <= 0) return await readDailyBudget(admin);
+  const key = dailyTomtomBudgetKey();
+  const cur = await readDailyBudget(admin);
+  const next = cur + n;
+  // TTL ~36 h para cubrir el día UTC
+  await cacheSet(admin, key, "budget", { count: next }, 36 * 3600);
+  return next;
+}
+
 async function fetchFlowAlongRoute(
   admin: ReturnType<typeof createClient>,
   origin: LatLng,
   destination: LatLng,
   polyline: LatLng[],
-  skipCache = false,
-): Promise<Array<{ id: string; label: string; extraMinutes: number }>> {
+  opts: { skipCache?: boolean; preset: boolean; allowCalls: boolean },
+): Promise<{
+  delays: Array<{ id: string; label: string; extraMinutes: number }>;
+  apiCalls: number;
+}> {
   const cacheKey = tripCacheKey("flow", origin, destination);
-  if (!skipCache) {
+  if (!opts.skipCache) {
     const cached = await cacheGet(admin, cacheKey);
     if (cached && Array.isArray((cached as { delays?: unknown }).delays)) {
-      return (cached as { delays: Array<{ id: string; label: string; extraMinutes: number }> })
-        .delays;
+      return {
+        delays: (cached as {
+          delays: Array<{ id: string; label: string; extraMinutes: number }>;
+        }).delays,
+        apiCalls: 0,
+      };
     }
   }
 
-  const samples = sampleAlongPolyline(polyline, POI_SAMPLE_SPACING_KM, FLOW_MAX_SAMPLES);
+  if (!opts.allowCalls) {
+    return { delays: [], apiCalls: 0 };
+  }
+
+  const maxSamples = opts.preset ? FLOW_MAX_SAMPLES : NON_PRESET_FLOW_SAMPLES;
+  const samples = sampleAlongPolyline(polyline, POI_SAMPLE_SPACING_KM, maxSamples);
   const points = samples.length >= 2
     ? samples
-    : isKnownMex15dTrip(origin, destination)
+    : opts.preset
     ? CORRIDOR_FLOW_POINTS.map((p) => ({ lat: p.lat, lng: p.lng, distKm: 0 }))
     : [{ ...origin, distKm: 0 }, { ...destination, distKm: 0 }];
 
   const delays: Array<{ id: string; label: string; extraMinutes: number }> = [];
+  let apiCalls = 0;
   for (let i = 0; i < points.length; i++) {
     if (i > 0) await sleep(TOMTOM_POI_REQUEST_GAP_MS);
     const p = points[i]!;
     const path =
       `/traffic/services/4/flowSegmentData/relative/10/json?point=${p.lat},${p.lng}&unit=KMPH`;
     const { ok, data } = await tomtomGetJson(path);
+    apiCalls += 1;
     if (!ok || !data) continue;
     const extra = extraMinutesFromFlow(data);
     if (extra >= 3) {
@@ -351,7 +392,7 @@ async function fetchFlowAlongRoute(
   }
 
   await cacheSet(admin, cacheKey, "flow", { delays }, ROUTE_CACHE_TTL_SEC);
-  return delays;
+  return { delays, apiCalls };
 }
 
 async function loadActiveAliados(
@@ -383,10 +424,23 @@ async function fetchPoisAlongRoute(
   origin: LatLng,
   destination: LatLng,
   polyline: LatLng[],
-  skipCache = false,
-): Promise<Record<string, TravelPoi[]>> {
+  opts: {
+    skipCache?: boolean;
+    preset: boolean;
+    allowCalls: boolean;
+    dailyCount: number;
+  },
+): Promise<{ pois: Record<string, TravelPoi[]>; apiCalls: number }> {
   const cacheKey = tripCacheKey("poi", origin, destination);
-  if (!skipCache) {
+  const emptyKinds = (): Record<string, Array<{ name: string; lat: number; lng: number; distKm: number }>> => ({
+    gas_station: [],
+    ev_charging: [],
+    hospital: [],
+    pharmacy: [],
+    toll: [],
+  });
+
+  if (!opts.skipCache) {
     const cached = await cacheGet(admin, cacheKey);
     if (cached && typeof cached === "object") {
       const tomtom = cached as Record<
@@ -394,15 +448,40 @@ async function fetchPoisAlongRoute(
         Array<{ name: string; lat: number; lng: number; distKm: number }>
       >;
       const aliados = await loadActiveAliados(admin);
-      return mergeAliadosIntoPois({
-        tomtomPois: tomtom,
-        aliados,
-        samplePoints: polyline,
-      });
+      return {
+        pois: mergeAliadosIntoPois({
+          tomtomPois: tomtom,
+          aliados,
+          samplePoints: polyline,
+        }),
+        apiCalls: 0,
+      };
     }
   }
 
-  const samples = sampleAlongPolyline(polyline, POI_SAMPLE_SPACING_KM, POI_MAX_SAMPLES);
+  if (!opts.allowCalls) {
+    // Solo Aliados + casetas curadas si es preset conocido
+    const tomtom = emptyKinds();
+    if (opts.preset) {
+      tomtom.toll = mergeCuratedTolls([]) as typeof tomtom.toll;
+    }
+    const aliados = await loadActiveAliados(admin);
+    return {
+      pois: mergeAliadosIntoPois({
+        tomtomPois: tomtom,
+        aliados,
+        samplePoints: polyline,
+      }),
+      apiCalls: 0,
+    };
+  }
+
+  const maxSamples = opts.preset ? POI_MAX_SAMPLES : NON_PRESET_POI_SAMPLES;
+  const kinds = tripPoiKindsForBudget({
+    preset: opts.preset,
+    dailyCount: opts.dailyCount,
+  });
+  const samples = sampleAlongPolyline(polyline, POI_SAMPLE_SPACING_KM, maxSamples);
   type PoiRow = { name: string; lat: number; lng: number; distKm: number };
   const byKind: Record<TomtomPoiKind, PoiRow[]> = {
     gas_station: [],
@@ -412,16 +491,16 @@ async function fetchPoisAlongRoute(
     toll: [],
   };
 
-  let req = 0;
-  for (const kind of Object.keys(TOMTOM_POI_CATEGORIES) as TomtomPoiKind[]) {
+  let apiCalls = 0;
+  for (const kind of kinds) {
     for (const pt of samples) {
-      if (req > 0) await sleep(TOMTOM_POI_REQUEST_GAP_MS);
-      req += 1;
+      if (apiCalls > 0) await sleep(TOMTOM_POI_REQUEST_GAP_MS);
       const categoryId = TOMTOM_POI_CATEGORIES[kind];
       const path =
         `/search/2/nearbySearch/.json?lat=${pt.lat}&lon=${pt.lng}` +
         `&radius=${TOMTOM_POI_MAX_RADIUS_M}&categorySet=${categoryId}&limit=5&language=es-ES`;
       const { ok, data } = await tomtomPoiGet(path);
+      apiCalls += 1;
       if (!ok || !data) continue;
       for (const p of parseNearbySearch(data)) {
         if (
@@ -443,10 +522,10 @@ async function fetchPoisAlongRoute(
     }
   }
 
-  const out: Record<string, PoiRow[]> = {};
+  const out: Record<string, PoiRow[]> = emptyKinds();
   for (const kind of Object.keys(TOMTOM_POI_CATEGORIES) as TomtomPoiKind[]) {
     const picked = dedupePoisByNamePos(byKind[kind], 5, kind);
-    out[kind] = kind === "toll" && isKnownMex15dTrip(origin, destination)
+    out[kind] = kind === "toll" && opts.preset
       ? mergeCuratedTolls(picked) as PoiRow[]
       : kind === "toll"
       ? picked.filter((p) => /caseta|plaza\s*de\s*cobro/i.test(p.name))
@@ -456,11 +535,14 @@ async function fetchPoisAlongRoute(
   await cacheSet(admin, cacheKey, "poi", out, TRIP_POI_CACHE_TTL_SEC);
 
   const aliados = await loadActiveAliados(admin);
-  return mergeAliadosIntoPois({
-    tomtomPois: out,
-    aliados,
-    samplePoints: polyline,
-  });
+  return {
+    pois: mergeAliadosIntoPois({
+      tomtomPois: out,
+      aliados,
+      samplePoints: polyline,
+    }),
+    apiCalls,
+  };
 }
 
 async function fetchPulsesNearRoute(
@@ -502,6 +584,7 @@ async function fetchPulsesNearRoute(
     .gte("lng", minLng)
     .lte("lng", maxLng)
     .gte("created_at", since)
+    .neq("category_guess", "operativo")
     .order("created_at", { ascending: false })
     .limit(80);
 
@@ -525,6 +608,8 @@ async function fetchPulsesNearRoute(
   }> = [];
 
   for (const row of data) {
+    // Defensa: service role no debe filtrar vía RLS; excluir operativo siempre.
+    if (!isTravelCommunityRowAllowed(row)) continue;
     const lat = Number(row.lat);
     const lng = Number(row.lng);
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
@@ -721,20 +806,38 @@ Deno.serve(async (req) => {
     ? route.points
     : [origin, destination];
 
-  const [delays, pois, pulses] = await Promise.all([
-    fetchFlowAlongRoute(admin, origin, destination, polyline, smoke),
-    fetchPoisAlongRoute(admin, origin, destination, polyline, smoke),
+  const preset = isKnownMex15dTrip(origin, destination);
+  const dailyBefore = await readDailyBudget(admin);
+  const allowExtras = preset || dailyBefore < TOMTOM_DAILY_NON_PRESET_CAP;
+
+  const [flowRes, poiRes, pulses] = await Promise.all([
+    fetchFlowAlongRoute(admin, origin, destination, polyline, {
+      skipCache: smoke,
+      preset,
+      allowCalls: allowExtras,
+    }),
+    fetchPoisAlongRoute(admin, origin, destination, polyline, {
+      skipCache: smoke,
+      preset,
+      allowCalls: allowExtras,
+      dailyCount: dailyBefore,
+    }),
     fetchPulsesNearRoute(admin, polyline, window),
   ]);
+
+  const spent = flowRes.apiCalls + poiRes.apiCalls;
+  if (!preset && spent > 0) {
+    await addDailyBudget(admin, spent);
+  }
 
   return json({
     mock: false,
     smoke: smoke || undefined,
     attribution: TOMTOM_ATTRIBUTION,
     budget: TOMTOM_BUDGET,
-    delays,
+    delays: flowRes.delays,
     route,
-    pois,
+    pois: poiRes.pois,
     pulses,
     originName,
     destinationName,
@@ -742,6 +845,11 @@ Deno.serve(async (req) => {
     originClamped: endpoints.originClamped || undefined,
     destinationClamped: endpoints.destinationClamped || undefined,
     cityIds: CITY_IDS,
-    knownCorridor: isKnownMex15dTrip(origin, destination) ? "mex15d" : null,
+    knownCorridor: preset ? "mex15d" : null,
+    extrasSkipped: !allowExtras ? "daily_budget" : undefined,
+    dailyBudget: {
+      count: dailyBefore + (preset ? 0 : spent),
+      cap: TOMTOM_DAILY_NON_PRESET_CAP,
+    },
   });
 });
