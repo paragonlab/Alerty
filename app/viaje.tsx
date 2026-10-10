@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
+  Image,
   Pressable,
   StyleSheet,
   Text,
@@ -22,7 +23,10 @@ import { trackEvent } from "../lib/analytics";
 import { shareTravelSummary } from "../lib/alerty/share";
 import {
   fetchTomtomTravelInsights,
+  POI_SECTION_ORDER,
+  poiSectionIcon,
   poiSectionLabel,
+  type TomtomPoi,
   type TomtomTravelInsights,
 } from "../lib/alerty/tomtomTravel";
 import {
@@ -278,24 +282,27 @@ export default function ViajeScreen() {
               ) : null}
 
               {insights?.pois
-                ? Object.entries(insights.pois).map(([key, list]) =>
-                    list.length ? (
+                ? POI_SECTION_ORDER.map((key) => {
+                    const list = insights.pois[key] ?? [];
+                    if (!list.length) return null;
+                    return (
                       <View key={key} style={styles.poiBlock}>
-                        <Text style={[styles.poiTitle, { color: theme.colors.text }]}>
-                          {poiSectionLabel(key)}
-                        </Text>
-                        {list.slice(0, 3).map((p, i) => (
-                          <Text
-                            key={`${key}-${i}`}
-                            style={[styles.poiLine, { color: theme.colors.textMuted }]}
-                          >
-                            · {p.name}
-                            {p.distKm ? ` · ${p.distKm} km` : ""}
+                        <View style={styles.poiTitleRow}>
+                          <Ionicons
+                            name={poiSectionIcon(key)}
+                            size={16}
+                            color={theme.colors.accent}
+                          />
+                          <Text style={[styles.poiTitle, { color: theme.colors.text }]}>
+                            {poiSectionLabel(key)}
                           </Text>
+                        </View>
+                        {list.slice(0, 4).map((p, i) => (
+                          <PoiLine key={`${key}-${i}`} poi={p} theme={theme} styles={styles} />
                         ))}
                       </View>
-                    ) : null,
-                  )
+                    );
+                  })
                 : null}
 
               {insights?.attribution ? (
@@ -357,6 +364,40 @@ export default function ViajeScreen() {
         />
       )}
     </SafeAreaView>
+  );
+}
+
+function PoiLine({
+  poi,
+  styles,
+  theme,
+}: {
+  poi: TomtomPoi;
+  styles: ReturnType<typeof createStyles>;
+  theme: ReturnType<typeof useAlertyTheme>;
+}) {
+  const isAliado = Boolean(poi.aliado || poi.source === "aliado");
+  return (
+    <View style={styles.poiLineRow}>
+      {isAliado && poi.logoUrl ? (
+        <Image source={{ uri: poi.logoUrl }} style={styles.poiLogo} />
+      ) : null}
+      <View style={styles.poiLineBody}>
+        <Text style={[styles.poiLine, { color: theme.colors.text }]} numberOfLines={2}>
+          {isAliado ? "" : "· "}
+          {poi.name}
+          {poi.distKm != null ? ` · ${poi.distKm} km` : ""}
+        </Text>
+        {isAliado ? (
+          <Text style={styles.poiBadge}>{poi.badge || "Aliado Pulso"}</Text>
+        ) : null}
+        {isAliado && poi.promo ? (
+          <Text style={[styles.poiPromo, { color: theme.colors.textMuted }]} numberOfLines={2}>
+            {poi.promo}
+          </Text>
+        ) : null}
+      </View>
+    </View>
   );
 }
 
@@ -483,9 +524,22 @@ function createStyles(theme: ReturnType<typeof useAlertyTheme>) {
     },
     delayNum: { fontSize: 14, fontFamily: "SpaceGrotesk_700Bold" },
     delayLabel: { fontSize: 11, fontFamily: "SpaceGrotesk_400Regular", marginTop: 2 },
-    poiBlock: { gap: 2, marginTop: 2 },
-    poiTitle: { fontSize: 13, fontFamily: "SpaceGrotesk_700Bold", marginBottom: 2 },
+    poiBlock: { gap: 6, marginTop: 4 },
+    poiTitleRow: { flexDirection: "row", alignItems: "center", gap: 6 },
+    poiTitle: { fontSize: 13, fontFamily: "SpaceGrotesk_700Bold" },
+    poiLineRow: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
+    poiLogo: { width: 28, height: 28, borderRadius: 6, backgroundColor: "#E8E4DC" },
+    poiLineBody: { flex: 1, gap: 2 },
     poiLine: { fontSize: 12, fontFamily: "SpaceGrotesk_400Regular", lineHeight: 17 },
+    poiBadge: {
+      alignSelf: "flex-start",
+      fontSize: 10,
+      fontFamily: "SpaceGrotesk_700Bold",
+      color: "#1F9D6E",
+      textTransform: "uppercase",
+      letterSpacing: 0.3,
+    },
+    poiPromo: { fontSize: 11, fontFamily: "SpaceGrotesk_400Regular", lineHeight: 15 },
     attr: { fontSize: 11, fontFamily: "SpaceGrotesk_400Regular", marginTop: 4 },
     windowRow: {
       flexDirection: "row",

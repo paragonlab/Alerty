@@ -24,6 +24,7 @@ import {
   buildPoiFetchPlan,
   clientIpFromHeaders,
   extraMinutesFromFlow,
+  mergeAliadosIntoPois,
   parseCalculateRoute,
   parseNearbySearch,
   pickPoisRoundRobinBySample,
@@ -35,7 +36,9 @@ import {
   resolveTravelEndpoints,
   tomtomGetJson,
   tomtomKey,
+  type AliadoForPoi,
   type TomtomPoiKind,
+  type TravelPoi,
 } from "../_shared/tomtom.ts";
 
 const corsHeaders = {
@@ -129,16 +132,53 @@ function mockInsights(direction: string) {
     },
     pois: {
       gas_station: [
-        { name: "Gasolinera demo · Costa Rica", lat: 24.55, lng: -107.44, distKm: 0.4 },
+        {
+          name: "Gasolinera demo · Costa Rica",
+          lat: 24.55,
+          lng: -107.44,
+          distKm: 0.4,
+          source: "tomtom",
+        },
+      ],
+      ev_charging: [
+        {
+          name: "Cargador demo · Elota",
+          lat: 23.95,
+          lng: -107.02,
+          distKm: 0.5,
+          source: "tomtom",
+        },
       ],
       hospital: [
-        { name: "Hospital demo · Villa Unión", lat: 23.3, lng: -106.36, distKm: 1.2 },
+        {
+          name: "Hospital demo · Villa Unión",
+          lat: 23.3,
+          lng: -106.36,
+          distKm: 1.2,
+          source: "tomtom",
+        },
       ],
       pharmacy: [
-        { name: "Farmacia demo · Dimas", lat: 23.72, lng: -106.78, distKm: 0.8 },
+        {
+          name: "Farmacia Aliada · Dimas",
+          lat: 23.72,
+          lng: -106.78,
+          distKm: 0.8,
+          source: "aliado",
+          aliado: true,
+          badge: "Aliado Pulso",
+          promo: "Descuento a vecinos Pulso",
+          logoUrl: null,
+        },
       ],
       toll: [
-        { name: "Caseta demo · 15D", lat: 24.4, lng: -107.4, distKm: 0.2 },
+        {
+          name: "Caseta demo · 15D",
+          lat: 24.4,
+          lng: -107.4,
+          distKm: 0.2,
+          source: "tomtom",
+        },
       ],
     },
   };
@@ -224,7 +264,7 @@ async function tomtomPoiGet(
   return res;
 }
 
-async function fetchPois(
+async function fetchTomtomPoisCached(
   admin: ReturnType<typeof createClient>,
   skipCache = false,
 ): Promise<Record<string, Array<{ name: string; lat: number; lng: number; distKm: number }>>> {
@@ -240,11 +280,13 @@ async function fetchPois(
   }
 
   type PoiRow = { name: string; lat: number; lng: number; distKm: number };
+  const emptyBuckets = (): PoiRow[][] => TOMTOM_POI_SAMPLE_POINTS.map(() => []);
   const byKindSample: Record<TomtomPoiKind, PoiRow[][]> = {
-    gas_station: TOMTOM_POI_SAMPLE_POINTS.map(() => []),
-    hospital: TOMTOM_POI_SAMPLE_POINTS.map(() => []),
-    pharmacy: TOMTOM_POI_SAMPLE_POINTS.map(() => []),
-    toll: TOMTOM_POI_SAMPLE_POINTS.map(() => []),
+    gas_station: emptyBuckets(),
+    ev_charging: emptyBuckets(),
+    hospital: emptyBuckets(),
+    pharmacy: emptyBuckets(),
+    toll: emptyBuckets(),
   };
 
   let anyFailed = false;
@@ -294,6 +336,39 @@ async function fetchPois(
     poiCacheTtlSeconds({ empty, anyFailed }),
   );
   return out;
+}
+
+async function loadActiveAliados(
+  admin: ReturnType<typeof createClient>,
+): Promise<AliadoForPoi[]> {
+  const { data, error } = await admin
+    .from("sponsored_zones")
+    .select("id,name,description,lat,lng,logo_url,pin_giro,type,status")
+    .eq("status", "active")
+    .limit(200);
+  if (error || !data) {
+    if (error) console.warn("aliados load", error.message);
+    return [];
+  }
+  return data.map((row) => ({
+    id: row.id as string,
+    name: String(row.name || ""),
+    description: (row.description as string) || null,
+    lat: Number(row.lat),
+    lng: Number(row.lng),
+    logoUrl: (row.logo_url as string) || null,
+    pinGiro: (row.pin_giro as string) || null,
+    type: (row.type as string) || null,
+  })).filter((a) => Number.isFinite(a.lat) && Number.isFinite(a.lng) && a.name);
+}
+
+async function fetchPois(
+  admin: ReturnType<typeof createClient>,
+  skipCache = false,
+): Promise<Record<string, TravelPoi[]>> {
+  const tomtom = await fetchTomtomPoisCached(admin, skipCache);
+  const aliados = await loadActiveAliados(admin);
+  return mergeAliadosIntoPois({ tomtomPois: tomtom, aliados });
 }
 
 Deno.serve(async (req) => {

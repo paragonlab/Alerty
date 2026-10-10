@@ -74,11 +74,11 @@ export const CORRIDOR_FLOW_POINTS = [
 
 /**
  * Categorías Search API (IDs numéricos TomTom).
- * 7309 = EV charging (no usar para gasolina); 7311 = petrol station;
- * 7321 = hospital/polyclinic; 7326 = pharmacy; 7375 = toll gate.
+ * 7311 = petrol; 7309 = EV charging; 7321 = hospital; 7326 = pharmacy; 7375 = toll.
  */
 export const TOMTOM_POI_CATEGORIES = {
   gas_station: "7311",
+  ev_charging: "7309",
   hospital: "7321",
   pharmacy: "7326",
   toll: "7375",
@@ -94,13 +94,18 @@ export const TOMTOM_POI_SAMPLE_POINTS = [
   CORRIDOR_FLOW_POINTS[4], // Villa Unión
 ] as const;
 
-export const TOMTOM_POI_CACHE_KEY = "poi:corridor:v3";
+export const TOMTOM_POI_CACHE_KEY = "poi:corridor:v4";
 export const TOMTOM_POI_CACHE_TTL_OK_SEC = 6 * 3600;
 /** Fallidos / vacíos / parciales: TTL corto para reintentar sin pegarle al free tier. */
 export const TOMTOM_POI_CACHE_TTL_EMPTY_SEC = 10 * 60;
 /** Espacio entre requests NearbySearch (QPS TomTom). */
 export const TOMTOM_POI_REQUEST_GAP_MS = 250;
 export const TOMTOM_POI_RETRY_BACKOFF_MS = 1000;
+
+/** Aliado dentro de este radio de una muestra/flujo del corredor → entra al listado. */
+export const ALIADO_CORRIDOR_MAX_KM = 2;
+/** Mismo lugar TomTom↔Aliado: nombre similar + distancia. */
+export const ALIADO_TOMTOM_DEDUPE_M = 150;
 
 export type TomtomPoiKind = keyof typeof TOMTOM_POI_CATEGORIES;
 
@@ -112,7 +117,12 @@ export const TOMTOM_POI_CATEGORY_HINTS: Record<
   gas_station: {
     ids: [7311],
     nameRe: /petrol|gasolin|combustible|pemex|shell|bp\b|mobil|fuel\s*station/i,
-    rejectRe: /electric|ev\s*charg|carga\s*el[eé]ctrica/i,
+    rejectRe: /electric|ev\s*charg|carga\s*el[eé]ctrica|cargador/i,
+  },
+  ev_charging: {
+    ids: [7309],
+    nameRe: /electric|ev\s*charg|carga\s*el[eé]ctrica|cargador|electrolinera/i,
+    rejectRe: /petrol|gasolin|pemex(?!\s*ev)/i,
   },
   hospital: {
     ids: [7321],
@@ -226,6 +236,152 @@ export function poiCacheTtlSeconds(opts: {
 }): number {
   if (opts.empty || opts.anyFailed) return TOMTOM_POI_CACHE_TTL_EMPTY_SEC;
   return TOMTOM_POI_CACHE_TTL_OK_SEC;
+}
+
+export type AliadoForPoi = {
+  id: string;
+  name: string;
+  description?: string | null;
+  lat: number;
+  lng: number;
+  logoUrl?: string | null;
+  pinGiro?: string | null;
+  type?: string | null;
+};
+
+export type TravelPoi = {
+  name: string;
+  lat: number;
+  lng: number;
+  distKm: number;
+  source: "tomtom" | "aliado";
+  aliado?: boolean;
+  badge?: string;
+  logoUrl?: string | null;
+  promo?: string | null;
+  id?: string;
+};
+
+export function normalizePoiName(name: string): string {
+  return name
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+export function namesRoughlyMatch(a: string, b: string): boolean {
+  const na = normalizePoiName(a);
+  const nb = normalizePoiName(b);
+  if (!na || !nb) return false;
+  return na === nb || na.includes(nb) || nb.includes(na);
+}
+
+/** Distancia mínima a cualquier punto de muestra/flujo del corredor. */
+export function minKmToCorridor(
+  lat: number,
+  lng: number,
+  points: ReadonlyArray<{ lat: number; lng: number }> = [
+    ...TOMTOM_POI_SAMPLE_POINTS,
+    ...CORRIDOR_FLOW_POINTS,
+  ],
+): number {
+  let best = Infinity;
+  for (const p of points) {
+    const km = haversineKm(lat, lng, p.lat, p.lng);
+    if (km < best) best = km;
+  }
+  return best;
+}
+
+/** ¿Este Aliado encaja en la categoría POI? */
+export function aliadoMatchesPoiKind(aliado: AliadoForPoi, kind: TomtomPoiKind): boolean {
+  const giro = (aliado.pinGiro || "").toLowerCase();
+  const blob = `${aliado.name} ${aliado.description || ""}`;
+  switch (kind) {
+    case "pharmacy":
+      return giro === "farmacia" || /farmac|pharmacy|botica/i.test(blob);
+    case "hospital":
+      return /hospital|cl[ií]nic|m[eé]dic/i.test(blob);
+    case "gas_station":
+      return /gasolin|pemex|combustible|petrol/i.test(blob);
+    case "ev_charging":
+      return /cargador|carga\s*el[eé]ct|electrolinera|\bev\b/i.test(blob);
+    case "toll":
+      return /caseta|peaje|toll|plaza\s*de\s*cobro/i.test(blob);
+    default:
+      return false;
+  }
+}
+
+export function tomtomDuplicatesAliado(
+  tomtom: { name: string; lat: number; lng: number },
+  aliado: { name: string; lat: number; lng: number },
+  maxMeters = ALIADO_TOMTOM_DEDUPE_M,
+): boolean {
+  const meters = haversineKm(tomtom.lat, tomtom.lng, aliado.lat, aliado.lng) * 1000;
+  if (meters > maxMeters) return false;
+  return namesRoughlyMatch(tomtom.name, aliado.name) || meters <= 50;
+}
+
+/**
+ * Aliados activos cerca del corredor van primero (badge + logo/promo);
+ * TomTom después, sin duplicar el mismo lugar (~150 m + nombre).
+ */
+export function mergeAliadosIntoPois(opts: {
+  tomtomPois: Record<string, Array<{ name: string; lat: number; lng: number; distKm: number }>>;
+  aliados: AliadoForPoi[];
+  samplePoints?: ReadonlyArray<{ lat: number; lng: number }>;
+  maxAliadoKm?: number;
+  limitPerKind?: number;
+}): Record<string, TravelPoi[]> {
+  const points = opts.samplePoints ?? [...TOMTOM_POI_SAMPLE_POINTS, ...CORRIDOR_FLOW_POINTS];
+  const maxKm = opts.maxAliadoKm ?? ALIADO_CORRIDOR_MAX_KM;
+  const limit = opts.limitPerKind ?? 5;
+  const out: Record<string, TravelPoi[]> = {};
+
+  for (const kind of Object.keys(TOMTOM_POI_CATEGORIES) as TomtomPoiKind[]) {
+    const nearAliados = opts.aliados
+      .map((a) => {
+        const distKm = minKmToCorridor(a.lat, a.lng, points);
+        return { a, distKm };
+      })
+      .filter(({ a, distKm }) => distKm <= maxKm && aliadoMatchesPoiKind(a, kind))
+      .sort((x, y) => x.distKm - y.distKm);
+
+    const aliadoRows: TravelPoi[] = nearAliados.map(({ a, distKm }) => ({
+      id: a.id,
+      name: a.name,
+      lat: a.lat,
+      lng: a.lng,
+      distKm: Math.round(distKm * 10) / 10,
+      source: "aliado" as const,
+      aliado: true,
+      badge: "Aliado Pulso",
+      logoUrl: a.logoUrl ?? null,
+      promo: (a.description || "").trim() || null,
+    }));
+
+    const tomtomRaw = opts.tomtomPois[kind] ?? [];
+    const tomtomRows: TravelPoi[] = [];
+    for (const t of tomtomRaw) {
+      const dup = aliadoRows.some((al) =>
+        tomtomDuplicatesAliado(t, { name: al.name, lat: al.lat, lng: al.lng }),
+      );
+      if (dup) continue;
+      tomtomRows.push({
+        name: t.name,
+        lat: t.lat,
+        lng: t.lng,
+        distKm: t.distKm,
+        source: "tomtom",
+      });
+    }
+
+    out[kind] = [...aliadoRows, ...tomtomRows].slice(0, limit);
+  }
+  return out;
 }
 
 export const TOMTOM_NOTIFY_MAX_AGE_MINUTES = 30;

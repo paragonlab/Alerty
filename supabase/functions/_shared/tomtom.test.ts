@@ -7,6 +7,7 @@ import {
   TOMTOM_BBOXES,
   TOMTOM_BUDGET,
   TOMTOM_MAX_BBOX_KM2,
+  ALIADO_CORRIDOR_MAX_KM,
   TOMTOM_POI_CACHE_KEY,
   TOMTOM_POI_CACHE_TTL_EMPTY_SEC,
   TOMTOM_POI_CATEGORIES,
@@ -14,6 +15,7 @@ import {
   TOMTOM_POI_REQUEST_GAP_MS,
   TOMTOM_POI_SAMPLE_POINTS,
   TOMTOM_TRAVEL_RATE,
+  aliadoMatchesPoiKind,
   bboxAreaKm2,
   bboxesOverlap,
   buildPoiFetchPlan,
@@ -24,6 +26,8 @@ import {
   isFreshTomtomIncident,
   isAllowedTravelPoint,
   mapTomtomCategory,
+  mergeAliadosIntoPois,
+  minKmToCorridor,
   parseCalculateRoute,
   parseIncidentDetails,
   parseNearbySearch,
@@ -38,6 +42,7 @@ import {
   rateLimitCacheKey,
   resolveTravelEndpoints,
   selectIncidentsToResolve,
+  tomtomDuplicatesAliado,
 } from "./tomtom.ts";
 import {
   FIXTURE_CALCULATE_ROUTE,
@@ -257,13 +262,14 @@ Deno.test("rate limit keys / IP header", () => {
   );
 });
 
-Deno.test("POI: categorías, radio, cache v3, filtro y round-robin", () => {
+Deno.test("POI: categorías, radio, cache v4, filtro y round-robin", () => {
   assertEquals(TOMTOM_POI_CATEGORIES.gas_station, "7311");
+  assertEquals(TOMTOM_POI_CATEGORIES.ev_charging, "7309");
   assertEquals(TOMTOM_POI_CATEGORIES.hospital, "7321");
   assertEquals(TOMTOM_POI_CATEGORIES.pharmacy, "7326");
   assertEquals(TOMTOM_POI_CATEGORIES.toll, "7375");
   assertEquals(TOMTOM_POI_MAX_RADIUS_M, 50_000);
-  assertEquals(TOMTOM_POI_CACHE_KEY, "poi:corridor:v3");
+  assertEquals(TOMTOM_POI_CACHE_KEY, "poi:corridor:v4");
   assertEquals(TOMTOM_POI_CACHE_TTL_EMPTY_SEC, 10 * 60);
   assertEquals(TOMTOM_POI_REQUEST_GAP_MS, 250);
   assertEquals(TOMTOM_POI_SAMPLE_POINTS.length, 3);
@@ -289,20 +295,19 @@ Deno.test("POI: categorías, radio, cache v3, filtro y round-robin", () => {
     false,
   );
   assertEquals(
-    poiMatchesExpectedCategory("gas_station", {
-      name: "Pemex",
-      categoryIds: [7311],
-      categories: ["petrol station"],
+    poiMatchesExpectedCategory("ev_charging", {
+      name: "Cargador Tesla",
+      categoryIds: [7309],
+      categories: ["electric vehicle station"],
     }),
     true,
   );
 
   const plan = buildPoiFetchPlan();
-  assertEquals(plan.length, 4 * 3);
+  assertEquals(plan.length, 5 * 3);
   assertEquals(plan[0].kind, "gas_station");
   assertEquals(plan[0].pointIndex, 0);
 
-  // Round-robin: no debe quedarse solo con el primer sample (Culiacán).
   const bySample = [
     [
       { name: "A1", lat: 24.7, lng: -107.4, distKm: 0.1 },
@@ -320,9 +325,72 @@ Deno.test("POI: categorías, radio, cache v3, filtro y round-robin", () => {
   assertEquals(picked.map((p) => p.name), ["A1", "B1", "C1", "A2", "B2"]);
 
   assertEquals(
-    poiListsAreEmpty({ gas_station: [], hospital: [], pharmacy: [], toll: [] }),
+    poiListsAreEmpty({
+      gas_station: [],
+      ev_charging: [],
+      hospital: [],
+      pharmacy: [],
+      toll: [],
+    }),
     true,
   );
+});
+
+Deno.test("Aliados: categoría, corredor 2 km, merge + dedupe TomTom", () => {
+  assertEquals(ALIADO_CORRIDOR_MAX_KM, 2);
+
+  const farmacia = {
+    id: "a1",
+    name: "Farmacia del Corredor",
+    description: "Promo vecinos",
+    lat: 24.55,
+    lng: -107.45,
+    pinGiro: "farmacia",
+    logoUrl: "https://example.com/logo.png",
+  };
+  assertEquals(aliadoMatchesPoiKind(farmacia, "pharmacy"), true);
+  assertEquals(aliadoMatchesPoiKind(farmacia, "hospital"), false);
+  assertEquals(minKmToCorridor(farmacia.lat, farmacia.lng) <= 2, true);
+
+  const lejos = { ...farmacia, id: "a2", lat: 25.5, lng: -108.5 };
+  assertEquals(minKmToCorridor(lejos.lat, lejos.lng) > 2, true);
+
+  assertEquals(
+    tomtomDuplicatesAliado(
+      { name: "Farmacia del Corredor Dimas", lat: 24.5505, lng: -107.4505 },
+      farmacia,
+    ),
+    true,
+  );
+  assertEquals(
+    tomtomDuplicatesAliado(
+      { name: "Otra cosa", lat: 24.6, lng: -107.5 },
+      farmacia,
+    ),
+    false,
+  );
+
+  const merged = mergeAliadosIntoPois({
+    tomtomPois: {
+      gas_station: [],
+      ev_charging: [],
+      hospital: [],
+      pharmacy: [
+        { name: "Farmacia del Corredor Dimas", lat: 24.5504, lng: -107.4504, distKm: 0.3 },
+        { name: "Farmacia Guadalajara", lat: 23.95, lng: -107.02, distKm: 1.1 },
+      ],
+      toll: [],
+    },
+    aliados: [farmacia, lejos],
+  });
+  assertEquals(merged.pharmacy[0].aliado, true);
+  assertEquals(merged.pharmacy[0].badge, "Aliado Pulso");
+  assertEquals(merged.pharmacy[0].promo, "Promo vecinos");
+  assertEquals(merged.pharmacy[0].logoUrl, "https://example.com/logo.png");
+  // TomTom duplicado eliminado; queda el otro TomTom
+  assertEquals(merged.pharmacy.some((p) => p.name.includes("Guadalajara")), true);
+  assertEquals(merged.pharmacy.filter((p) => p.source === "tomtom").length, 1);
+  assertEquals(merged.pharmacy[0].source, "aliado");
 });
 
 Deno.test("travel endpoints: presets y clamp de puntos fuera de zona", () => {

@@ -21,7 +21,18 @@ export type TomtomRouteInfo = {
   }>;
 };
 
-export type TomtomPoi = { name: string; lat: number; lng: number; distKm: number };
+export type TomtomPoi = {
+  name: string;
+  lat: number;
+  lng: number;
+  distKm: number;
+  source?: "tomtom" | "aliado";
+  aliado?: boolean;
+  badge?: string;
+  logoUrl?: string | null;
+  promo?: string | null;
+  id?: string;
+};
 
 export type TomtomTravelInsights = {
   mock: boolean;
@@ -33,13 +44,42 @@ export type TomtomTravelInsights = {
 
 const POI_LABELS: Record<string, string> = {
   gas_station: "Gasolineras",
+  ev_charging: "Cargador eléctrico",
   hospital: "Hospitales",
   pharmacy: "Farmacias",
   toll: "Casetas / plazas",
 };
 
+/** Orden estable de secciones en Antes de salir. */
+export const POI_SECTION_ORDER = [
+  "gas_station",
+  "ev_charging",
+  "hospital",
+  "pharmacy",
+  "toll",
+] as const;
+
 export function poiSectionLabel(key: string): string {
   return POI_LABELS[key] || key;
+}
+
+export function poiSectionIcon(
+  key: string,
+): "water" | "flash" | "medkit" | "medical" | "trail-sign" | "location" {
+  switch (key) {
+    case "gas_station":
+      return "water";
+    case "ev_charging":
+      return "flash";
+    case "hospital":
+      return "medkit";
+    case "pharmacy":
+      return "medical";
+    case "toll":
+      return "trail-sign";
+    default:
+      return "location";
+  }
 }
 
 /** Fallback local si la edge no responde (screenshots / offline). */
@@ -63,13 +103,47 @@ export function mockTravelInsights(direction: TravelDirection): TomtomTravelInsi
     },
     pois: {
       gas_station: [
-        { name: "Gasolinera demo · Costa Rica", lat: 24.55, lng: -107.44, distKm: 0.4 },
+        {
+          name: "Gasolinera demo · Costa Rica",
+          lat: 24.55,
+          lng: -107.44,
+          distKm: 0.4,
+          source: "tomtom",
+        },
+      ],
+      ev_charging: [
+        {
+          name: "Cargador demo · Elota",
+          lat: 23.95,
+          lng: -107.02,
+          distKm: 0.5,
+          source: "tomtom",
+        },
       ],
       hospital: [
-        { name: "Hospital demo · Villa Unión", lat: 23.3, lng: -106.36, distKm: 1.2 },
+        {
+          name: "Hospital demo · Villa Unión",
+          lat: 23.3,
+          lng: -106.36,
+          distKm: 1.2,
+          source: "tomtom",
+        },
       ],
-      pharmacy: [{ name: "Farmacia demo · Dimas", lat: 23.72, lng: -106.78, distKm: 0.8 }],
-      toll: [{ name: "Caseta demo · 15D", lat: 24.4, lng: -107.4, distKm: 0.2 }],
+      pharmacy: [
+        {
+          name: "Farmacia Aliada · Dimas",
+          lat: 23.72,
+          lng: -106.78,
+          distKm: 0.8,
+          source: "aliado",
+          aliado: true,
+          badge: "Aliado Pulso",
+          promo: "Descuento a vecinos Pulso",
+        },
+      ],
+      toll: [
+        { name: "Caseta demo · 15D", lat: 24.4, lng: -107.4, distKm: 0.2, source: "tomtom" },
+      ],
     },
   };
 }
