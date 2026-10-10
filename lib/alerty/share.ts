@@ -221,6 +221,23 @@ export async function shareDailySummary(
   }
 }
 
+/** Comparte el resumen calmado de Modo viaje (“Antes de salir”). */
+export async function shareTravelSummary(message: string): Promise<void> {
+  try {
+    if (Platform.OS === "web" && typeof navigator !== "undefined") {
+      if (typeof navigator.share === "function") {
+        await navigator.share({ title: "Pulso · Antes de salir", text: message, url: APP_SHARE_URL });
+        return;
+      }
+      await copyFallback(message);
+      return;
+    }
+    await Share.share({ message });
+  } catch {
+    /* cancelado */
+  }
+}
+
 /** Comparte la app (tagline con ciudad activa). */
 export async function shareApp(cityName?: string | null): Promise<void> {
   const message = appShareMessage(cityName);

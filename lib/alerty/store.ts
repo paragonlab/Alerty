@@ -207,6 +207,13 @@ type AlertyState = {
   clearUnreadAlerts: () => void;
   userCoords: UserCoords | null;
   setUserCoords: (coords: UserCoords | null) => void;
+  /** Polilínea del corredor México 15 en el mapa (Modo viaje). */
+  travelMapActive: boolean;
+  travelDirection: "culiacan_to_mazatlan" | "mazatlan_to_culiacan";
+  setTravelMapOverlay: (
+    active: boolean,
+    direction?: "culiacan_to_mazatlan" | "mazatlan_to_culiacan",
+  ) => void;
 };
 
 const syncPreference = async (key: string, value: any) => {
@@ -441,6 +448,14 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
     set({ userCoords: coords });
     void persistLastLocation(get().currentUser?.id, coords, prev);
   },
+  travelMapActive: false,
+  travelDirection: "culiacan_to_mazatlan",
+  setTravelMapOverlay: (active, direction) =>
+    set((state) => ({
+      travelMapActive: active,
+      travelDirection: direction ?? state.travelDirection,
+    })),
+
   startDemo: () => {
     if (!isDemoEnabled) return;
 

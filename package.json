@@ -25,7 +25,8 @@
     "test:notifyCity": "deno test --allow-env supabase/functions/_shared/notifyCityScope.test.ts",
     "test:citySync": "deno test --allow-env supabase/functions/_shared/citySyncConfig.test.ts",
     "test:phase2": "npm run test:city && npm run test:colonia && npm run test:citySync && npm run test:notifyCity",
-    "test:community": "npm run test:share && npm run test:summary && npm run test:operativo",
+    "test:travel": "npx --yes tsx lib/alerty/travel/travelMode.test.ts && npx --yes tsx lib/alerty/trafficConfig.test.ts",
+    "test:community": "npm run test:share && npm run test:summary && npm run test:operativo && npm run test:travel",
     "supabase:db:push": "npx supabase db push"
   },
   "dependencies": {
