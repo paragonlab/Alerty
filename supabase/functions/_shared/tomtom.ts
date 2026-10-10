@@ -124,6 +124,31 @@ export const TOMTOM_BUDGET = {
   estimatedFlowRequestsPerDay: Math.ceil((24 * 60) / 30) * CORRIDOR_FLOW_POINTS.length, // 240
 };
 
+/** Rate limit tomtom-travel: ventana fija en tomtom_cache. */
+export const TOMTOM_TRAVEL_RATE = {
+  windowSeconds: 5 * 60,
+  maxPerIp: 12,
+  maxPerUser: 20,
+} as const;
+
+export function clientIpFromHeaders(headers: Headers): string {
+  const xf = headers.get("x-forwarded-for") || headers.get("x-real-ip") || "";
+  const first = xf.split(",")[0]?.trim();
+  if (first) return first.slice(0, 64);
+  const cf = headers.get("cf-connecting-ip")?.trim();
+  if (cf) return cf.slice(0, 64);
+  return "unknown";
+}
+
+export function rateLimitBucket(nowMs = Date.now(), windowSeconds = TOMTOM_TRAVEL_RATE.windowSeconds): number {
+  return Math.floor(nowMs / (windowSeconds * 1000));
+}
+
+export function rateLimitCacheKey(kind: "ip" | "user", id: string, bucket: number): string {
+  const safe = id.replace(/[^a-zA-Z0-9._:@-]/g, "_").slice(0, 80);
+  return `ratelimit:${kind}:${safe}:${bucket}`;
+}
+
 // ── Parsers (fixtures + respuestas reales) ──────────────────────────────────
 
 export type TomtomIncidentFeature = {

@@ -1,8 +1,14 @@
 /**
  * Sync TomTom Traffic Incidents → community_posts (source=tomtom).
  *
+ * Auth (mismo patrón que notify-on-alert):
+ *   - Header `x-pulso-hook` = NOTIFY_HOOK_SECRET (Vault `notify_hook_secret`), o
+ *   - Authorization Bearer = SUPABASE_SERVICE_ROLE_KEY
+ * La publishable/anon key solo abre el gateway (verify_jwt); no autoriza el sync.
+ *
  * Setup:
  *   supabase secrets set TOMTOM_API_KEY=...
+ *   supabase secrets set NOTIFY_HOOK_SECRET=...   # mismo que notify-on-alert
  *   supabase functions deploy sync-tomtom-incidents
  * Cron: migración 20261010010000 (cada 20 min, 3 bbox ≈ 216 req/día).
  *
@@ -27,7 +33,8 @@ import {
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type, x-pulso-hook",
   "Access-Control-Allow-Methods": "POST, OPTIONS, GET",
 };
 
@@ -55,12 +62,24 @@ Deno.serve(async (req) => {
     return new Response("ok", { headers: corsHeaders });
   }
 
+  const authHeader = req.headers.get("authorization");
+  if (!authHeader) return json({ error: "Unauthorized" }, 401);
+
+  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
+  const hookSecret = Deno.env.get("NOTIFY_HOOK_SECRET");
+  const fromHook = Boolean(hookSecret) && req.headers.get("x-pulso-hook") === hookSecret;
+  const fromServiceRole = Boolean(serviceKey) && authHeader === `Bearer ${serviceKey}`;
+  if (!fromHook && !fromServiceRole) {
+    // Anon/publishable JWT llega al código si verify_jwt=true, pero no basta:
+    // sin hook cualquiera gastaría la cuota TomTom.
+    return json({ error: "Forbidden" }, 403);
+  }
+
   if (!tomtomKey()) {
     return json({ ok: false, skipped: "missing_TOMTOM_API_KEY", attribution: TOMTOM_ATTRIBUTION });
   }
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL");
-  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
   if (!supabaseUrl || !serviceKey) {
     return json({ error: "missing_supabase_env" }, 500);
   }

@@ -531,7 +531,7 @@ Deno.serve(async (req) => {
         title: `${label} cerca de ${zoneLabel}`,
         body: "Hay un aviso de circulación cerca de tu zona vigilada. Ábrelo con calma.",
         sound: "default",
-        priority: "default",
+        priority: "high",
         channelId: "default",
         data: { postId: body.postId, tomtom: true },
       });

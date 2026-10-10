@@ -4,13 +4,17 @@
 import { assertEquals, assertStringIncludes } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
   TOMTOM_BUDGET,
+  TOMTOM_TRAVEL_RATE,
   calmIncidentText,
+  clientIpFromHeaders,
   extraMinutesFromFlow,
   mapTomtomCategory,
   parseCalculateRoute,
   parseIncidentDetails,
   parseNearbySearch,
   pointFromIncidentGeometry,
+  rateLimitBucket,
+  rateLimitCacheKey,
 } from "./tomtom.ts";
 import {
   FIXTURE_CALCULATE_ROUTE,
@@ -96,4 +100,14 @@ Deno.test("fixture nearbySearch → POIs", () => {
   assertEquals(pois.length, 2);
   assertEquals(pois[0].name, "Pemex Costa Rica");
   assertEquals(pois[0].distKm, 0.4);
+});
+
+Deno.test("rate limit keys / IP header", () => {
+  assertEquals(TOMTOM_TRAVEL_RATE.maxPerIp > 0, true);
+  const bucket = rateLimitBucket(1_700_000_000_000, 300);
+  assertEquals(rateLimitCacheKey("ip", "1.2.3.4", bucket).startsWith("ratelimit:ip:"), true);
+  assertEquals(
+    clientIpFromHeaders(new Headers({ "x-forwarded-for": "203.0.113.9, 10.0.0.1" })),
+    "203.0.113.9",
+  );
 });

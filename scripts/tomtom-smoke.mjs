@@ -140,11 +140,15 @@ async function smokeEdge() {
         : ` body=${JSON.stringify(data)?.slice(0, 180)}`),
   );
 
-  console.log("\nTambién puedes invocar sync:");
+  console.log("\nTambién puedes invocar sync (service role O anon + x-pulso-hook):");
   console.log(
     `  curl -X POST "${url}/functions/v1/sync-tomtom-incidents" \\\n` +
       `    -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \\\n` +
-      `    -H "Content-Type: application/json" -d '{}'`,
+      `    -H "Content-Type: application/json" -d '{}'\n` +
+      `  # cron-like:\n` +
+      `  curl -X POST "${url}/functions/v1/sync-tomtom-incidents" \\\n` +
+      `    -H "Authorization: Bearer $SUPABASE_ANON_KEY" -H "apikey: $SUPABASE_ANON_KEY" \\\n` +
+      `    -H "x-pulso-hook: $NOTIFY_HOOK_SECRET" -H "Content-Type: application/json" -d '{}'`,
   );
 
   process.exit(ok ? 0 : 1);

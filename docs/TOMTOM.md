@@ -7,6 +7,7 @@ Integración de tráfico (tiles cliente + APIs servidor) para Culiacán, Mazatl�
 | Nombre | Dónde | Uso |
 | --- | --- | --- |
 | `TOMTOM_API_KEY` | **Supabase secrets** | Incidents, Flow, Routing, Search — solo edge |
+| `NOTIFY_HOOK_SECRET` | **Supabase secrets** (+ Vault `notify_hook_secret`) | Auth de `sync-tomtom-incidents` y `notify-on-alert` (`x-pulso-hook`) |
 | `EXPO_PUBLIC_TOMTOM_KEY` | **Vercel** env + **Expo/EAS** | Solo tiles Leaflet de circulación. Restringir por dominio/referrer |
 | `EXPO_PUBLIC_GOOGLE_MAPS_KEY` | Vercel + EAS (ya existente) | `showsTraffic` nativo |
 | `EXPO_PUBLIC_TRAFFIC_LAYER` | Opcional (default on) | `0` oculta el toggle |
@@ -16,6 +17,9 @@ Integración de tráfico (tiles cliente + APIs servidor) para Culiacán, Mazatl�
 ```bash
 # Supabase (APIs — nunca en el cliente)
 supabase secrets set TOMTOM_API_KEY=tu_key_real
+# Mismo secreto que notify-on-alert (Vault + edge):
+#   select vault.create_secret('<secreto>', 'notify_hook_secret');
+supabase secrets set NOTIFY_HOOK_SECRET=<mismo_secreto>
 
 # Vercel (solo tiles)
 # Project → Settings → Environment Variables → EXPO_PUBLIC_TOMTOM_KEY
@@ -23,6 +27,8 @@ supabase secrets set TOMTOM_API_KEY=tu_key_real
 ```
 
 **Nunca** poner `TOMTOM_API_KEY` en Vercel ni en `EXPO_PUBLIC_*`.
+
+`sync-tomtom-incidents` **no** se autoriza con la publishable/anon key: exige `x-pulso-hook` o service role (`config.toml` → `verify_jwt = true`). `tomtom-travel` rate-limita por IP (12/5 min) y por usuario (20/5 min); service role no cuenta.
 
 El agente de este PR **no** tiene la key real. Tests y screenshots usan fixtures/mocks en
 `supabase/functions/_shared/tomtomFixtures.ts` y el mock de `tomtom-travel` / `lib/alerty/tomtomTravel.ts`.
@@ -39,10 +45,16 @@ TOMTOM_API_KEY=xxx node scripts/tomtom-smoke.mjs
 SUPABASE_URL=https://YOUR.supabase.co SUPABASE_ANON_KEY=eyJ... \
   node scripts/tomtom-smoke.mjs --edge
 
-# 3) Sync de incidentes (service role)
+# 3) Sync de incidentes (service role O publishable + x-pulso-hook)
 curl -X POST "$SUPABASE_URL/functions/v1/sync-tomtom-incidents" \
   -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
   -H "Content-Type: application/json" -d '{}'
+# equivalente al cron:
+curl -X POST "$SUPABASE_URL/functions/v1/sync-tomtom-incidents" \
+  -H "Authorization: Bearer $SUPABASE_ANON_KEY" \
+  -H "apikey: $SUPABASE_ANON_KEY" \
+  -H "x-pulso-hook: $NOTIFY_HOOK_SECRET" \
+  -H "Content-Type: application/json" -d '{"source":"manual"}'
 ```
 
 `tomtom-travel` acepta `{ "smoke": true }` para saltar cache y forzar llamadas live.
@@ -50,12 +62,13 @@ curl -X POST "$SUPABASE_URL/functions/v1/sync-tomtom-incidents" \
 ## Orden de aplicación (humano / CI)
 
 1. **Migración** `supabase/migrations/20261010010000_tomtom_traffic.sql`  
-   (`supabase db push` o SQL Editor). Amplía `community_posts`, crea `tomtom_cache`, `tomtom_zone_notify_log`, cron.  
+   (`supabase db push` o SQL Editor). Amplía `community_posts`, crea `tomtom_cache`, `tomtom_zone_notify_log`, cron con `x-pulso-hook`.  
    **No aplicar desde el agente.**
-2. **Secret** `TOMTOM_API_KEY` en el proyecto Supabase.
+2. **Secrets** `TOMTOM_API_KEY` + `NOTIFY_HOOK_SECRET` (y Vault `notify_hook_secret` si aún no está).
 3. **Deploy edge functions**  
-   `sync-tomtom-incidents`, `tomtom-travel`, y redeploy `notify-on-alert` (tipo `tomtom_incident`).
-4. **Cron** — la migración agenda `pulso-sync-tomtom-incidents` (`5,25,45 * * * *`). Verificar:
+   `sync-tomtom-incidents`, `tomtom-travel`, y redeploy `notify-on-alert` (tipo `tomtom_incident`).  
+   `config.toml`: ambas con `verify_jwt = true`.
+4. **Cron** — la migración agenda `pulso-sync-tomtom-incidents` (`5,25,45 * * * *`) y manda `x-pulso-hook`. Verificar:
    ```sql
    select jobid, jobname, schedule, active from cron.job
    where jobname like 'pulso-sync-%';

@@ -59,7 +59,7 @@ create index if not exists community_posts_tomtom_active_idx
 create table if not exists public.tomtom_cache (
   cache_key text primary key,
   kind text not null
-    check (kind in ('route', 'flow', 'poi', 'incidents_meta')),
+    check (kind in ('route', 'flow', 'poi', 'incidents_meta', 'ratelimit')),
   payload jsonb not null,
   expires_at timestamptz not null,
   created_at timestamptz not null default now(),
@@ -87,6 +87,11 @@ create index if not exists tomtom_zone_notify_log_sent_idx
 alter table public.tomtom_zone_notify_log enable row level security;
 
 -- ── Cron: sync incidents cada 20 min (presupuesto free ~216 req/día con 3 bbox) ─
+-- sync-tomtom-incidents exige x-pulso-hook (= notify_hook_secret / NOTIFY_HOOK_SECRET),
+-- mismo patrón que notify-on-alert: JWT publishable abre el gateway; el hook autoriza.
+-- Requiere en Vault (además de project_url / publishable_key):
+--   select vault.create_secret('<secreto>', 'notify_hook_secret');
+--   supabase secrets set NOTIFY_HOOK_SECRET=<mismo secreto>
 create or replace function internal.invoke_community_sync(function_name text)
 returns bigint
 language plpgsql
@@ -96,7 +101,9 @@ as $$
 declare
   project_url text;
   api_key text;
+  hook_secret text;
   request_id bigint;
+  headers jsonb;
 begin
   if function_name not in (
     'sync-x-community',
@@ -117,18 +124,34 @@ begin
   order by case ds.name when 'publishable_key' then 0 else 1 end
   limit 1;
 
+  select ds.decrypted_secret into hook_secret
+  from vault.decrypted_secrets as ds
+  where ds.name = 'notify_hook_secret'
+  limit 1;
+
   if project_url is null or api_key is null then
     raise warning 'community sync cron skipped: missing vault secrets project_url / publishable_key';
     return null;
   end if;
 
+  -- TomTom sync gasta cuota: sin hook no disparamos (evita llamadas abiertas con anon).
+  if function_name = 'sync-tomtom-incidents' and hook_secret is null then
+    raise warning 'sync-tomtom-incidents skipped: missing vault secret notify_hook_secret';
+    return null;
+  end if;
+
+  headers := jsonb_build_object(
+    'Content-Type', 'application/json',
+    'Authorization', 'Bearer ' || api_key,
+    'apikey', api_key
+  );
+  if hook_secret is not null then
+    headers := headers || jsonb_build_object('x-pulso-hook', hook_secret);
+  end if;
+
   select net.http_post(
     url := rtrim(project_url, '/') || '/functions/v1/' || function_name,
-    headers := jsonb_build_object(
-      'Content-Type', 'application/json',
-      'Authorization', 'Bearer ' || api_key,
-      'apikey', api_key
-    ),
+    headers := headers,
     body := jsonb_build_object('source', 'pg_cron')
   ) into request_id;
 

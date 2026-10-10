@@ -27,3 +27,10 @@ verify_jwt = false
 
 [functions.delete-account]
 verify_jwt = true
+
+# TomTom: JWT en gateway + auth real en código (hook/service_role o rate limit).
+[functions.sync-tomtom-incidents]
+verify_jwt = true
+
+[functions.tomtom-travel]
+verify_jwt = true

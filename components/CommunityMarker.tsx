@@ -20,7 +20,7 @@ type CommunityMarkerProps = {
 };
 
 /**
- * Pin Pulso (X / RSS) estilo Waze — distinto del pin ciudadano.
+ * Pin Pulso (X / RSS / TomTom) estilo Waze — distinto del pin ciudadano.
  */
 export function CommunityMarker({
   isDemo,

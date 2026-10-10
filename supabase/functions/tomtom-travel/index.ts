@@ -1,6 +1,7 @@
 /**
  * Insights de Modo viaje: Flow (retraso por tramo), Routing con tráfico, POI.
  * Cache en tomtom_cache. Mock si falta TOMTOM_API_KEY (demos/screenshots).
+ * Rate limit por IP (y por user si hay JWT de sesión) para no abusar de la cuota.
  *
  * POST body: { direction?: "culiacan_to_mazatlan"|"mazatlan_to_culiacan",
  *              origin?: {lat,lng}, destination?: {lat,lng}, fromLabel?: string,
@@ -13,9 +14,13 @@ import {
   CORRIDOR_FLOW_POINTS,
   TOMTOM_ATTRIBUTION,
   TOMTOM_BUDGET,
+  TOMTOM_TRAVEL_RATE,
+  clientIpFromHeaders,
   extraMinutesFromFlow,
   parseCalculateRoute,
   parseNearbySearch,
+  rateLimitBucket,
+  rateLimitCacheKey,
   tomtomGetJson,
   tomtomKey,
 } from "../_shared/tomtom.ts";
@@ -67,6 +72,23 @@ async function cacheSet(
     expires_at: expires,
     updated_at: new Date().toISOString(),
   });
+}
+
+/** Incrementa contador en tomtom_cache; false si ya superó el tope. */
+async function consumeRateLimit(
+  admin: ReturnType<typeof createClient>,
+  kind: "ip" | "user",
+  id: string,
+  max: number,
+): Promise<{ ok: boolean; count: number }> {
+  const bucket = rateLimitBucket();
+  const key = rateLimitCacheKey(kind, id, bucket);
+  const cached = await cacheGet(admin, key);
+  const count = Number((cached as { count?: number } | null)?.count) || 0;
+  if (count >= max) return { ok: false, count };
+  const next = count + 1;
+  await cacheSet(admin, key, "ratelimit", { count: next }, TOMTOM_TRAVEL_RATE.windowSeconds);
+  return { ok: true, count: next };
 }
 
 function mockInsights(direction: string) {
@@ -245,16 +267,72 @@ Deno.serve(async (req) => {
       : "culiacan_to_mazatlan";
   const smoke = body.smoke === true;
 
-  if (!tomtomKey()) {
-    return json({ ...mockInsights(direction), smokeSkipped: smoke ? "missing_TOMTOM_API_KEY" : undefined });
-  }
-
   const supabaseUrl = Deno.env.get("SUPABASE_URL");
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
   if (!supabaseUrl || !serviceKey) {
     return json({ error: "missing_supabase_env" }, 500);
   }
   const admin = createClient(supabaseUrl, serviceKey);
+
+  const authHeader = req.headers.get("authorization");
+  const fromServiceRole = Boolean(authHeader) && authHeader === `Bearer ${serviceKey}`;
+
+  // Rate limit por IP (+ usuario si hay sesión). Service role (smoke) no cuenta.
+  if (!fromServiceRole) {
+    const ip = clientIpFromHeaders(req.headers);
+    const ipHit = await consumeRateLimit(admin, "ip", ip, TOMTOM_TRAVEL_RATE.maxPerIp);
+    if (!ipHit.ok) {
+      return json(
+        {
+          error: "rate_limited",
+          scope: "ip",
+          retryAfterSeconds: TOMTOM_TRAVEL_RATE.windowSeconds,
+          attribution: TOMTOM_ATTRIBUTION,
+        },
+        429,
+      );
+    }
+
+    if (authHeader && anonKey) {
+      try {
+        const userClient = createClient(supabaseUrl, anonKey, {
+          global: { headers: { Authorization: authHeader } },
+        });
+        const {
+          data: { user },
+        } = await userClient.auth.getUser();
+        if (user?.id) {
+          const userHit = await consumeRateLimit(
+            admin,
+            "user",
+            user.id,
+            TOMTOM_TRAVEL_RATE.maxPerUser,
+          );
+          if (!userHit.ok) {
+            return json(
+              {
+                error: "rate_limited",
+                scope: "user",
+                retryAfterSeconds: TOMTOM_TRAVEL_RATE.windowSeconds,
+                attribution: TOMTOM_ATTRIBUTION,
+              },
+              429,
+            );
+          }
+        }
+      } catch {
+        // JWT anon / inválido: solo cuenta el tope por IP.
+      }
+    }
+  }
+
+  if (!tomtomKey()) {
+    return json({
+      ...mockInsights(direction),
+      smokeSkipped: smoke ? "missing_TOMTOM_API_KEY" : undefined,
+    });
+  }
 
   const origin =
     body.origin && Number.isFinite(body.origin.lat)
