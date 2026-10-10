@@ -94,7 +94,7 @@ export const TOMTOM_POI_SAMPLE_POINTS = [
   CORRIDOR_FLOW_POINTS[4], // Villa Unión
 ] as const;
 
-export const TOMTOM_POI_CACHE_KEY = "poi:corridor:v5";
+export const TOMTOM_POI_CACHE_KEY = "poi:corridor:v6";
 export const TOMTOM_POI_CACHE_TTL_OK_SEC = 6 * 3600;
 /** Fallidos / vacíos / parciales: TTL corto para reintentar sin pegarle al free tier. */
 export const TOMTOM_POI_CACHE_TTL_EMPTY_SEC = 10 * 60;
@@ -106,17 +106,26 @@ export const TOMTOM_POI_RETRY_BACKOFF_MS = 1000;
 export const ALIADO_CORRIDOR_MAX_KM = 2;
 /** Mismo lugar TomTom↔Aliado: nombre similar + distancia. */
 export const ALIADO_TOMTOM_DEDUPE_M = 150;
-/** Dedupe TomTom↔TomTom (p. ej. Tesla duplicado): mismo nombre + ~300 m. */
+/** Dedupe genérico TomTom↔TomTom: nombre similar + ~300 m. */
 export const POI_DEDUPE_METERS = 300;
+/** EV: mismo nombre normalizado dentro de ~2 km (Tesla duplicado ~1.1 km). */
+export const EV_NAME_DEDUPE_METERS = 2000;
+/** TomTom peaje solo si está a ≤1 km de una caseta curada. */
+export const TOLL_NEAR_CURATED_KM = 1;
 
 /**
- * Casetas reales MEX-15D (Culiacán–Mazatlán) si TomTom no devuelve peajes útiles.
- * Coords: SCT / mapas públicos (Costa Rica, Quilá, Mármol).
+ * Casetas del corredor (siempre visibles).
+ * Costa Rica / Quilá / Mármol: SCT; libramiento Culiacán: OSM toll_booth ~24.749,-107.569.
  */
 export const CURATED_MEX15D_TOLL_BOOTHS = [
   { name: "Caseta Costa Rica (MEX-15D)", lat: 24.5702, lng: -107.4302 },
   { name: "Caseta Quilá (MEX-15D)", lat: 24.3966, lng: -107.2719 },
   { name: "Caseta Mármol (MEX-15D)", lat: 23.4712, lng: -106.5695 },
+  {
+    name: "Caseta Libramiento Culiacán",
+    lat: 24.7489,
+    lng: -107.5686,
+  },
 ] as const;
 
 export type TomtomPoiKind = keyof typeof TOMTOM_POI_CATEGORIES;
@@ -219,7 +228,7 @@ export function poiMatchesExpectedCategory(
   return hasNameHint;
 }
 
-/** Mismo POI si nombre similar y distancia ≤ ~300 m (EV Tesla duplicado, etc.). */
+/** Mismo POI si nombre similar y distancia ≤ maxMeters. */
 export function poisNearDuplicate(
   a: { name: string; lat: number; lng: number },
   b: { name: string; lat: number; lng: number },
@@ -230,31 +239,105 @@ export function poisNearDuplicate(
   return namesRoughlyMatch(a.name, b.name);
 }
 
+/** Coords idénticas (gas duplicado en el mismo punto). */
+export function sameCoords(
+  a: { lat: number; lng: number },
+  b: { lat: number; lng: number },
+): boolean {
+  return a.lat === b.lat && a.lng === b.lng;
+}
+
+export function sameNormalizedName(a: string, b: string): boolean {
+  const na = normalizePoiName(a);
+  const nb = normalizePoiName(b);
+  return Boolean(na) && na === nb;
+}
+
+/** ¿Nombre de peaje real (caseta / plaza de cobro)? */
+export function nameHasCasetaOrPlaza(name: string): boolean {
+  return /caseta|plaza\s*de\s*cobro/i.test(name);
+}
+
+export function isNearCuratedToll(
+  lat: number,
+  lng: number,
+  maxKm = TOLL_NEAR_CURATED_KM,
+): boolean {
+  return CURATED_MEX15D_TOLL_BOOTHS.some(
+    (b) => haversineKm(lat, lng, b.lat, b.lng) <= maxKm,
+  );
+}
+
+/**
+ * Dedupe por categoría:
+ * - EV: mismo nombre normalizado ≤ ~2 km
+ * - gas: mismo nombre normalizado + coords idénticas
+ * - resto: nombre similar ≤ ~300 m
+ */
 export function dedupePoisByNamePos<T extends { name: string; lat: number; lng: number }>(
   items: T[],
   limit = 5,
-  maxMeters = POI_DEDUPE_METERS,
+  kind?: TomtomPoiKind,
 ): T[] {
   const out: T[] = [];
   for (const p of items) {
-    if (out.some((kept) => poisNearDuplicate(kept, p, maxMeters))) continue;
+    const dup = out.some((kept) => {
+      if (kind === "ev_charging") {
+        if (!sameNormalizedName(kept.name, p.name)) return false;
+        return haversineKm(kept.lat, kept.lng, p.lat, p.lng) * 1000 <= EV_NAME_DEDUPE_METERS;
+      }
+      if (kind === "gas_station") {
+        return sameNormalizedName(kept.name, p.name) && sameCoords(kept, p);
+      }
+      return poisNearDuplicate(kept, p, POI_DEDUPE_METERS);
+    });
+    if (dup) continue;
     out.push(p);
     if (out.length >= limit) break;
   }
   return out;
 }
 
-/** Si TomTom no trajo peajes útiles, usa casetas curadas del corredor. */
-export function withCuratedTollFallback<
-  T extends { name: string; lat: number; lng: number; distKm: number },
->(items: T[]): Array<T | { name: string; lat: number; lng: number; distKm: number }> {
-  if (items.length > 0) return items;
+function curatedTollRows(): Array<{ name: string; lat: number; lng: number; distKm: number }> {
   return CURATED_MEX15D_TOLL_BOOTHS.map((b) => ({
     name: b.name,
     lat: b.lat,
     lng: b.lng,
     distKm: Math.round(minKmToCorridor(b.lat, b.lng) * 10) / 10,
   }));
+}
+
+/**
+ * Siempre muestra casetas curadas; solo añade TomTom si está ≤1 km de una
+ * curada o el nombre trae «caseta» / «plaza de cobro», dedupeado vs curadas.
+ * @deprecated Usar mergeCuratedTolls — se mantiene alias por claridad en diffs.
+ */
+export function withCuratedTollFallback<
+  T extends { name: string; lat: number; lng: number; distKm: number },
+>(items: T[]): Array<T | { name: string; lat: number; lng: number; distKm: number }> {
+  return mergeCuratedTolls(items);
+}
+
+/** Casetas curadas primero + TomTom filtrado (nunca Navolato / Concordia sueltos). */
+export function mergeCuratedTolls<
+  T extends { name: string; lat: number; lng: number; distKm: number },
+>(tomtomItems: T[]): Array<T | { name: string; lat: number; lng: number; distKm: number }> {
+  const curated = curatedTollRows();
+  const extras: T[] = [];
+  for (const t of tomtomItems) {
+    const near = isNearCuratedToll(t.lat, t.lng);
+    const named = nameHasCasetaOrPlaza(t.name);
+    if (!near && !named) continue;
+    const dupCurated = curated.some((c) => {
+      const km = haversineKm(t.lat, t.lng, c.lat, c.lng);
+      if (km <= TOLL_NEAR_CURATED_KM) return true;
+      return sameNormalizedName(t.name, c.name) || namesRoughlyMatch(t.name, c.name);
+    });
+    if (dupCurated) continue;
+    if (extras.some((e) => poisNearDuplicate(e, t, EV_NAME_DEDUPE_METERS))) continue;
+    extras.push(t);
+  }
+  return [...curated, ...extras];
 }
 
 /** Plan de fetch: por categoría, cada muestra del corredor. */
@@ -278,24 +361,24 @@ export function buildPoiFetchPlan(
 export function pickPoisRoundRobinBySample<T extends { name: string; lat: number; lng: number }>(
   bySample: T[][],
   limit = 5,
+  kind?: TomtomPoiKind,
 ): T[] {
   const queues = bySample.map((list) => [...list]);
-  const out: T[] = [];
+  const flat: T[] = [];
   let progressed = true;
-  while (out.length < limit && progressed) {
+  while (flat.length < limit * 3 && progressed) {
     progressed = false;
     for (const q of queues) {
       while (q.length > 0) {
         const p = q.shift()!;
-        if (out.some((kept) => poisNearDuplicate(kept, p))) continue;
-        out.push(p);
+        flat.push(p);
         progressed = true;
         break;
       }
-      if (out.length >= limit) break;
+      if (flat.length >= limit * 3) break;
     }
   }
-  return out;
+  return dedupePoisByNamePos(flat, limit, kind);
 }
 
 export function poiCacheTtlSeconds(opts: {
