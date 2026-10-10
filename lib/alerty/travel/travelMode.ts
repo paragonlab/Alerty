@@ -259,6 +259,7 @@ function communityToPulse(
       title: post.text.slice(0, 120),
       placeLabel: operativoPlaceLabel(destinationSlug, true),
       createdAt: post.createdAt,
+      status: post.status,
       lat: null,
       lng: null,
       onCorridor: true,
@@ -273,8 +274,12 @@ function communityToPulse(
     kind: "community",
     category: cat,
     title: post.text.slice(0, 120),
-    placeLabel: post.placeLabel || CITIES[destinationSlug].name,
+    placeLabel:
+      post.source === "tomtom"
+        ? `${post.placeLabel || CITIES[destinationSlug].name} · TomTom`
+        : post.placeLabel || CITIES[destinationSlug].name,
     createdAt: post.createdAt,
+    status: post.status === "resolved" ? "resolved" : "active",
     lat: post.lat,
     lng: post.lng,
     onCorridor,

@@ -21,6 +21,11 @@ import { formatRelativeTime } from "../lib/alerty/utils";
 import { trackEvent } from "../lib/analytics";
 import { shareTravelSummary } from "../lib/alerty/share";
 import {
+  fetchTomtomTravelInsights,
+  poiSectionLabel,
+  type TomtomTravelInsights,
+} from "../lib/alerty/tomtomTravel";
+import {
   buildTravelSummary,
   collectTravelPulses,
   isTravelModeEnabled,
@@ -36,11 +41,13 @@ export default function ViajeScreen() {
   const router = useRouter();
   const theme = useAlertyTheme();
   const styles = createStyles(theme);
-  const { alerts, communityPosts, setTravelMapOverlay } = useAlertyStore();
+  const { alerts, communityPosts, setTravelMapOverlay, userCoords } = useAlertyStore();
 
   const [direction, setDirection] = useState<TravelDirection>("culiacan_to_mazatlan");
   const [window, setWindow] = useState<TravelWindow>("6h");
   const [summary, setSummary] = useState<TravelSummary | null>(null);
+  const [insights, setInsights] = useState<TomtomTravelInsights | null>(null);
+  const [fromMyLocation, setFromMyLocation] = useState(false);
   const [loading, setLoading] = useState(true);
   const [sharing, setSharing] = useState(false);
 
@@ -56,7 +63,10 @@ export default function ViajeScreen() {
     let cancelled = false;
     setLoading(true);
     void (async () => {
-      const corridor = await resolveCorridor({ direction });
+      const corridor = await resolveCorridor({
+        direction,
+        routing: { provider: "tomtom" },
+      });
       if (cancelled) return;
       const pulses = collectTravelPulses({
         alerts,
@@ -66,13 +76,24 @@ export default function ViajeScreen() {
         bundle: corridor.bundle,
       });
       const next = buildTravelSummary({ direction, window, pulses });
+      const origin =
+        fromMyLocation && userCoords
+          ? { lat: userCoords.latitude, lng: userCoords.longitude }
+          : null;
+      const tt = await fetchTomtomTravelInsights({
+        direction,
+        origin,
+        fromLabel: fromMyLocation ? "Mi ubicación" : null,
+      });
+      if (cancelled) return;
       setSummary(next);
+      setInsights(tt);
       setLoading(false);
     })();
     return () => {
       cancelled = true;
     };
-  }, [alerts, communityPosts, direction, window]);
+  }, [alerts, communityPosts, direction, window, fromMyLocation, userCoords]);
 
   const flipDirection = () => {
     setDirection((d) =>
@@ -84,7 +105,18 @@ export default function ViajeScreen() {
     if (!summary) return;
     setSharing(true);
     try {
-      await shareTravelSummary(travelShareMessage(summary));
+      let msg = travelShareMessage(summary);
+      if (insights?.route?.travelTimeMinutes != null) {
+        msg += `\nETA ~${insights.route.travelTimeMinutes} min`;
+        if (insights.route.trafficDelayMinutes) {
+          msg += ` (+${insights.route.trafficDelayMinutes} min por tráfico)`;
+        }
+      }
+      for (const d of insights?.delays?.slice(0, 3) ?? []) {
+        msg += `\n+${d.extraMinutes} min ${d.label}`;
+      }
+      if (insights?.attribution) msg += `\n${insights.attribution}`;
+      await shareTravelSummary(msg);
       void trackEvent({ event_type: "travel_mode_share", metadata: { direction, window } });
     } finally {
       setSharing(false);
@@ -149,6 +181,23 @@ export default function ViajeScreen() {
         Corredor México 15 / 15D · lo que la comunidad reportó cerca del camino
       </Text>
 
+      {userCoords ? (
+        <Pressable
+          style={styles.fromLocRow}
+          onPress={() => setFromMyLocation((v) => !v)}
+          accessibilityLabel="Calcular ruta desde mi ubicación"
+        >
+          <Ionicons
+            name={fromMyLocation ? "checkbox" : "square-outline"}
+            size={18}
+            color={theme.colors.accent}
+          />
+          <Text style={[styles.fromLocText, { color: theme.colors.text }]}>
+            Desde mi ubicación / colonia
+          </Text>
+        </Pressable>
+      ) : null}
+
       <View style={styles.windowRow}>
         {(["6h", "24h"] as TravelWindow[]).map((w) => {
           const on = window === w;
@@ -185,6 +234,76 @@ export default function ViajeScreen() {
             <View style={styles.summaryCard}>
               <Text style={[styles.headline, { color: theme.colors.text }]}>{summary.headline}</Text>
               <Text style={[styles.blurb, { color: theme.colors.textMuted }]}>{summary.blurb}</Text>
+
+              {insights?.route?.travelTimeMinutes != null ? (
+                <View style={[styles.insightBox, { borderColor: theme.colors.border }]}>
+                  <Text style={[styles.insightTitle, { color: theme.colors.text }]}>
+                    ETA ~{insights.route.travelTimeMinutes} min
+                    {insights.route.trafficDelayMinutes
+                      ? ` · +${insights.route.trafficDelayMinutes} min por tráfico`
+                      : ""}
+                  </Text>
+                  <Text style={[styles.insightSub, { color: theme.colors.textMuted }]}>
+                    {insights.route.summary}
+                    {insights.route.lengthKm ? ` · ${insights.route.lengthKm} km` : ""}
+                    {insights.mock ? " · demo" : ""}
+                  </Text>
+                  {insights.route.alternates?.map((alt, i) => (
+                    <Text
+                      key={i}
+                      style={[styles.insightSub, { color: theme.colors.textMuted }]}
+                    >
+                      Alterna: {alt.summary} · ~{alt.travelTimeMinutes} min
+                    </Text>
+                  ))}
+                </View>
+              ) : null}
+
+              {(insights?.delays?.length ?? 0) > 0 ? (
+                <View style={styles.delayRow}>
+                  {insights!.delays.map((d) => (
+                    <View
+                      key={d.id}
+                      style={[styles.delayChip, { borderColor: theme.colors.border }]}
+                    >
+                      <Text style={[styles.delayNum, { color: theme.colors.text }]}>
+                        +{d.extraMinutes} min
+                      </Text>
+                      <Text style={[styles.delayLabel, { color: theme.colors.textMuted }]}>
+                        {d.label}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              ) : null}
+
+              {insights?.pois
+                ? Object.entries(insights.pois).map(([key, list]) =>
+                    list.length ? (
+                      <View key={key} style={styles.poiBlock}>
+                        <Text style={[styles.poiTitle, { color: theme.colors.text }]}>
+                          {poiSectionLabel(key)}
+                        </Text>
+                        {list.slice(0, 3).map((p, i) => (
+                          <Text
+                            key={`${key}-${i}`}
+                            style={[styles.poiLine, { color: theme.colors.textMuted }]}
+                          >
+                            · {p.name}
+                            {p.distKm ? ` · ${p.distKm} km` : ""}
+                          </Text>
+                        ))}
+                      </View>
+                    ) : null,
+                  )
+                : null}
+
+              {insights?.attribution ? (
+                <Text style={[styles.attr, { color: theme.colors.textMuted }]}>
+                  {insights.attribution}
+                </Text>
+              ) : null}
+
               {summary.byCategory.length > 0 ? (
                 <View style={styles.counts}>
                   {summary.byCategory.slice(0, 6).map((row) => (
@@ -329,6 +448,45 @@ function createStyles(theme: ReturnType<typeof useAlertyTheme>) {
       fontFamily: "SpaceGrotesk_400Regular",
       lineHeight: 18,
     },
+    fromLocRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+      paddingHorizontal: 18,
+      marginTop: 10,
+    },
+    fromLocText: {
+      fontSize: 13,
+      fontFamily: "SpaceGrotesk_500Medium",
+    },
+    insightBox: {
+      borderWidth: 1,
+      borderRadius: 12,
+      padding: 12,
+      gap: 4,
+    },
+    insightTitle: {
+      fontSize: 15,
+      fontFamily: "SpaceGrotesk_700Bold",
+    },
+    insightSub: {
+      fontSize: 12,
+      fontFamily: "SpaceGrotesk_400Regular",
+      lineHeight: 17,
+    },
+    delayRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+    delayChip: {
+      borderWidth: 1,
+      borderRadius: 12,
+      paddingHorizontal: 10,
+      paddingVertical: 8,
+    },
+    delayNum: { fontSize: 14, fontFamily: "SpaceGrotesk_700Bold" },
+    delayLabel: { fontSize: 11, fontFamily: "SpaceGrotesk_400Regular", marginTop: 2 },
+    poiBlock: { gap: 2, marginTop: 2 },
+    poiTitle: { fontSize: 13, fontFamily: "SpaceGrotesk_700Bold", marginBottom: 2 },
+    poiLine: { fontSize: 12, fontFamily: "SpaceGrotesk_400Regular", lineHeight: 17 },
+    attr: { fontSize: 11, fontFamily: "SpaceGrotesk_400Regular", marginTop: 4 },
     windowRow: {
       flexDirection: "row",
       gap: 8,
