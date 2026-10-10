@@ -8,6 +8,10 @@ import {
   TOMTOM_BUDGET,
   TOMTOM_MAX_BBOX_KM2,
   ALIADO_CORRIDOR_MAX_KM,
+  CURATED_MEX15D_TOLL_BOOTHS,
+  EV_NAME_DEDUPE_METERS,
+  POI_DEDUPE_METERS,
+  TOLL_NEAR_CURATED_KM,
   TOMTOM_POI_CACHE_KEY,
   TOMTOM_POI_CACHE_TTL_EMPTY_SEC,
   TOMTOM_POI_CATEGORIES,
@@ -22,12 +26,17 @@ import {
   calmIncidentText,
   cityIdForIncident,
   clientIpFromHeaders,
+  dedupePoisByNamePos,
   extraMinutesFromFlow,
   isFreshTomtomIncident,
   isAllowedTravelPoint,
+  isGenericTollName,
+  isNearCuratedToll,
   mapTomtomCategory,
   mergeAliadosIntoPois,
+  mergeCuratedTolls,
   minKmToCorridor,
+  nameHasCasetaOrPlaza,
   parseCalculateRoute,
   parseIncidentDetails,
   parseNearbySearch,
@@ -38,6 +47,7 @@ import {
   poiMatchesExpectedCategory,
   pointFromIncidentGeometry,
   pointInBbox,
+  poisNearDuplicate,
   rateLimitBucket,
   rateLimitCacheKey,
   resolveTravelEndpoints,
@@ -262,17 +272,21 @@ Deno.test("rate limit keys / IP header", () => {
   );
 });
 
-Deno.test("POI: categorías, radio, cache v4, filtro y round-robin", () => {
+Deno.test("POI: categorías, radio, cache v6, filtro y round-robin", () => {
   assertEquals(TOMTOM_POI_CATEGORIES.gas_station, "7311");
   assertEquals(TOMTOM_POI_CATEGORIES.ev_charging, "7309");
   assertEquals(TOMTOM_POI_CATEGORIES.hospital, "7321");
   assertEquals(TOMTOM_POI_CATEGORIES.pharmacy, "7326");
   assertEquals(TOMTOM_POI_CATEGORIES.toll, "7375");
   assertEquals(TOMTOM_POI_MAX_RADIUS_M, 50_000);
-  assertEquals(TOMTOM_POI_CACHE_KEY, "poi:corridor:v4");
+  assertEquals(TOMTOM_POI_CACHE_KEY, "poi:corridor:v6");
   assertEquals(TOMTOM_POI_CACHE_TTL_EMPTY_SEC, 10 * 60);
   assertEquals(TOMTOM_POI_REQUEST_GAP_MS, 250);
   assertEquals(TOMTOM_POI_SAMPLE_POINTS.length, 3);
+  assertEquals(POI_DEDUPE_METERS, 300);
+  assertEquals(EV_NAME_DEDUPE_METERS, 2000);
+  assertEquals(TOLL_NEAR_CURATED_KM, 1);
+  assertEquals(CURATED_MEX15D_TOLL_BOOTHS.length, 4);
 
   assertEquals(poiCacheTtlSeconds({ empty: false, anyFailed: false }), 6 * 3600);
   assertEquals(poiCacheTtlSeconds({ empty: true, anyFailed: false }), 10 * 60);
@@ -334,6 +348,90 @@ Deno.test("POI: categorías, radio, cache v4, filtro y round-robin", () => {
     }),
     true,
   );
+});
+
+Deno.test("POI calidad: gas sin talleres, peajes curados, EV dedupe 2 km", () => {
+  // Gas: talleres aunque vengan con categorySet 7311
+  assertEquals(
+    poiMatchesExpectedCategory("gas_station", {
+      name: "Taller José Natividad",
+      categoryIds: [7311],
+      categories: ["petrol station", "repair facility"],
+    }),
+    false,
+  );
+  assertEquals(
+    poiMatchesExpectedCategory("gas_station", {
+      name: "Pemex Costa Rica",
+      categoryIds: [7311],
+      categories: ["petrol station"],
+    }),
+    true,
+  );
+
+  // Toll: curadas siempre; Navolato / Concordia fuera; OSM libramiento incluido
+  assertEquals(isGenericTollName("Culiacán"), true);
+  assertEquals(nameHasCasetaOrPlaza("Caseta Costa Rica"), true);
+  assertEquals(nameHasCasetaOrPlaza("98 La Concordia"), false);
+  assertEquals(isNearCuratedToll(24.5702, -107.4302), true);
+  assertEquals(isNearCuratedToll(24.63, -107.4), false); // Navolato-ish lejos
+  assertEquals(
+    CURATED_MEX15D_TOLL_BOOTHS.some((b) => b.name.includes("Libramiento")),
+    true,
+  );
+
+  const merged = mergeCuratedTolls([
+    { name: "Navolato", lat: 24.63, lng: -107.7, distKm: 5 },
+    { name: "98 La Concordia", lat: 24.2, lng: -107.0, distKm: 8 },
+    { name: "Caseta Costa Rica TomTom", lat: 24.5705, lng: -107.4305, distKm: 0.1 },
+    { name: "Caseta Extra Nombrada", lat: 23.8, lng: -106.9, distKm: 2 },
+  ]);
+  assertEquals(merged.length >= 4, true);
+  assertEquals(merged.slice(0, 4).map((p) => p.name), [
+    "Caseta Costa Rica (MEX-15D)",
+    "Caseta Quilá (MEX-15D)",
+    "Caseta Mármol (MEX-15D)",
+    "Caseta Libramiento Culiacán",
+  ]);
+  assertEquals(merged.some((p) => p.name === "Navolato"), false);
+  assertEquals(merged.some((p) => p.name.includes("Concordia")), false);
+  // Duplicado cerca de Costa Rica no se añade
+  assertEquals(merged.some((p) => p.name.includes("TomTom")), false);
+  // Nombre con caseta lejos de curadas sí se añade
+  assertEquals(merged.some((p) => p.name === "Caseta Extra Nombrada"), true);
+
+  // EV: mismo nombre normalizado a ~1.1 km → 1 entrada
+  const teslaA = { name: "Tesla", lat: 24.55, lng: -107.45, distKm: 0.1 };
+  const teslaB = { name: "Tesla", lat: 24.56, lng: -107.45, distKm: 0.2 }; // ~1.11 km
+  assertEquals(
+    dedupePoisByNamePos([teslaA, teslaB], 5, "ev_charging").map((p) => p.name),
+    ["Tesla"],
+  );
+  // Nombres distintos a ~200 m: el genérico ~300 m sigue aplicando en hospital etc.
+  assertEquals(
+    poisNearDuplicate(
+      { name: "Tesla", lat: 24.55, lng: -107.45 },
+      { name: "Tesla Supercharger", lat: 24.5515, lng: -107.4512 },
+    ),
+    true,
+  );
+
+  // Gas: mismo nombre + coords idénticas → 1; coords distintas → 2
+  assertEquals(
+    dedupePoisByNamePos([
+      { name: "Pemex", lat: 24.55, lng: -107.45 },
+      { name: "Pemex", lat: 24.55, lng: -107.45 },
+      { name: "Pemex", lat: 24.56, lng: -107.45 },
+    ], 5, "gas_station").length,
+    2,
+  );
+
+  const rr = pickPoisRoundRobinBySample([
+    [teslaA],
+    [teslaB],
+    [{ name: "Otro EV", lat: 23.28, lng: -106.35, distKm: 0.5 }],
+  ], 5, "ev_charging");
+  assertEquals(rr.map((p) => p.name), ["Tesla", "Otro EV"]);
 });
 
 Deno.test("Aliados: categoría, corredor 2 km, merge + dedupe TomTom", () => {
