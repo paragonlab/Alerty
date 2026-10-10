@@ -230,6 +230,8 @@ Deno.serve(async (req) => {
     category?: string;
     title?: string;
     placeLabel?: string;
+    digestCount?: number;
+    restrictToUserIds?: string[];
   };
   try {
     body = await req.json();
@@ -477,13 +479,17 @@ Deno.serve(async (req) => {
   } else if (body.type === "tomtom_incident") {
     // Aviso suave a Círculo (watchedZones) cuando un incidente TomTom cae cerca.
     // Geocerca en DB (haversine) — TomTom Geofencing no aporta sobre nuestras zonas.
-    // Anti-spam: 1 push por (user, external_id); agrupa por usuario.
+    // Anti-spam: 1 push por (user, external_id); sync agrupa (digestCount / restrictToUserIds).
     if (!fromServer) return json({ error: "Forbidden" }, 403);
 
     const lat = Number(body.lat);
     const lng = Number(body.lng);
     const cityId = body.cityId || null;
     const externalId = body.externalId || "";
+    const digestCount = Math.max(1, Number(body.digestCount) || 1);
+    const restrictTo = Array.isArray(body.restrictToUserIds)
+      ? (body.restrictToUserIds as unknown[]).filter((id): id is string => typeof id === "string")
+      : null;
     if (!cityId || !externalId || !Number.isFinite(lat) || !Number.isFinite(lng)) {
       return json({ sent: 0, skipped: "bad_tomtom_payload" });
     }
@@ -495,6 +501,7 @@ Deno.serve(async (req) => {
 
     const nearByUser = new Map<string, string>();
     for (const zone of filterZonesByAlertCity(zones ?? [], cityId)) {
+      if (restrictTo && !restrictTo.includes(zone.user_id)) continue;
       const km = haversineKm(lat, lng, Number(zone.lat), Number(zone.lng));
       if (km <= CIRCULO_RADIUS_KM && !nearByUser.has(zone.user_id)) {
         nearByUser.set(zone.user_id, zone.label);
@@ -526,14 +533,22 @@ Deno.serve(async (req) => {
     for (const row of scoped) {
       const userId = (row as { user_id: string }).user_id;
       const zoneLabel = nearByUser.get(userId) || place;
+      const title =
+        digestCount > 1
+          ? `Circulación cerca de ${zoneLabel}`
+          : `${label} cerca de ${zoneLabel}`;
+      const text =
+        digestCount > 1
+          ? `Hay ${digestCount} avisos de circulación cerca de tu zona vigilada. Ábrelos con calma.`
+          : "Hay un aviso de circulación cerca de tu zona vigilada. Ábrelo con calma.";
       messages.push({
         to: (row as { token: string }).token,
-        title: `${label} cerca de ${zoneLabel}`,
-        body: "Hay un aviso de circulación cerca de tu zona vigilada. Ábrelo con calma.",
+        title,
+        body: text,
         sound: "default",
         priority: "high",
         channelId: "default",
-        data: { postId: body.postId, tomtom: true },
+        data: { postId: body.postId, tomtom: true, digestCount },
       });
     }
 

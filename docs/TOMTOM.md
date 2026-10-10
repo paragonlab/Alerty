@@ -57,7 +57,7 @@ curl -X POST "$SUPABASE_URL/functions/v1/sync-tomtom-incidents" \
   -H "Content-Type: application/json" -d '{"source":"manual"}'
 ```
 
-`tomtom-travel` acepta `{ "smoke": true }` para saltar cache y forzar llamadas live.
+`tomtom-travel`: `{ "smoke": true }` solo con **service role** (ignora smoke del cliente). Origen/destino fuera del corredor/ciudades activas se clampean al preset.
 
 ## Orden de aplicación (humano / CI)
 
@@ -89,7 +89,7 @@ curl -X POST "$SUPABASE_URL/functions/v1/sync-tomtom-incidents" \
 
 | Trabajo | Frecuencia | Req/día (orden) |
 | --- | --- | --- |
-| Incidents (3 bbox) | cada 20 min | ~216 |
+| Incidents (5 bbox: 2 ciudades + 3 tramos corredor ≤10k km²) | cada 20 min | ~360 |
 | Flow (5 puntos corredor) | cache 30 min | ~240 |
 | Routing | cache 45 min por par | decenas (uso real) |
 | POI nearby (4 cats) | cache 6 h | ~16 |

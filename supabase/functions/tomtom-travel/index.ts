@@ -21,6 +21,7 @@ import {
   parseNearbySearch,
   rateLimitBucket,
   rateLimitCacheKey,
+  resolveTravelEndpoints,
   tomtomGetJson,
   tomtomKey,
 } from "../_shared/tomtom.ts";
@@ -265,7 +266,6 @@ Deno.serve(async (req) => {
     body.direction === "mazatlan_to_culiacan"
       ? "mazatlan_to_culiacan"
       : "culiacan_to_mazatlan";
-  const smoke = body.smoke === true;
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL");
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -277,8 +277,10 @@ Deno.serve(async (req) => {
 
   const authHeader = req.headers.get("authorization");
   const fromServiceRole = Boolean(authHeader) && authHeader === `Bearer ${serviceKey}`;
+  // smoke:true solo con service role (evita saltar cache / quemar cuota desde el cliente).
+  const smoke = body.smoke === true && fromServiceRole;
 
-  // Rate limit por IP (+ usuario si hay sesión). Service role (smoke) no cuenta.
+  // Rate limit por IP (+ usuario si hay sesión). Service role no cuenta.
   if (!fromServiceRole) {
     const ip = clientIpFromHeaders(req.headers);
     const ipHit = await consumeRateLimit(admin, "ip", ip, TOMTOM_TRAVEL_RATE.maxPerIp);
@@ -330,22 +332,20 @@ Deno.serve(async (req) => {
   if (!tomtomKey()) {
     return json({
       ...mockInsights(direction),
-      smokeSkipped: smoke ? "missing_TOMTOM_API_KEY" : undefined,
+      smokeSkipped: body.smoke === true && !fromServiceRole
+        ? "smoke_requires_service_role"
+        : smoke
+          ? "missing_TOMTOM_API_KEY"
+          : undefined,
     });
   }
 
-  const origin =
-    body.origin && Number.isFinite(body.origin.lat)
-      ? body.origin
-      : direction === "mazatlan_to_culiacan"
-        ? MZT
-        : CUL;
-  const destination =
-    body.destination && Number.isFinite(body.destination.lat)
-      ? body.destination
-      : direction === "mazatlan_to_culiacan"
-        ? CUL
-        : MZT;
+  const endpoints = resolveTravelEndpoints({
+    direction,
+    origin: body.origin,
+    destination: body.destination,
+  });
+  const { origin, destination } = endpoints;
 
   const [delays, route, pois] = await Promise.all([
     fetchFlowDelays(admin, smoke),
@@ -371,6 +371,8 @@ Deno.serve(async (req) => {
     },
     pois,
     fromLabel: body.fromLabel || null,
+    originClamped: endpoints.originClamped || undefined,
+    destinationClamped: endpoints.destinationClamped || undefined,
     cityIds: CITY_IDS,
   });
 });

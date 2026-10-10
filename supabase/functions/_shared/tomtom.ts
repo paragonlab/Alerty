@@ -3,31 +3,65 @@
  * Key solo en secret TOMTOM_API_KEY — nunca en el cliente.
  */
 
-import { CITY_IDS } from "./cities.ts";
+import { CITY_IDS, CITY_NAMES } from "./cities.ts";
 
 export const TOMTOM_ATTRIBUTION = "Datos de tráfico © TomTom";
 
-/** Bboxes EPSG:4326: minLon,minLat,maxLon,maxLat (≤ 10_000 km²). */
-export const TOMTOM_BBOXES = {
-  culiacan: {
-    cityId: CITY_IDS.culiacan,
+/** Límite de área de Incident Details (TomTom). */
+export const TOMTOM_MAX_BBOX_KM2 = 10_000;
+
+export type TomtomBboxDef = {
+  key: string;
+  label: string;
+  /** minLon,minLat,maxLon,maxLat */
+  bbox: string;
+  /** Solo cajas de ciudad; corredor asigna city_id por coords. */
+  cityId?: string;
+};
+
+/**
+ * Bboxes ≤ 10_000 km². El corredor va en tramos que no solapan las cajas
+ * de Culiacán / Mazatlán (dedupe por id TomTom).
+ */
+export const TOMTOM_BBOXES: readonly TomtomBboxDef[] = [
+  {
+    key: "culiacan",
     label: "Culiacán",
     bbox: "-107.52,24.70,-107.30,24.88",
+    cityId: CITY_IDS.culiacan,
   },
-  mazatlan: {
-    cityId: CITY_IDS.mazatlan,
+  {
+    key: "mazatlan",
     label: "Mazatlán",
     bbox: "-106.55,23.15,-106.25,23.35",
+    cityId: CITY_IDS.mazatlan,
   },
-  /** Corredor México 15 / 15D (amplio pero bajo el límite de área). */
-  corridor: {
-    cityId: CITY_IDS.culiacan,
-    label: "México 15 / 15D",
-    bbox: "-107.50,23.20,-106.30,24.85",
+  {
+    key: "corridor_n",
+    label: "México 15 / 15D (norte)",
+    // Sur de la caja Culiacán (maxLat < 24.70)
+    bbox: "-107.55,24.35,-107.15,24.69",
   },
-} as const;
+  {
+    key: "corridor_c",
+    label: "México 15 / 15D (centro)",
+    bbox: "-107.35,23.70,-106.55,24.35",
+  },
+  {
+    key: "corridor_s",
+    label: "México 15 / 15D (sur)",
+    // Norte de la caja Mazatlán (minLat > 23.35)
+    bbox: "-106.95,23.36,-106.20,23.70",
+  },
+] as const;
 
-export type TomtomBboxKey = keyof typeof TOMTOM_BBOXES;
+export type TomtomBboxKey = (typeof TOMTOM_BBOXES)[number]["key"];
+
+/** Centros de ciudades activas (city_id por cercanía). */
+export const ACTIVE_CITY_CENTERS = [
+  { cityId: CITY_IDS.culiacan, label: "Culiacán", lat: 24.8091, lng: -107.394 },
+  { cityId: CITY_IDS.mazatlan, label: "Mazatlán", lat: 23.2494, lng: -106.4111 },
+] as const;
 
 /** Puntos clave del corredor para Flow Segment (retraso por tramo). */
 export const CORRIDOR_FLOW_POINTS = [
@@ -37,6 +71,190 @@ export const CORRIDOR_FLOW_POINTS = [
   { id: "dimas", label: "cerca de Dimas", lat: 23.72, lng: -106.78 },
   { id: "villa_union", label: "cerca de Villa Unión", lat: 23.28, lng: -106.35 },
 ] as const;
+
+export const TOMTOM_NOTIFY_MAX_AGE_MINUTES = 30;
+export const TOMTOM_NOTIFY_MAX_PER_USER = 2;
+export const TOMTOM_CIRCULO_RADIUS_KM = 0.8;
+
+export type ParsedBbox = {
+  minLon: number;
+  minLat: number;
+  maxLon: number;
+  maxLat: number;
+};
+
+export function parseBbox(bbox: string): ParsedBbox | null {
+  const parts = bbox.split(",").map((p) => Number(p.trim()));
+  if (parts.length !== 4 || parts.some((n) => !Number.isFinite(n))) return null;
+  const [minLon, minLat, maxLon, maxLat] = parts;
+  if (minLon >= maxLon || minLat >= maxLat) return null;
+  return { minLon, minLat, maxLon, maxLat };
+}
+
+/** Área aproximada en km² (EPSG:4326 → equirectangular local). */
+export function bboxAreaKm2(bbox: string): number {
+  const b = parseBbox(bbox);
+  if (!b) return Number.POSITIVE_INFINITY;
+  const midLat = (b.minLat + b.maxLat) / 2;
+  const kmPerDegLat = 111.32;
+  const kmPerDegLon = 111.32 * Math.cos((midLat * Math.PI) / 180);
+  return (b.maxLat - b.minLat) * kmPerDegLat * (b.maxLon - b.minLon) * kmPerDegLon;
+}
+
+export function pointInBbox(lat: number, lng: number, bbox: string): boolean {
+  const b = parseBbox(bbox);
+  if (!b) return false;
+  return lng >= b.minLon && lng <= b.maxLon && lat >= b.minLat && lat <= b.maxLat;
+}
+
+export function bboxesOverlap(a: string, b: string): boolean {
+  const A = parseBbox(a);
+  const B = parseBbox(b);
+  if (!A || !B) return false;
+  return !(A.maxLon <= B.minLon || B.maxLon <= A.minLon || A.maxLat <= B.minLat || B.maxLat <= A.minLat);
+}
+
+export function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const x =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return 2 * 6371 * Math.asin(Math.sqrt(x));
+}
+
+export function nearestActiveCity(lat: number, lng: number): {
+  cityId: string;
+  label: string;
+} {
+  let best: (typeof ACTIVE_CITY_CENTERS)[number] = ACTIVE_CITY_CENTERS[0];
+  let bestKm = Infinity;
+  for (const c of ACTIVE_CITY_CENTERS) {
+    const km = haversineKm(lat, lng, c.lat, c.lng);
+    if (km < bestKm) {
+      bestKm = km;
+      best = c;
+    }
+  }
+  return { cityId: best.cityId, label: best.label };
+}
+
+/** city_id del incidente: caja de ciudad si cae dentro; si no, ciudad activa más cercana. */
+export function cityIdForIncident(lat: number, lng: number): { cityId: string; label: string } {
+  for (const box of TOMTOM_BBOXES) {
+    if (box.cityId && pointInBbox(lat, lng, box.bbox)) {
+      return { cityId: box.cityId, label: box.label };
+    }
+  }
+  const near = nearestActiveCity(lat, lng);
+  return { cityId: near.cityId, label: CITY_NAMES[near.cityId] || near.label };
+}
+
+/**
+ * Fail-safe de despejado: solo si el punto cae en ≥1 bbox exitoso y el id
+ * no apareció. Si no hubo éxitos → no despejar nada.
+ */
+export function selectIncidentsToResolve(opts: {
+  active: Array<{ id: string; external_id: string; lat: number | null; lng: number | null }>;
+  seenIds: Set<string>;
+  successfulBboxes: string[];
+}): string[] {
+  if (opts.successfulBboxes.length === 0) return [];
+  const out: string[] = [];
+  for (const row of opts.active) {
+    if (opts.seenIds.has(row.external_id)) continue;
+    if (row.lat == null || row.lng == null || !Number.isFinite(row.lat) || !Number.isFinite(row.lng)) {
+      continue;
+    }
+    const covered = opts.successfulBboxes.some((bbox) => pointInBbox(row.lat!, row.lng!, bbox));
+    if (covered) out.push(row.id);
+  }
+  return out;
+}
+
+/** True si el incidente es “fresco” para push (startTime < maxAge). Sin start → fresco. */
+export function isFreshTomtomIncident(
+  startTime: string | null | undefined,
+  nowMs = Date.now(),
+  maxAgeMinutes = TOMTOM_NOTIFY_MAX_AGE_MINUTES,
+): boolean {
+  if (!startTime) return true;
+  const t = Date.parse(startTime);
+  if (!Number.isFinite(t)) return true;
+  return nowMs - t <= maxAgeMinutes * 60_000;
+}
+
+export type TomtomNotifyCandidate = {
+  postId: string;
+  externalId: string;
+  lat: number;
+  lng: number;
+  cityId: string;
+  category: string;
+  title: string;
+  placeLabel: string;
+  startTime?: string | null;
+};
+
+/**
+ * Plan de pushes por usuario: ≤2 individuales; si hay más, 1 digest agregado.
+ * `groups` = listas de candidatos (1 item = push simple; N>1 = digest).
+ */
+export function planTomtomNotifiesPerUser(
+  items: TomtomNotifyCandidate[],
+  maxIndividual = TOMTOM_NOTIFY_MAX_PER_USER,
+): TomtomNotifyCandidate[][] {
+  if (items.length === 0) return [];
+  if (items.length <= maxIndividual) return items.map((i) => [i]);
+  return [items];
+}
+
+export function isAllowedTravelPoint(p: { lat: number; lng: number }): boolean {
+  if (!Number.isFinite(p.lat) || !Number.isFinite(p.lng)) return false;
+  for (const box of TOMTOM_BBOXES) {
+    if (pointInBbox(p.lat, p.lng, box.bbox)) return true;
+  }
+  for (const c of ACTIVE_CITY_CENTERS) {
+    if (haversineKm(p.lat, p.lng, c.lat, c.lng) <= 35) return true;
+  }
+  for (const f of CORRIDOR_FLOW_POINTS) {
+    if (haversineKm(p.lat, p.lng, f.lat, f.lng) <= 30) return true;
+  }
+  return false;
+}
+
+export function travelPresets(direction: string): {
+  origin: { lat: number; lng: number };
+  destination: { lat: number; lng: number };
+} {
+  const cul = { lat: 24.8091, lng: -107.394 };
+  const mzt = { lat: 23.2494, lng: -106.4111 };
+  return direction === "mazatlan_to_culiacan"
+    ? { origin: mzt, destination: cul }
+    : { origin: cul, destination: mzt };
+}
+
+export function resolveTravelEndpoints(opts: {
+  direction: string;
+  origin?: { lat: number; lng: number } | null;
+  destination?: { lat: number; lng: number } | null;
+}): {
+  origin: { lat: number; lng: number };
+  destination: { lat: number; lng: number };
+  originClamped: boolean;
+  destinationClamped: boolean;
+} {
+  const presets = travelPresets(opts.direction);
+  const originOk = opts.origin && isAllowedTravelPoint(opts.origin);
+  const destOk = opts.destination && isAllowedTravelPoint(opts.destination);
+  return {
+    origin: originOk ? opts.origin! : presets.origin,
+    destination: destOk ? opts.destination! : presets.destination,
+    originClamped: Boolean(opts.origin) && !originOk,
+    destinationClamped: Boolean(opts.destination) && !destOk,
+  };
+}
 
 /** iconCategory TomTom → categoría Pulso + copy calmado. */
 export function mapTomtomCategory(iconCategory: number | null | undefined): {
@@ -116,9 +334,9 @@ export async function tomtomGetJson(
  */
 export const TOMTOM_BUDGET = {
   freeNonTilePerDay: 2500,
-  incidentBboxes: 3,
+  incidentBboxes: TOMTOM_BBOXES.length,
   incidentIntervalMinutes: 20,
-  estimatedIncidentRequestsPerDay: Math.ceil((24 * 60) / 20) * 3, // 216
+  estimatedIncidentRequestsPerDay: Math.ceil((24 * 60) / 20) * TOMTOM_BBOXES.length, // ~360 con 5 bbox
   flowPoints: CORRIDOR_FLOW_POINTS.length,
   flowIntervalMinutes: 30,
   estimatedFlowRequestsPerDay: Math.ceil((24 * 60) / 30) * CORRIDOR_FLOW_POINTS.length, // 240

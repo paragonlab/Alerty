@@ -86,7 +86,7 @@ create index if not exists tomtom_zone_notify_log_sent_idx
 
 alter table public.tomtom_zone_notify_log enable row level security;
 
--- ── Cron: sync incidents cada 20 min (presupuesto free ~216 req/día con 3 bbox) ─
+-- ── Cron: sync incidents cada 20 min (presupuesto free ~360 req/día con 5 bbox ≤10k km²) ─
 -- sync-tomtom-incidents exige x-pulso-hook (= notify_hook_secret / NOTIFY_HOOK_SECRET),
 -- mismo patrón que notify-on-alert: JWT publishable abre el gateway; el hook autoriza.
 -- Requiere en Vault (además de project_url / publishable_key):
