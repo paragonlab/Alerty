@@ -11,14 +11,15 @@ import {
   TOMTOM_POI_CACHE_TTL_EMPTY_SEC,
   TOMTOM_POI_CATEGORIES,
   TOMTOM_POI_MAX_RADIUS_M,
+  TOMTOM_POI_REQUEST_GAP_MS,
   TOMTOM_POI_SAMPLE_POINTS,
   TOMTOM_TRAVEL_RATE,
   bboxAreaKm2,
   bboxesOverlap,
+  buildPoiFetchPlan,
   calmIncidentText,
   cityIdForIncident,
   clientIpFromHeaders,
-  dedupePoisByNamePos,
   extraMinutesFromFlow,
   isFreshTomtomIncident,
   isAllowedTravelPoint,
@@ -26,8 +27,11 @@ import {
   parseCalculateRoute,
   parseIncidentDetails,
   parseNearbySearch,
+  pickPoisRoundRobinBySample,
   planTomtomNotifiesPerUser,
+  poiCacheTtlSeconds,
   poiListsAreEmpty,
+  poiMatchesExpectedCategory,
   pointFromIncidentGeometry,
   pointInBbox,
   rateLimitBucket,
@@ -253,37 +257,72 @@ Deno.test("rate limit keys / IP header", () => {
   );
 });
 
-Deno.test("POI: categorías, radio ≤50km, cache v2 y TTL vacío", () => {
-  assertEquals(TOMTOM_POI_CATEGORIES.gas_station, "7311"); // petrol, no 7309 EV
+Deno.test("POI: categorías, radio, cache v3, filtro y round-robin", () => {
+  assertEquals(TOMTOM_POI_CATEGORIES.gas_station, "7311");
   assertEquals(TOMTOM_POI_CATEGORIES.hospital, "7321");
   assertEquals(TOMTOM_POI_CATEGORIES.pharmacy, "7326");
-  assertEquals(TOMTOM_POI_CATEGORIES.toll, "7375"); // toll gate
+  assertEquals(TOMTOM_POI_CATEGORIES.toll, "7375");
   assertEquals(TOMTOM_POI_MAX_RADIUS_M, 50_000);
-  assertEquals(TOMTOM_POI_MAX_RADIUS_M <= 50_000, true);
-  assertEquals(TOMTOM_POI_CACHE_KEY, "poi:corridor:v2");
+  assertEquals(TOMTOM_POI_CACHE_KEY, "poi:corridor:v3");
   assertEquals(TOMTOM_POI_CACHE_TTL_EMPTY_SEC, 10 * 60);
-  assertEquals(TOMTOM_POI_SAMPLE_POINTS.length >= 2, true);
+  assertEquals(TOMTOM_POI_REQUEST_GAP_MS, 250);
+  assertEquals(TOMTOM_POI_SAMPLE_POINTS.length, 3);
+
+  assertEquals(poiCacheTtlSeconds({ empty: false, anyFailed: false }), 6 * 3600);
+  assertEquals(poiCacheTtlSeconds({ empty: true, anyFailed: false }), 10 * 60);
+  assertEquals(poiCacheTtlSeconds({ empty: false, anyFailed: true }), 10 * 60);
+
+  assertEquals(
+    poiMatchesExpectedCategory("hospital", {
+      name: "Hospital General",
+      categoryIds: [7321],
+      categories: ["hospital"],
+    }),
+    true,
+  );
+  assertEquals(
+    poiMatchesExpectedCategory("hospital", {
+      name: "Taller Mecánico El Rayo",
+      categoryIds: [7310],
+      categories: ["repair facility"],
+    }),
+    false,
+  );
+  assertEquals(
+    poiMatchesExpectedCategory("gas_station", {
+      name: "Pemex",
+      categoryIds: [7311],
+      categories: ["petrol station"],
+    }),
+    true,
+  );
+
+  const plan = buildPoiFetchPlan();
+  assertEquals(plan.length, 4 * 3);
+  assertEquals(plan[0].kind, "gas_station");
+  assertEquals(plan[0].pointIndex, 0);
+
+  // Round-robin: no debe quedarse solo con el primer sample (Culiacán).
+  const bySample = [
+    [
+      { name: "A1", lat: 24.7, lng: -107.4, distKm: 0.1 },
+      { name: "A2", lat: 24.71, lng: -107.41, distKm: 0.2 },
+      { name: "A3", lat: 24.72, lng: -107.42, distKm: 0.3 },
+    ],
+    [
+      { name: "B1", lat: 23.95, lng: -107.02, distKm: 0.1 },
+      { name: "B2", lat: 23.96, lng: -107.03, distKm: 0.2 },
+    ],
+    [{ name: "C1", lat: 23.28, lng: -106.35, distKm: 0.1 }],
+  ];
+  const picked = pickPoisRoundRobinBySample(bySample, 5);
+  assertEquals(picked.length, 5);
+  assertEquals(picked.map((p) => p.name), ["A1", "B1", "C1", "A2", "B2"]);
 
   assertEquals(
     poiListsAreEmpty({ gas_station: [], hospital: [], pharmacy: [], toll: [] }),
     true,
   );
-  assertEquals(
-    poiListsAreEmpty({
-      gas_station: [{ name: "x" }],
-      hospital: [],
-      pharmacy: [],
-      toll: [],
-    }),
-    false,
-  );
-
-  const deduped = dedupePoisByNamePos([
-    { name: "Pemex", lat: 24.55, lng: -107.45, distKm: 0.4 },
-    { name: "Pemex", lat: 24.55, lng: -107.45, distKm: 0.5 },
-    { name: "Shell", lat: 23.95, lng: -107.02, distKm: 1.2 },
-  ]);
-  assertEquals(deduped.length, 2);
 });
 
 Deno.test("travel endpoints: presets y clamp de puntos fuera de zona", () => {

@@ -94,15 +94,70 @@ export const TOMTOM_POI_SAMPLE_POINTS = [
   CORRIDOR_FLOW_POINTS[4], // Villa Unión
 ] as const;
 
-export const TOMTOM_POI_CACHE_KEY = "poi:corridor:v2";
+export const TOMTOM_POI_CACHE_KEY = "poi:corridor:v3";
 export const TOMTOM_POI_CACHE_TTL_OK_SEC = 6 * 3600;
-/** Fallidos / vacíos: TTL corto para reintentar sin pegarle al free tier. */
+/** Fallidos / vacíos / parciales: TTL corto para reintentar sin pegarle al free tier. */
 export const TOMTOM_POI_CACHE_TTL_EMPTY_SEC = 10 * 60;
+/** Espacio entre requests NearbySearch (QPS TomTom). */
+export const TOMTOM_POI_REQUEST_GAP_MS = 250;
+export const TOMTOM_POI_RETRY_BACKOFF_MS = 1000;
+
+export type TomtomPoiKind = keyof typeof TOMTOM_POI_CATEGORIES;
+
+/** Pistas de categoría para filtrar falsos positivos (p. ej. taller como hospital). */
+export const TOMTOM_POI_CATEGORY_HINTS: Record<
+  TomtomPoiKind,
+  { ids: number[]; nameRe: RegExp; rejectRe?: RegExp }
+> = {
+  gas_station: {
+    ids: [7311],
+    nameRe: /petrol|gasolin|combustible|pemex|shell|bp\b|mobil|fuel\s*station/i,
+    rejectRe: /electric|ev\s*charg|carga\s*el[eé]ctrica/i,
+  },
+  hospital: {
+    ids: [7321],
+    nameRe: /hospital|cl[ií]nic|polyclinic|m[eé]dic/i,
+    rejectRe: /taller|mec[aá]nic|vulcaniz|refaccion|auto\s*parts|car\s*repair/i,
+  },
+  pharmacy: {
+    ids: [7326],
+    nameRe: /farmac|pharmacy|dispensar|botica/i,
+  },
+  toll: {
+    ids: [7375],
+    nameRe: /caseta|toll|peatge|plaza\s*de\s*cobro|peaje/i,
+  },
+};
 
 export function poiListsAreEmpty(
   pois: Record<string, Array<unknown>>,
 ): boolean {
   return Object.values(pois).every((list) => !Array.isArray(list) || list.length === 0);
+}
+
+export function categoryIdMatches(expected: number, id: number): boolean {
+  if (id === expected) return true;
+  // Subcategorías TomTom a menudo son expected * 1000 + n
+  return Math.floor(id / 1000) === expected || String(id).startsWith(String(expected));
+}
+
+export function poiMatchesExpectedCategory(
+  kind: string,
+  poi: {
+    name?: string;
+    categoryIds?: number[];
+    categories?: string[];
+  },
+): boolean {
+  const hint = TOMTOM_POI_CATEGORY_HINTS[kind as TomtomPoiKind];
+  if (!hint) return true;
+  const blob = [...(poi.categories ?? []), poi.name ?? ""].join(" ");
+  if (hint.rejectRe?.test(blob)) return false;
+  const ids = poi.categoryIds ?? [];
+  if (ids.length > 0) {
+    return ids.some((id) => hint.ids.some((exp) => categoryIdMatches(exp, id)));
+  }
+  return hint.nameRe.test(blob);
 }
 
 export function dedupePoisByNamePos<T extends { name: string; lat: number; lng: number }>(
@@ -119,6 +174,58 @@ export function dedupePoisByNamePos<T extends { name: string; lat: number; lng: 
     if (out.length >= limit) break;
   }
   return out;
+}
+
+/** Plan de fetch: por categoría, cada muestra del corredor. */
+export function buildPoiFetchPlan(
+  kinds: TomtomPoiKind[] = Object.keys(TOMTOM_POI_CATEGORIES) as TomtomPoiKind[],
+  pointCount = TOMTOM_POI_SAMPLE_POINTS.length,
+): Array<{ kind: TomtomPoiKind; categoryId: string; pointIndex: number }> {
+  const plan: Array<{ kind: TomtomPoiKind; categoryId: string; pointIndex: number }> = [];
+  for (const kind of kinds) {
+    for (let i = 0; i < pointCount; i++) {
+      plan.push({ kind, categoryId: TOMTOM_POI_CATEGORIES[kind], pointIndex: i });
+    }
+  }
+  return plan;
+}
+
+/**
+ * Elige hasta `limit` POIs repartidos a lo largo de las muestras (round-robin),
+ * no solo los del primer punto (Culiacán).
+ */
+export function pickPoisRoundRobinBySample<T extends { name: string; lat: number; lng: number }>(
+  bySample: T[][],
+  limit = 5,
+): T[] {
+  const queues = bySample.map((list) => [...list]);
+  const seen = new Set<string>();
+  const out: T[] = [];
+  let progressed = true;
+  while (out.length < limit && progressed) {
+    progressed = false;
+    for (const q of queues) {
+      while (q.length > 0) {
+        const p = q.shift()!;
+        const key = `${p.name.toLowerCase()}|${p.lat.toFixed(3)}|${p.lng.toFixed(3)}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push(p);
+        progressed = true;
+        break;
+      }
+      if (out.length >= limit) break;
+    }
+  }
+  return out;
+}
+
+export function poiCacheTtlSeconds(opts: {
+  empty: boolean;
+  anyFailed: boolean;
+}): number {
+  if (opts.empty || opts.anyFailed) return TOMTOM_POI_CACHE_TTL_EMPTY_SEC;
+  return TOMTOM_POI_CACHE_TTL_OK_SEC;
 }
 
 export const TOMTOM_NOTIFY_MAX_AGE_MINUTES = 30;
@@ -512,22 +619,48 @@ export function parseCalculateRoute(data: unknown): ParsedRoute | null {
   };
 }
 
-export type ParsedPoi = { name: string; lat: number; lng: number; distKm: number };
+export type ParsedPoi = {
+  name: string;
+  lat: number;
+  lng: number;
+  distKm: number;
+  categoryIds: number[];
+  categories: string[];
+};
 
 export function parseNearbySearch(data: unknown): ParsedPoi[] {
   if (!data || typeof data !== "object") return [];
   const results = (data as {
     results?: Array<{
-      poi?: { name?: string };
+      poi?: {
+        name?: string;
+        categories?: string[];
+        categorySet?: Array<{ id?: number }>;
+        classifications?: Array<{ code?: string; names?: Array<{ name?: string }> }>;
+      };
       position?: { lat?: number; lon?: number };
       dist?: number;
     }>;
   }).results;
   if (!Array.isArray(results)) return [];
-  return results.slice(0, 5).map((r) => ({
-    name: r.poi?.name || "POI",
-    lat: r.position?.lat ?? 0,
-    lng: r.position?.lon ?? 0,
-    distKm: Math.round(((r.dist || 0) / 1000) * 10) / 10,
-  }));
+  return results.slice(0, 8).map((r) => {
+    const categoryIds = (r.poi?.categorySet ?? [])
+      .map((c) => Number(c.id))
+      .filter((id) => Number.isFinite(id));
+    const categories = [
+      ...(r.poi?.categories ?? []),
+      ...((r.poi?.classifications ?? []).flatMap((c) => [
+        c.code ?? "",
+        ...(c.names ?? []).map((n) => n.name ?? ""),
+      ])),
+    ].filter(Boolean);
+    return {
+      name: r.poi?.name || "POI",
+      lat: r.position?.lat ?? 0,
+      lng: r.position?.lon ?? 0,
+      distKm: Math.round(((r.dist || 0) / 1000) * 10) / 10,
+      categoryIds,
+      categories,
+    };
+  });
 }

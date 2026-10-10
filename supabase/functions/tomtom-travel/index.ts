@@ -15,23 +15,27 @@ import {
   TOMTOM_ATTRIBUTION,
   TOMTOM_BUDGET,
   TOMTOM_POI_CACHE_KEY,
-  TOMTOM_POI_CACHE_TTL_EMPTY_SEC,
-  TOMTOM_POI_CACHE_TTL_OK_SEC,
   TOMTOM_POI_CATEGORIES,
   TOMTOM_POI_MAX_RADIUS_M,
+  TOMTOM_POI_REQUEST_GAP_MS,
+  TOMTOM_POI_RETRY_BACKOFF_MS,
   TOMTOM_POI_SAMPLE_POINTS,
   TOMTOM_TRAVEL_RATE,
+  buildPoiFetchPlan,
   clientIpFromHeaders,
-  dedupePoisByNamePos,
   extraMinutesFromFlow,
   parseCalculateRoute,
   parseNearbySearch,
+  pickPoisRoundRobinBySample,
+  poiCacheTtlSeconds,
   poiListsAreEmpty,
+  poiMatchesExpectedCategory,
   rateLimitBucket,
   rateLimitCacheKey,
   resolveTravelEndpoints,
   tomtomGetJson,
   tomtomKey,
+  type TomtomPoiKind,
 } from "../_shared/tomtom.ts";
 
 const corsHeaders = {
@@ -201,6 +205,25 @@ async function fetchRoute(
   return payload;
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** NearbySearch con 1 reintento en 429 (backoff) y log de no-200. */
+async function tomtomPoiGet(
+  path: string,
+): Promise<{ ok: boolean; status: number; data: unknown }> {
+  let res = await tomtomGetJson(path);
+  if (res.status === 429) {
+    await sleep(TOMTOM_POI_RETRY_BACKOFF_MS);
+    res = await tomtomGetJson(path);
+  }
+  if (!res.ok) {
+    console.warn("tomtom POI non-200", res.status, path.slice(0, 120));
+  }
+  return res;
+}
+
 async function fetchPois(
   admin: ReturnType<typeof createClient>,
   skipCache = false,
@@ -216,34 +239,50 @@ async function fetchPois(
     }
   }
 
-  const out: Record<
-    string,
-    Array<{ name: string; lat: number; lng: number; distKm: number }>
-  > = {
-    gas_station: [],
-    hospital: [],
-    pharmacy: [],
-    toll: [],
+  type PoiRow = { name: string; lat: number; lng: number; distKm: number };
+  const byKindSample: Record<TomtomPoiKind, PoiRow[][]> = {
+    gas_station: TOMTOM_POI_SAMPLE_POINTS.map(() => []),
+    hospital: TOMTOM_POI_SAMPLE_POINTS.map(() => []),
+    pharmacy: TOMTOM_POI_SAMPLE_POINTS.map(() => []),
+    toll: TOMTOM_POI_SAMPLE_POINTS.map(() => []),
   };
 
-  // Varias muestras ≤50 km: un solo punto no cubre CUL↔MZT.
-  for (const [kind, cat] of Object.entries(TOMTOM_POI_CATEGORIES)) {
-    const merged: Array<{ name: string; lat: number; lng: number; distKm: number }> = [];
-    for (const pt of TOMTOM_POI_SAMPLE_POINTS) {
-      const path =
-        `/search/2/nearbySearch/.json?lat=${pt.lat}&lon=${pt.lng}` +
-        `&radius=${TOMTOM_POI_MAX_RADIUS_M}&categorySet=${cat}&limit=5&language=es-ES`;
-      const { ok, data } = await tomtomGetJson(path);
-      if (!ok || !data) continue;
-      for (const p of parseNearbySearch(data)) {
-        merged.push({
-          ...p,
-          lat: p.lat || pt.lat,
-          lng: p.lng || pt.lng,
-        });
-      }
+  let anyFailed = false;
+  const plan = buildPoiFetchPlan();
+  for (let i = 0; i < plan.length; i++) {
+    if (i > 0) await sleep(TOMTOM_POI_REQUEST_GAP_MS);
+    const step = plan[i]!;
+    const pt = TOMTOM_POI_SAMPLE_POINTS[step.pointIndex]!;
+    const path =
+      `/search/2/nearbySearch/.json?lat=${pt.lat}&lon=${pt.lng}` +
+      `&radius=${TOMTOM_POI_MAX_RADIUS_M}&categorySet=${step.categoryId}&limit=5&language=es-ES`;
+    const { ok, data } = await tomtomPoiGet(path);
+    if (!ok || !data) {
+      anyFailed = true;
+      continue;
     }
-    out[kind] = dedupePoisByNamePos(merged, 5);
+    for (const p of parseNearbySearch(data)) {
+      if (
+        !poiMatchesExpectedCategory(step.kind, {
+          name: p.name,
+          categoryIds: p.categoryIds,
+          categories: p.categories,
+        })
+      ) {
+        continue;
+      }
+      byKindSample[step.kind][step.pointIndex]!.push({
+        name: p.name,
+        lat: p.lat || pt.lat,
+        lng: p.lng || pt.lng,
+        distKm: p.distKm,
+      });
+    }
+  }
+
+  const out: Record<string, PoiRow[]> = {};
+  for (const kind of Object.keys(TOMTOM_POI_CATEGORIES) as TomtomPoiKind[]) {
+    out[kind] = pickPoisRoundRobinBySample(byKindSample[kind], 5);
   }
 
   const empty = poiListsAreEmpty(out);
@@ -252,7 +291,7 @@ async function fetchPois(
     cacheKey,
     "poi",
     out,
-    empty ? TOMTOM_POI_CACHE_TTL_EMPTY_SEC : TOMTOM_POI_CACHE_TTL_OK_SEC,
+    poiCacheTtlSeconds({ empty, anyFailed }),
   );
   return out;
 }
