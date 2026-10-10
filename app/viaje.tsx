@@ -1,15 +1,17 @@
 /**
  * Modo viaje · Antes de salir
- * Preset Culiacán ↔ Mazatlán, corredor estático México 15/15D, sin routing API.
+ * Origen y destino libres (México), chips Sinaloa, recientes y TomTom.
  */
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
   Image,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -21,6 +23,8 @@ import { CATEGORY_LABELS } from "../lib/alerty/constants";
 import { formatRelativeTime } from "../lib/alerty/utils";
 import { trackEvent } from "../lib/analytics";
 import { shareTravelSummary } from "../lib/alerty/share";
+import { getCurrentCoords } from "../lib/alerty/geolocation";
+import { searchTripPlaces } from "../lib/alerty/tomtomPlaces";
 import {
   fetchTomtomTravelInsights,
   POI_SECTION_ORDER,
@@ -31,78 +35,230 @@ import {
 } from "../lib/alerty/tomtomTravel";
 import {
   buildTravelSummary,
+  collectPulsesNearPolyline,
   collectTravelPulses,
   isTravelModeEnabled,
   resolveCorridor,
   travelShareMessage,
-  type TravelDirection,
   type TravelPulse,
   type TravelSummary,
   type TravelWindow,
 } from "../lib/alerty/travel/travelMode";
+import {
+  loadRecentTrips,
+  saveRecentTrip,
+  swapTrip,
+  travelDirectionFromTrip,
+  TRIP_ROUTE_CHIPS,
+  type RecentTrip,
+  type TripPlace,
+} from "../lib/alerty/travel/tripPlaces";
+
+const DEFAULT_ORIGIN: TripPlace = TRIP_ROUTE_CHIPS[0].origin;
+const DEFAULT_DEST: TripPlace = TRIP_ROUTE_CHIPS[0].destination;
 
 export default function ViajeScreen() {
   const router = useRouter();
   const theme = useAlertyTheme();
   const styles = createStyles(theme);
-  const { alerts, communityPosts, setTravelMapOverlay, userCoords } = useAlertyStore();
+  const { alerts, communityPosts, setTravelMapOverlay, userCoords, setUserCoords } =
+    useAlertyStore();
 
-  const [direction, setDirection] = useState<TravelDirection>("culiacan_to_mazatlan");
+  const [origin, setOrigin] = useState<TripPlace | null>(DEFAULT_ORIGIN);
+  const [destination, setDestination] = useState<TripPlace | null>(DEFAULT_DEST);
+  const [originText, setOriginText] = useState(DEFAULT_ORIGIN.name);
+  const [destText, setDestText] = useState(DEFAULT_DEST.name);
+  const [originSuggestions, setOriginSuggestions] = useState<TripPlace[]>([]);
+  const [destSuggestions, setDestSuggestions] = useState<TripPlace[]>([]);
+  const [activeField, setActiveField] = useState<"origin" | "dest" | null>(null);
+  const [recent, setRecent] = useState<RecentTrip[]>([]);
   const [window, setWindow] = useState<TravelWindow>("6h");
   const [summary, setSummary] = useState<TravelSummary | null>(null);
   const [insights, setInsights] = useState<TomtomTravelInsights | null>(null);
-  const [fromMyLocation, setFromMyLocation] = useState(false);
   const [loading, setLoading] = useState(true);
   const [sharing, setSharing] = useState(false);
+  const [locating, setLocating] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  const originTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const destTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (!isTravelModeEnabled()) {
       router.replace("/(tabs)" as any);
       return;
     }
-    void trackEvent({ event_type: "travel_mode_open", metadata: { direction, window } });
+    void trackEvent({ event_type: "travel_mode_open", metadata: { freeform: true } });
+    void loadRecentTrips().then(setRecent);
+  }, []);
+
+  const runSearch = useCallback((field: "origin" | "dest", q: string) => {
+    const timer = field === "origin" ? originTimer : destTimer;
+    if (timer.current) clearTimeout(timer.current);
+    if (q.trim().length < 3) {
+      if (field === "origin") setOriginSuggestions([]);
+      else setDestSuggestions([]);
+      return;
+    }
+    timer.current = setTimeout(() => {
+      void searchTripPlaces(q).then((list) => {
+        if (field === "origin") setOriginSuggestions(list);
+        else setDestSuggestions(list);
+      });
+    }, 320);
   }, []);
 
   useEffect(() => {
+    if (!origin || !destination) {
+      setLoading(false);
+      return;
+    }
     let cancelled = false;
     setLoading(true);
+    setErrorMsg(null);
     void (async () => {
-      const corridor = await resolveCorridor({
-        direction,
-        routing: { provider: "tomtom" },
-      });
-      if (cancelled) return;
-      const pulses = collectTravelPulses({
-        alerts,
-        communityPosts,
-        direction,
-        window,
-        bundle: corridor.bundle,
-      });
-      const next = buildTravelSummary({ direction, window, pulses });
-      const origin =
-        fromMyLocation && userCoords
-          ? { lat: userCoords.latitude, lng: userCoords.longitude }
-          : null;
+      const direction = travelDirectionFromTrip(origin, destination);
       const tt = await fetchTomtomTravelInsights({
-        direction,
         origin,
-        fromLabel: fromMyLocation ? "Mi ubicación" : null,
+        destination,
+        direction,
+        fromLabel: origin.name === "Mi ubicación" ? "Mi ubicación" : null,
+        window,
       });
       if (cancelled) return;
+
+      if (tt.error && tt.message) {
+        setErrorMsg(tt.message);
+      }
+
+      const polyline =
+        tt.route?.points?.map((p) => ({
+          latitude: p.lat,
+          longitude: p.lng,
+        })) ?? [];
+
+      let pulses: TravelPulse[] = [];
+      if (direction) {
+        const corridor = await resolveCorridor({
+          direction,
+          routing: { provider: "tomtom" },
+        });
+        pulses = collectTravelPulses({
+          alerts,
+          communityPosts,
+          direction,
+          window,
+          bundle: corridor.bundle,
+        });
+      } else if (polyline.length >= 2) {
+        pulses = collectPulsesNearPolyline({
+          alerts,
+          communityPosts,
+          window,
+          polyline,
+          destinationName: destination.name,
+        });
+      }
+
+      // Fusiona pulsos del servidor (cualquier ciudad) sin duplicar id
+      const seen = new Set(pulses.map((p) => p.id));
+      for (const sp of tt.pulses ?? []) {
+        if (seen.has(sp.id)) continue;
+        pulses.push({
+          id: sp.id,
+          kind: "community",
+          category: sp.category,
+          title: sp.title,
+          placeLabel: sp.placeLabel,
+          createdAt: sp.createdAt,
+          status: sp.status === "resolved" ? "resolved" : "active",
+          lat: sp.lat,
+          lng: sp.lng,
+          onCorridor: true,
+          inDestination: false,
+        });
+        seen.add(sp.id);
+      }
+
+      const next = buildTravelSummary({
+        direction: direction ?? "custom",
+        originName: origin.name,
+        destinationName: destination.name,
+        window,
+        pulses,
+      });
+
       setSummary(next);
       setInsights(tt);
       setLoading(false);
+      void saveRecentTrip(origin, destination).then(setRecent);
     })();
     return () => {
       cancelled = true;
     };
-  }, [alerts, communityPosts, direction, window, fromMyLocation, userCoords]);
+  }, [alerts, communityPosts, origin, destination, window]);
 
-  const flipDirection = () => {
-    setDirection((d) =>
-      d === "culiacan_to_mazatlan" ? "mazatlan_to_culiacan" : "culiacan_to_mazatlan",
-    );
+  const flipTrip = () => {
+    const swapped = swapTrip(origin, destination);
+    setOrigin(swapped.origin);
+    setDestination(swapped.destination);
+    setOriginText(swapped.origin?.name ?? "");
+    setDestText(swapped.destination?.name ?? "");
+    setOriginSuggestions([]);
+    setDestSuggestions([]);
+  };
+
+  const useMyLocation = async () => {
+    setLocating(true);
+    try {
+      let coords = userCoords;
+      if (!coords) {
+        coords = await getCurrentCoords();
+        setUserCoords(coords);
+      }
+      const place: TripPlace = {
+        name: "Mi ubicación",
+        lat: coords.latitude,
+        lng: coords.longitude,
+      };
+      setOrigin(place);
+      setOriginText(place.name);
+      setOriginSuggestions([]);
+      setActiveField(null);
+    } catch {
+      setErrorMsg("No pudimos usar tu ubicación. Revisa el permiso y vuelve a intentar.");
+    } finally {
+      setLocating(false);
+    }
+  };
+
+  const pickPlace = (field: "origin" | "dest", place: TripPlace) => {
+    if (field === "origin") {
+      setOrigin(place);
+      setOriginText(place.name);
+      setOriginSuggestions([]);
+    } else {
+      setDestination(place);
+      setDestText(place.name);
+      setDestSuggestions([]);
+    }
+    setActiveField(null);
+  };
+
+  const applyChip = (chip: (typeof TRIP_ROUTE_CHIPS)[number]) => {
+    setOrigin(chip.origin);
+    setDestination(chip.destination);
+    setOriginText(chip.origin.name);
+    setDestText(chip.destination.name);
+    setOriginSuggestions([]);
+    setDestSuggestions([]);
+  };
+
+  const applyRecent = (trip: RecentTrip) => {
+    setOrigin(trip.origin);
+    setDestination(trip.destination);
+    setOriginText(trip.origin.name);
+    setDestText(trip.destination.name);
   };
 
   const onShare = async () => {
@@ -121,20 +277,25 @@ export default function ViajeScreen() {
       }
       if (insights?.attribution) msg += `\n${insights.attribution}`;
       await shareTravelSummary(msg);
-      void trackEvent({ event_type: "travel_mode_share", metadata: { direction, window } });
+      void trackEvent({ event_type: "travel_mode_share", metadata: { window } });
     } finally {
       setSharing(false);
     }
   };
 
   const onShowMap = () => {
-    setTravelMapOverlay(true, direction);
-    void trackEvent({ event_type: "travel_mode_show_map", metadata: { direction } });
-    router.replace("/(tabs)" as any);
+    if (!origin || !destination) return;
+    const direction = travelDirectionFromTrip(origin, destination);
+    if (direction) {
+      setTravelMapOverlay(true, direction);
+      void trackEvent({ event_type: "travel_mode_show_map", metadata: { direction } });
+      router.replace("/(tabs)" as any);
+    }
   };
 
-  const origin = summary?.originName ?? "Culiacán";
-  const destination = summary?.destinationName ?? "Mazatlán";
+  const destLabel = summary?.destinationName ?? destination?.name ?? "destino";
+  const canShowMap =
+    origin && destination ? Boolean(travelDirectionFromTrip(origin, destination)) : false;
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: theme.colors.background }]}>
@@ -155,51 +316,103 @@ export default function ViajeScreen() {
           accessibilityLabel="Compartir resumen"
           style={styles.iconBtn}
         >
-          <Ionicons
-            name="share-outline"
-            size={22}
-            color={theme.colors.text}
-          />
+          <Ionicons name="share-outline" size={22} color={theme.colors.text} />
         </Pressable>
       </View>
 
-      <View style={styles.routeRow}>
-        <View style={[styles.cityChip, { backgroundColor: theme.colors.surfaceAlt }]}>
-          <Text style={[styles.cityChipLabel, { color: theme.colors.textMuted }]}>Origen</Text>
-          <Text style={[styles.cityChipValue, { color: theme.colors.text }]}>{origin}</Text>
+      <View style={styles.inputsBlock}>
+        <PlaceField
+          label="Origen"
+          value={originText}
+          onChangeText={(t) => {
+            setOriginText(t);
+            setOrigin(null);
+            setActiveField("origin");
+            runSearch("origin", t);
+          }}
+          onFocus={() => setActiveField("origin")}
+          suggestions={activeField === "origin" ? originSuggestions : []}
+          onPick={(p) => pickPlace("origin", p)}
+          theme={theme}
+          styles={styles}
+        />
+        <View style={styles.midRow}>
+          <Pressable
+            onPress={() => void useMyLocation()}
+            style={styles.myLocBtn}
+            accessibilityLabel="Usar mi ubicación"
+            disabled={locating}
+          >
+            <Ionicons name="locate-outline" size={16} color={theme.colors.accent} />
+            <Text style={[styles.myLocText, { color: theme.colors.accent }]}>
+              {locating ? "Buscando…" : "Mi ubicación"}
+            </Text>
+          </Pressable>
+          <Pressable
+            onPress={flipTrip}
+            style={styles.swapBtn}
+            accessibilityLabel="Invertir origen y destino"
+          >
+            <Ionicons name="swap-vertical" size={22} color={theme.colors.accent} />
+          </Pressable>
         </View>
-        <Pressable
-          onPress={flipDirection}
-          style={styles.swapBtn}
-          accessibilityLabel="Invertir origen y destino"
-        >
-          <Ionicons name="swap-horizontal" size={22} color={theme.colors.accent} />
-        </Pressable>
-        <View style={[styles.cityChip, { backgroundColor: theme.colors.surfaceAlt }]}>
-          <Text style={[styles.cityChipLabel, { color: theme.colors.textMuted }]}>Destino</Text>
-          <Text style={[styles.cityChipValue, { color: theme.colors.text }]}>{destination}</Text>
-        </View>
+        <PlaceField
+          label="Destino"
+          value={destText}
+          onChangeText={(t) => {
+            setDestText(t);
+            setDestination(null);
+            setActiveField("dest");
+            runSearch("dest", t);
+          }}
+          onFocus={() => setActiveField("dest")}
+          suggestions={activeField === "dest" ? destSuggestions : []}
+          onPick={(p) => pickPlace("dest", p)}
+          theme={theme}
+          styles={styles}
+        />
       </View>
 
       <Text style={[styles.roadHint, { color: theme.colors.textMuted }]}>
-        Corredor México 15 / 15D · lo que la comunidad reportó cerca del camino
+        Elige de dónde sales y a dónde vas. Te contamos el tráfico y lo que vecinos
+        reportaron cerca del camino.
       </Text>
 
-      {userCoords ? (
-        <Pressable
-          style={styles.fromLocRow}
-          onPress={() => setFromMyLocation((v) => !v)}
-          accessibilityLabel="Calcular ruta desde mi ubicación"
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.chipsRow}
+      >
+        {TRIP_ROUTE_CHIPS.map((chip) => (
+          <Pressable
+            key={chip.id}
+            onPress={() => applyChip(chip)}
+            style={[styles.chip, { borderColor: theme.colors.border }]}
+          >
+            <Text style={[styles.chipText, { color: theme.colors.text }]}>{chip.label}</Text>
+          </Pressable>
+        ))}
+      </ScrollView>
+
+      {recent.length > 0 ? (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.chipsRow}
         >
-          <Ionicons
-            name={fromMyLocation ? "checkbox" : "square-outline"}
-            size={18}
-            color={theme.colors.accent}
-          />
-          <Text style={[styles.fromLocText, { color: theme.colors.text }]}>
-            Desde mi ubicación / colonia
-          </Text>
-        </Pressable>
+          {recent.map((t, i) => (
+            <Pressable
+              key={`${t.savedAt}-${i}`}
+              onPress={() => applyRecent(t)}
+              style={[styles.chip, styles.recentChip, { borderColor: theme.colors.border }]}
+            >
+              <Ionicons name="time-outline" size={12} color={theme.colors.textMuted} />
+              <Text style={[styles.chipText, { color: theme.colors.textMuted }]}>
+                {t.origin.name.split(",")[0]} → {t.destination.name.split(",")[0]}
+              </Text>
+            </Pressable>
+          ))}
+        </ScrollView>
       ) : null}
 
       <View style={styles.windowRow}>
@@ -217,7 +430,13 @@ export default function ViajeScreen() {
                 },
               ]}
             >
-              <Text style={{ color: on ? theme.colors.background : theme.colors.text, fontFamily: "SpaceGrotesk_500Medium", fontSize: 13 }}>
+              <Text
+                style={{
+                  color: on ? theme.colors.background : theme.colors.text,
+                  fontFamily: "SpaceGrotesk_500Medium",
+                  fontSize: 13,
+                }}
+              >
                 {w === "6h" ? "6 horas" : "24 horas"}
               </Text>
             </Pressable>
@@ -225,7 +444,15 @@ export default function ViajeScreen() {
         })}
       </View>
 
-      {loading || !summary ? (
+      {errorMsg ? (
+        <Text style={[styles.errorText, { color: theme.colors.textMuted }]}>{errorMsg}</Text>
+      ) : null}
+
+      {!origin || !destination ? (
+        <Text style={[styles.empty, { color: theme.colors.textMuted }]}>
+          Escribe origen y destino (mín. 3 letras) o elige un viaje frecuente.
+        </Text>
+      ) : loading || !summary ? (
         <View style={styles.loading}>
           <ActivityIndicator color={theme.colors.accent} />
         </View>
@@ -234,10 +461,15 @@ export default function ViajeScreen() {
           data={summary.pulses}
           keyExtractor={(item) => `${item.kind}-${item.id}`}
           contentContainerStyle={styles.listContent}
+          keyboardShouldPersistTaps="handled"
           ListHeaderComponent={
             <View style={styles.summaryCard}>
-              <Text style={[styles.headline, { color: theme.colors.text }]}>{summary.headline}</Text>
-              <Text style={[styles.blurb, { color: theme.colors.textMuted }]}>{summary.blurb}</Text>
+              <Text style={[styles.headline, { color: theme.colors.text }]}>
+                {summary.headline}
+              </Text>
+              <Text style={[styles.blurb, { color: theme.colors.textMuted }]}>
+                {summary.blurb}
+              </Text>
 
               {insights?.route?.travelTimeMinutes != null ? (
                 <View style={[styles.insightBox, { borderColor: theme.colors.border }]}>
@@ -318,7 +550,9 @@ export default function ViajeScreen() {
                       key={row.category}
                       style={[styles.countChip, { borderColor: theme.colors.border }]}
                     >
-                      <Text style={[styles.countNum, { color: theme.colors.text }]}>{row.count}</Text>
+                      <Text style={[styles.countNum, { color: theme.colors.text }]}>
+                        {row.count}
+                      </Text>
                       <Text style={[styles.countLabel, { color: theme.colors.textMuted }]}>
                         {row.label}
                       </Text>
@@ -333,15 +567,17 @@ export default function ViajeScreen() {
                 </View>
               ) : null}
               <View style={styles.ctaRow}>
-                <Pressable
-                  style={[styles.ctaPrimary, { backgroundColor: theme.colors.text }]}
-                  onPress={onShowMap}
-                >
-                  <Ionicons name="map-outline" size={18} color={theme.colors.background} />
-                  <Text style={[styles.ctaPrimaryText, { color: theme.colors.background }]}>
-                    Ver corredor en el mapa
-                  </Text>
-                </Pressable>
+                {canShowMap ? (
+                  <Pressable
+                    style={[styles.ctaPrimary, { backgroundColor: theme.colors.text }]}
+                    onPress={onShowMap}
+                  >
+                    <Ionicons name="map-outline" size={18} color={theme.colors.background} />
+                    <Text style={[styles.ctaPrimaryText, { color: theme.colors.background }]}>
+                      Ver corredor en el mapa
+                    </Text>
+                  </Pressable>
+                ) : null}
                 <Pressable
                   style={[styles.ctaSecondary, { borderColor: theme.colors.border }]}
                   onPress={() => void onShare()}
@@ -357,13 +593,80 @@ export default function ViajeScreen() {
           }
           ListEmptyComponent={
             <Text style={[styles.empty, { color: theme.colors.textMuted }]}>
-              No hay pulsos en esta ventana cerca del camino ni en {destination}.
+              No hay pulsos en esta ventana cerca del camino ni en {destLabel}.
             </Text>
           }
           renderItem={({ item }) => <PulseRow pulse={item} styles={styles} theme={theme} />}
         />
       )}
     </SafeAreaView>
+  );
+}
+
+function PlaceField({
+  label,
+  value,
+  onChangeText,
+  onFocus,
+  suggestions,
+  onPick,
+  theme,
+  styles,
+}: {
+  label: string;
+  value: string;
+  onChangeText: (t: string) => void;
+  onFocus: () => void;
+  suggestions: TripPlace[];
+  onPick: (p: TripPlace) => void;
+  theme: ReturnType<typeof useAlertyTheme>;
+  styles: ReturnType<typeof createStyles>;
+}) {
+  return (
+    <View style={styles.fieldWrap}>
+      <Text style={[styles.fieldLabel, { color: theme.colors.textMuted }]}>{label}</Text>
+      <TextInput
+        value={value}
+        onChangeText={onChangeText}
+        onFocus={onFocus}
+        placeholder={label === "Origen" ? "¿De dónde sales?" : "¿A dónde vas?"}
+        placeholderTextColor={theme.colors.textMuted}
+        style={[
+          styles.fieldInput,
+          {
+            color: theme.colors.text,
+            backgroundColor: theme.colors.surfaceAlt,
+            borderColor: theme.colors.border,
+          },
+        ]}
+        autoCorrect={false}
+        autoCapitalize="words"
+      />
+      {suggestions.length > 0 ? (
+        <View
+          style={[
+            styles.suggestBox,
+            { backgroundColor: theme.colors.surface, borderColor: theme.colors.border },
+          ]}
+        >
+          {suggestions.map((s, i) => (
+            <Pressable
+              key={`${s.lat}-${s.lng}-${i}`}
+              onPress={() => onPick(s)}
+              style={styles.suggestRow}
+            >
+              <Ionicons name="location-outline" size={14} color={theme.colors.textMuted} />
+              <Text
+                style={[styles.suggestText, { color: theme.colors.text }]}
+                numberOfLines={2}
+              >
+                {s.name}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
+    </View>
   );
 }
 
@@ -413,20 +716,21 @@ function PulseRow({
   const cat =
     CATEGORY_LABELS[pulse.category as keyof typeof CATEGORY_LABELS] ?? pulse.category;
   return (
-    <View style={[styles.pulseRow, { borderColor: theme.colors.border, backgroundColor: theme.colors.surface }]}>
+    <View
+      style={[
+        styles.pulseRow,
+        { borderColor: theme.colors.border, backgroundColor: theme.colors.surface },
+      ]}
+    >
       <View style={styles.pulseTop}>
         <Text style={[styles.pulseCat, { color: theme.colors.accent }]}>{cat}</Text>
         <Text style={[styles.pulseTime, { color: theme.colors.textMuted }]}>
           {formatRelativeTime(pulse.createdAt)}
         </Text>
       </View>
-      <Text style={[styles.pulseTitle, { color: theme.colors.text }]} numberOfLines={3}>
-        {pulse.title}
-      </Text>
+      <Text style={[styles.pulseTitle, { color: theme.colors.text }]}>{pulse.title}</Text>
       <Text style={[styles.pulsePlace, { color: theme.colors.textMuted }]}>
         {pulse.placeLabel}
-        {pulse.onCorridor ? " · cerca del camino" : ""}
-        {pulse.inDestination ? " · ciudad destino" : ""}
         {pulse.status === "resolved" ? " · ya se despejó" : ""}
       </Text>
     </View>
@@ -453,28 +757,48 @@ function createStyles(theme: ReturnType<typeof useAlertyTheme>) {
       alignItems: "center",
       justifyContent: "center",
     },
-    routeRow: {
+    inputsBlock: { paddingHorizontal: 16, gap: 6, zIndex: 2 },
+    fieldWrap: { gap: 4, zIndex: 3 },
+    fieldLabel: {
+      fontSize: 11,
+      fontFamily: "SpaceGrotesk_500Medium",
+      marginLeft: 4,
+    },
+    fieldInput: {
+      borderWidth: 1,
+      borderRadius: 12,
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+      fontSize: 15,
+      fontFamily: "SpaceGrotesk_500Medium",
+    },
+    suggestBox: {
+      borderWidth: 1,
+      borderRadius: 12,
+      marginTop: 4,
+      overflow: "hidden",
+    },
+    suggestRow: {
       flexDirection: "row",
       alignItems: "center",
       gap: 8,
-      paddingHorizontal: 16,
-      marginTop: 4,
-    },
-    cityChip: {
-      flex: 1,
-      borderRadius: 14,
       paddingHorizontal: 12,
       paddingVertical: 10,
     },
-    cityChipLabel: {
-      fontSize: 11,
-      fontFamily: "SpaceGrotesk_500Medium",
-      marginBottom: 2,
+    suggestText: {
+      flex: 1,
+      fontSize: 13,
+      fontFamily: "SpaceGrotesk_400Regular",
+      lineHeight: 18,
     },
-    cityChipValue: {
-      fontSize: 16,
-      fontFamily: "SpaceGrotesk_700Bold",
+    midRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      paddingHorizontal: 4,
     },
+    myLocBtn: { flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 4 },
+    myLocText: { fontSize: 13, fontFamily: "SpaceGrotesk_500Medium" },
     swapBtn: {
       width: 40,
       height: 40,
@@ -489,16 +813,27 @@ function createStyles(theme: ReturnType<typeof useAlertyTheme>) {
       fontFamily: "SpaceGrotesk_400Regular",
       lineHeight: 18,
     },
-    fromLocRow: {
+    chipsRow: {
+      paddingHorizontal: 16,
+      paddingTop: 10,
+      gap: 8,
       flexDirection: "row",
       alignItems: "center",
-      gap: 8,
-      paddingHorizontal: 18,
-      marginTop: 10,
     },
-    fromLocText: {
+    chip: {
+      borderWidth: 1,
+      borderRadius: 999,
+      paddingHorizontal: 12,
+      paddingVertical: 7,
+    },
+    recentChip: { flexDirection: "row", alignItems: "center", gap: 4 },
+    chipText: { fontSize: 12, fontFamily: "SpaceGrotesk_500Medium" },
+    errorText: {
+      paddingHorizontal: 18,
+      marginTop: 6,
       fontSize: 13,
-      fontFamily: "SpaceGrotesk_500Medium",
+      fontFamily: "SpaceGrotesk_400Regular",
+      lineHeight: 18,
     },
     insightBox: {
       borderWidth: 1,
@@ -586,7 +921,12 @@ function createStyles(theme: ReturnType<typeof useAlertyTheme>) {
       borderColor: "rgba(31,157,110,0.35)",
     },
     clearedNum: { fontSize: 16, fontFamily: "SpaceGrotesk_700Bold", color: "#1F9D6E" },
-    clearedLabel: { fontSize: 11, fontFamily: "SpaceGrotesk_500Medium", color: "#1F9D6E", marginTop: 2 },
+    clearedLabel: {
+      fontSize: 11,
+      fontFamily: "SpaceGrotesk_500Medium",
+      color: "#1F9D6E",
+      marginTop: 2,
+    },
     ctaRow: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 8 },
     ctaPrimary: {
       flexDirection: "row",

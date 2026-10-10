@@ -698,17 +698,50 @@ export function travelPresets(direction: string): {
     : { origin: cul, destination: mzt };
 }
 
+/**
+ * Endpoints de viaje.
+ * - Con origin+destination en México y ≤1500 km: se usan tal cual.
+ * - Sin coords / inválidos: cae al preset del corredor (compat chips CUL↔MZT).
+ */
 export function resolveTravelEndpoints(opts: {
   direction: string;
   origin?: { lat: number; lng: number } | null;
   destination?: { lat: number; lng: number } | null;
+  /** Si true, exige México (no solo corredor). Default true cuando hay ambas coords. */
+  mexicoWide?: boolean;
 }): {
   origin: { lat: number; lng: number };
   destination: { lat: number; lng: number };
   originClamped: boolean;
   destinationClamped: boolean;
+  error?: string;
+  distanceKm?: number;
 } {
   const presets = travelPresets(opts.direction);
+  const hasBoth = Boolean(opts.origin && opts.destination);
+  const mexicoWide = opts.mexicoWide ?? hasBoth;
+
+  if (mexicoWide && opts.origin && opts.destination) {
+    const v = validateTripEndpoints(opts.origin, opts.destination);
+    if (!v.ok) {
+      return {
+        origin: presets.origin,
+        destination: presets.destination,
+        originClamped: true,
+        destinationClamped: true,
+        error: v.error,
+        distanceKm: v.distanceKm,
+      };
+    }
+    return {
+      origin: opts.origin,
+      destination: opts.destination,
+      originClamped: false,
+      destinationClamped: false,
+      distanceKm: v.distanceKm,
+    };
+  }
+
   const originOk = opts.origin && isAllowedTravelPoint(opts.origin);
   const destOk = opts.destination && isAllowedTravelPoint(opts.destination);
   return {
@@ -717,6 +750,379 @@ export function resolveTravelEndpoints(opts: {
     originClamped: Boolean(opts.origin) && !originOk,
     destinationClamped: Boolean(opts.destination) && !destOk,
   };
+}
+
+/**
+ * Contornos simplificados (WGS84): continental + península de Baja.
+ * Excluye El Paso, San Diego y Guatemala City.
+ */
+export const MEXICO_MAINLAND_POLYGON: ReadonlyArray<{ lat: number; lng: number }> = [
+  { lat: 32.50, lng: -114.80 },
+  { lat: 31.80, lng: -113.00 },
+  { lat: 31.33, lng: -109.05 },
+  { lat: 31.72, lng: -108.20 }, // S de El Paso
+  { lat: 31.72, lng: -106.40 },
+  { lat: 29.90, lng: -104.60 },
+  { lat: 28.00, lng: -102.00 },
+  { lat: 26.40, lng: -99.10 },
+  { lat: 25.85, lng: -97.35 },
+  { lat: 22.20, lng: -97.80 },
+  { lat: 19.00, lng: -96.00 },
+  { lat: 18.20, lng: -94.40 },
+  { lat: 18.50, lng: -92.50 },
+  { lat: 18.60, lng: -90.50 },
+  { lat: 19.50, lng: -87.80 },
+  { lat: 20.40, lng: -87.00 },
+  { lat: 21.30, lng: -86.70 }, // E de Cancún
+  { lat: 21.60, lng: -87.50 },
+  { lat: 21.50, lng: -89.00 }, // N de Mérida
+  { lat: 21.20, lng: -90.20 },
+  { lat: 19.80, lng: -90.60 },
+  { lat: 18.20, lng: -91.00 },
+  { lat: 17.20, lng: -91.20 }, // N de Guatemala City
+  { lat: 16.20, lng: -91.70 },
+  { lat: 15.00, lng: -92.20 },
+  { lat: 14.53, lng: -92.28 }, // Tapachula
+  { lat: 15.80, lng: -96.20 },
+  { lat: 16.80, lng: -99.90 },
+  { lat: 18.00, lng: -102.80 },
+  { lat: 20.80, lng: -105.40 },
+  { lat: 23.50, lng: -106.60 },
+  { lat: 25.80, lng: -109.20 },
+  { lat: 29.00, lng: -112.50 },
+  { lat: 31.50, lng: -114.70 },
+  { lat: 32.50, lng: -114.80 },
+];
+
+export const MEXICO_BAJA_POLYGON: ReadonlyArray<{ lat: number; lng: number }> = [
+  { lat: 32.55, lng: -117.15 }, // Tijuana (S de San Diego 32.72)
+  { lat: 32.50, lng: -116.00 },
+  { lat: 32.40, lng: -114.85 },
+  { lat: 30.50, lng: -114.60 },
+  { lat: 28.00, lng: -113.80 },
+  { lat: 26.00, lng: -112.00 },
+  { lat: 24.00, lng: -110.80 },
+  { lat: 22.85, lng: -109.85 }, // Cabo
+  { lat: 23.80, lng: -110.50 },
+  { lat: 26.00, lng: -112.30 },
+  { lat: 28.50, lng: -114.60 },
+  { lat: 30.50, lng: -116.00 },
+  { lat: 32.00, lng: -116.90 },
+  { lat: 32.55, lng: -117.15 },
+];
+
+/** Unión de contornos (compat tests / docs). */
+export const MEXICO_POLYGON = MEXICO_MAINLAND_POLYGON;
+
+/** Prefiltro bbox barato antes del polígono. */
+export const MEXICO_BOUNDS = {
+  minLat: 14.4,
+  maxLat: 32.75,
+  minLng: -117.3,
+  maxLng: -86.7,
+} as const;
+
+export const MAX_TRIP_LENGTH_KM = 1500;
+/** Rejilla ~1.1 km (2 decimales) para cache de ruta/POI. */
+export const TRIP_COORD_GRID_DECIMALS = 2;
+export const ROUTE_CACHE_TTL_SEC = 10 * 60;
+export const TRIP_POI_CACHE_TTL_SEC = 6 * 3600;
+/** Espaciado de muestras POI/flow a lo largo de la polilínea (40–60 km). */
+export const POI_SAMPLE_SPACING_KM = 50;
+/** Preset MEX-15D: más muestras. */
+export const POI_MAX_SAMPLES = 6;
+export const FLOW_MAX_SAMPLES = 6;
+/** Viajes libres: cupo bajo. */
+export const NON_PRESET_POI_SAMPLES = 4;
+export const NON_PRESET_FLOW_SAMPLES = 4;
+export const NON_PRESET_POI_KINDS: TomtomPoiKind[] = [
+  "gas_station",
+  "hospital",
+  "toll",
+];
+/** Incluir EV en no-preset solo si el gasto diario va holgado. */
+export const EV_BUDGET_SOFT_CAP = 1200;
+/** Tope diario non-tile para POI/flow de viajes no-preset. */
+export const TOMTOM_DAILY_NON_PRESET_CAP = 1800;
+export const PULSE_ROUTE_BUFFER_KM = 2;
+export const PLACES_QUERY_MAX_LEN = 64;
+
+export const TOMTOM_PLACES_RATE = {
+  windowSeconds: 5 * 60,
+  maxPerIp: 40,
+  maxPerUser: 60,
+} as const;
+
+export type TripPlace = {
+  name: string;
+  lat: number;
+  lng: number;
+  municipality?: string | null;
+};
+
+/** Chips rápidos Sinaloa / oeste (coords centro ciudad). */
+export const TRIP_ROUTE_CHIPS = [
+  {
+    id: "culiacan_mazatlan",
+    label: "Culiacán – Mazatlán",
+    origin: { name: "Culiacán", lat: 24.8091, lng: -107.394 },
+    destination: { name: "Mazatlán", lat: 23.2494, lng: -106.4111 },
+    knownCorridor: "mex15d" as const,
+  },
+  {
+    id: "culiacan_los_mochis",
+    label: "Culiacán – Los Mochis",
+    origin: { name: "Culiacán", lat: 24.8091, lng: -107.394 },
+    destination: { name: "Los Mochis", lat: 25.7903, lng: -108.9859 },
+    knownCorridor: null,
+  },
+  {
+    id: "mazatlan_tepic",
+    label: "Mazatlán – Tepic",
+    origin: { name: "Mazatlán", lat: 23.2494, lng: -106.4111 },
+    destination: { name: "Tepic", lat: 21.5041, lng: -104.8946 },
+    knownCorridor: null,
+  },
+  {
+    id: "culiacan_guadalajara",
+    label: "Culiacán – Guadalajara",
+    origin: { name: "Culiacán", lat: 24.8091, lng: -107.394 },
+    destination: { name: "Guadalajara", lat: 20.6597, lng: -103.3496 },
+    knownCorridor: null,
+  },
+] as const;
+
+/** Ray casting (lng = x, lat = y). Omite aristas horizontales. */
+export function pointInPolygon(
+  lat: number,
+  lng: number,
+  polygon: ReadonlyArray<{ lat: number; lng: number }>,
+): boolean {
+  if (polygon.length < 3) return false;
+  let inside = false;
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const yi = polygon[i]!.lat;
+    const xi = polygon[i]!.lng;
+    const yj = polygon[j]!.lat;
+    const xj = polygon[j]!.lng;
+    if (yi === yj) continue;
+    const intersect =
+      (yi > lat) !== (yj > lat) &&
+      lng < ((xj - xi) * (lat - yi)) / (yj - yi) + xi;
+    if (intersect) inside = !inside;
+  }
+  return inside;
+}
+
+export function isInMexico(lat: number, lng: number): boolean {
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
+  if (
+    lat < MEXICO_BOUNDS.minLat ||
+    lat > MEXICO_BOUNDS.maxLat ||
+    lng < MEXICO_BOUNDS.minLng ||
+    lng > MEXICO_BOUNDS.maxLng
+  ) {
+    return false;
+  }
+  return (
+    pointInPolygon(lat, lng, MEXICO_MAINLAND_POLYGON) ||
+    pointInPolygon(lat, lng, MEXICO_BAJA_POLYGON)
+  );
+}
+
+/** Modo viaje: nunca incluir operativo (ni con delay). */
+export function isTravelCommunityRowAllowed(row: {
+  category_guess?: string | null;
+  category?: string | null;
+}): boolean {
+  const cat = String(row.category_guess ?? row.category ?? "").toLowerCase();
+  return cat !== "operativo";
+}
+
+export function dailyTomtomBudgetKey(dayIso = new Date().toISOString().slice(0, 10)): string {
+  return `budget:tomtom:non_preset:${dayIso}`;
+}
+
+export function tripPoiKindsForBudget(opts: {
+  preset: boolean;
+  dailyCount: number;
+}): TomtomPoiKind[] {
+  if (opts.preset) {
+    return Object.keys(TOMTOM_POI_CATEGORIES) as TomtomPoiKind[];
+  }
+  const kinds = [...NON_PRESET_POI_KINDS];
+  if (opts.dailyCount < EV_BUDGET_SOFT_CAP) {
+    kinds.push("ev_charging");
+  }
+  return kinds;
+}
+
+export function roundCoordGrid(
+  value: number,
+  decimals = TRIP_COORD_GRID_DECIMALS,
+): number {
+  const f = 10 ** decimals;
+  return Math.round(value * f) / f;
+}
+
+export function tripCacheKey(
+  kind: "route" | "poi" | "flow",
+  origin: { lat: number; lng: number },
+  destination: { lat: number; lng: number },
+): string {
+  const o = `${roundCoordGrid(origin.lat)},${roundCoordGrid(origin.lng)}`;
+  const d = `${roundCoordGrid(destination.lat)},${roundCoordGrid(destination.lng)}`;
+  return `${kind}:trip:v1:${o}:${d}`;
+}
+
+export function validateTripEndpoints(
+  origin: { lat: number; lng: number },
+  destination: { lat: number; lng: number },
+): { ok: true; distanceKm: number } | { ok: false; error: string; distanceKm?: number } {
+  if (!isInMexico(origin.lat, origin.lng) || !isInMexico(destination.lat, destination.lng)) {
+    return { ok: false, error: "outside_mexico" };
+  }
+  const distanceKm = haversineKm(origin.lat, origin.lng, destination.lat, destination.lng);
+  if (distanceKm > MAX_TRIP_LENGTH_KM) {
+    return { ok: false, error: "too_far", distanceKm };
+  }
+  if (distanceKm < 0.3) {
+    return { ok: false, error: "too_short", distanceKm };
+  }
+  return { ok: true, distanceKm };
+}
+
+/** ¿Parece el corredor Culiacán↔Mazatlán? (para casetas curadas). */
+export function isKnownMex15dTrip(
+  origin: { lat: number; lng: number },
+  destination: { lat: number; lng: number },
+): boolean {
+  const cul = { lat: 24.8091, lng: -107.394 };
+  const mzt = { lat: 23.2494, lng: -106.4111 };
+  const near = (a: { lat: number; lng: number }, b: { lat: number; lng: number }) =>
+    haversineKm(a.lat, a.lng, b.lat, b.lng) <= 25;
+  return (
+    (near(origin, cul) && near(destination, mzt)) ||
+    (near(origin, mzt) && near(destination, cul))
+  );
+}
+
+/**
+ * Muestrea puntos a lo largo de una polilínea (~spacingKm, máx maxSamples).
+ * Siempre incluye inicio y fin.
+ */
+export function sampleAlongPolyline(
+  points: ReadonlyArray<{ lat: number; lng: number }>,
+  spacingKm = POI_SAMPLE_SPACING_KM,
+  maxSamples = POI_MAX_SAMPLES,
+): Array<{ lat: number; lng: number; distKm: number }> {
+  if (points.length === 0) return [];
+  if (points.length === 1) {
+    return [{ lat: points[0].lat, lng: points[0].lng, distKm: 0 }];
+  }
+  const out: Array<{ lat: number; lng: number; distKm: number }> = [];
+  let traveled = 0;
+  let nextAt = 0;
+  out.push({ lat: points[0].lat, lng: points[0].lng, distKm: 0 });
+  nextAt = spacingKm;
+  for (let i = 1; i < points.length; i++) {
+    const prev = points[i - 1]!;
+    const cur = points[i]!;
+    const seg = haversineKm(prev.lat, prev.lng, cur.lat, cur.lng);
+    const segStart = traveled;
+    traveled += seg;
+    while (nextAt <= traveled + 1e-9 && out.length < maxSamples - 1) {
+      const t = seg > 0 ? (nextAt - segStart) / seg : 0;
+      const lat = prev.lat + (cur.lat - prev.lat) * Math.min(1, Math.max(0, t));
+      const lng = prev.lng + (cur.lng - prev.lng) * Math.min(1, Math.max(0, t));
+      out.push({ lat, lng, distKm: Math.round(nextAt * 10) / 10 });
+      nextAt += spacingKm;
+    }
+  }
+  const last = points[points.length - 1]!;
+  if (
+    out.length < maxSamples &&
+    (out[out.length - 1]!.lat !== last.lat || out[out.length - 1]!.lng !== last.lng)
+  ) {
+    out.push({ lat: last.lat, lng: last.lng, distKm: Math.round(traveled * 10) / 10 });
+  }
+  return out.slice(0, maxSamples);
+}
+
+/** Distancia mínima a una polilínea (km). */
+export function minKmToPolyline(
+  lat: number,
+  lng: number,
+  line: ReadonlyArray<{ lat: number; lng: number }>,
+): number {
+  if (line.length === 0) return Infinity;
+  if (line.length === 1) return haversineKm(lat, lng, line[0].lat, line[0].lng);
+  let best = Infinity;
+  for (let i = 0; i < line.length - 1; i++) {
+    const a = line[i]!;
+    const b = line[i + 1]!;
+    // Aprox: distancia a extremos + punto medio (suficiente para buffer 2 km)
+    const d = Math.min(
+      haversineKm(lat, lng, a.lat, a.lng),
+      haversineKm(lat, lng, b.lat, b.lng),
+      haversineKm(lat, lng, (a.lat + b.lat) / 2, (a.lng + b.lng) / 2),
+    );
+    if (d < best) best = d;
+  }
+  return best;
+}
+
+export function parseFuzzySearch(data: unknown): TripPlace[] {
+  if (!data || typeof data !== "object") return [];
+  const results = (data as {
+    results?: Array<{
+      type?: string;
+      address?: {
+        freeformAddress?: string;
+        municipality?: string;
+        countryCode?: string;
+      };
+      position?: { lat?: number; lon?: number };
+      poi?: { name?: string };
+    }>;
+  }).results;
+  if (!Array.isArray(results)) return [];
+  const out: TripPlace[] = [];
+  for (const r of results) {
+    const lat = r.position?.lat;
+    const lng = r.position?.lon;
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
+    if (!isInMexico(lat!, lng!)) continue;
+    const name =
+      r.poi?.name ||
+      r.address?.freeformAddress ||
+      r.address?.municipality ||
+      "Lugar";
+    out.push({
+      name: String(name).slice(0, 120),
+      lat: lat!,
+      lng: lng!,
+      municipality: r.address?.municipality ?? null,
+    });
+    if (out.length >= 6) break;
+  }
+  return out;
+}
+
+/** Recorta a 64 chars antes de cachear / buscar. */
+export function normalizePlacesQuery(query: string): string {
+  return String(query || "").trim().slice(0, PLACES_QUERY_MAX_LEN);
+}
+
+export function placesCacheKey(query: string): string {
+  const q = normalizePlacesQuery(query)
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .trim()
+    .replace(/\s+/g, "_");
+  return `places:mx:v1:${q}`;
 }
 
 /** iconCategory TomTom → categoría Pulso + copy calmado. */
@@ -812,12 +1218,23 @@ export const TOMTOM_TRAVEL_RATE = {
   maxPerUser: 20,
 } as const;
 
+/**
+ * IP confiable para rate limit: header de plataforma, o el último hop de
+ * x-forwarded-for (el que añade el edge / proxy de confianza).
+ */
 export function clientIpFromHeaders(headers: Headers): string {
-  const xf = headers.get("x-forwarded-for") || headers.get("x-real-ip") || "";
-  const first = xf.split(",")[0]?.trim();
-  if (first) return first.slice(0, 64);
   const cf = headers.get("cf-connecting-ip")?.trim();
   if (cf) return cf.slice(0, 64);
+  const real = headers.get("x-real-ip")?.trim();
+  if (real) return real.slice(0, 64);
+  const vercel = headers.get("x-vercel-forwarded-for")?.trim();
+  if (vercel) {
+    const parts = vercel.split(",").map((s) => s.trim()).filter(Boolean);
+    if (parts.length) return parts[parts.length - 1]!.slice(0, 64);
+  }
+  const xf = headers.get("x-forwarded-for") || "";
+  const hops = xf.split(",").map((s) => s.trim()).filter(Boolean);
+  if (hops.length) return hops[hops.length - 1]!.slice(0, 64);
   return "unknown";
 }
 
@@ -893,12 +1310,35 @@ export type ParsedRoute = {
   travelTimeMinutes: number;
   trafficDelayMinutes: number;
   lengthKm: number;
+  points: Array<{ lat: number; lng: number }>;
   alternates: Array<{
     summary: string;
     travelTimeMinutes: number;
     trafficDelayMinutes: number;
   }>;
 };
+
+export function extractRoutePoints(data: unknown): Array<{ lat: number; lng: number }> {
+  if (!data || typeof data !== "object") return [];
+  const routes = (data as {
+    routes?: Array<{
+      legs?: Array<{
+        points?: Array<{ latitude?: number; longitude?: number }>;
+      }>;
+    }>;
+  }).routes;
+  const legs = routes?.[0]?.legs;
+  if (!Array.isArray(legs)) return [];
+  const out: Array<{ lat: number; lng: number }> = [];
+  for (const leg of legs) {
+    for (const p of leg.points ?? []) {
+      const lat = Number(p.latitude);
+      const lng = Number(p.longitude);
+      if (Number.isFinite(lat) && Number.isFinite(lng)) out.push({ lat, lng });
+    }
+  }
+  return out;
+}
 
 export function parseCalculateRoute(data: unknown): ParsedRoute | null {
   if (!data || typeof data !== "object") return null;
@@ -918,6 +1358,7 @@ export function parseCalculateRoute(data: unknown): ParsedRoute | null {
     travelTimeMinutes: Math.round((primary.travelTimeInSeconds || 0) / 60),
     trafficDelayMinutes: Math.round((primary.trafficDelayInSeconds || 0) / 60),
     lengthKm: Math.round(((primary.lengthInMeters || 0) / 1000) * 10) / 10,
+    points: extractRoutePoints(data),
     alternates: routes.slice(1).map((r) => ({
       summary: "Alterna",
       travelTimeMinutes: Math.round((r.summary?.travelTimeInSeconds || 0) / 60),

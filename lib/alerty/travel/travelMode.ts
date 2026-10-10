@@ -42,9 +42,9 @@ export type TravelPulse = {
 };
 
 export type TravelSummary = {
-  direction: TravelDirection;
-  originSlug: CitySlug;
-  destinationSlug: CitySlug;
+  direction: TravelDirection | "custom";
+  originSlug?: CitySlug;
+  destinationSlug?: CitySlug;
   originName: string;
   destinationName: string;
   window: TravelWindow;
@@ -299,19 +299,17 @@ export function collectTravelPulses(opts: {
 
   for (const alert of opts.alerts) {
     if (alert.parentAlertId) continue;
+    // Modo viaje: nunca operativo (ni con delay).
+    if (isOperativoCategory(alert.category)) continue;
     if (alert.status !== "active" && alert.status !== "resolved") continue;
-    if (!isAlertInWindow(alert, opts.window) && !isOperativoCategory(alert.category)) {
-      continue;
-    }
-    if (isOperativoCategory(alert.category) && !isAlertInWindow(alert, opts.window)) {
-      continue;
-    }
+    if (!isAlertInWindow(alert, opts.window)) continue;
     const pulse = alertToPulse(alert, opts.bundle, destinationSlug);
     if (pulse) out.push(pulse);
   }
 
   for (const post of opts.communityPosts) {
     if (!isCommunityInWindow(post, opts.window)) continue;
+    if (isOperativoCategory(post.categoryGuess)) continue;
     const pulse = communityToPulse(post, opts.bundle, destinationSlug);
     if (pulse) out.push(pulse);
   }
@@ -323,13 +321,26 @@ export function collectTravelPulses(opts: {
 }
 
 export function buildTravelSummary(opts: {
-  direction: TravelDirection;
+  direction?: TravelDirection | "custom";
+  originName?: string;
+  destinationName?: string;
   window: TravelWindow;
   pulses: TravelPulse[];
 }): TravelSummary {
-  const { originSlug, destinationSlug } = directionEndpoints(opts.direction);
-  const originName = CITIES[originSlug].name;
-  const destinationName = CITIES[destinationSlug].name;
+  const direction = opts.direction ?? "custom";
+  let originSlug: CitySlug | undefined;
+  let destinationSlug: CitySlug | undefined;
+  let originName = opts.originName;
+  let destinationName = opts.destinationName;
+  if (direction !== "custom") {
+    const ends = directionEndpoints(direction);
+    originSlug = ends.originSlug;
+    destinationSlug = ends.destinationSlug;
+    originName = originName || CITIES[originSlug].name;
+    destinationName = destinationName || CITIES[destinationSlug].name;
+  }
+  originName = originName || "Origen";
+  destinationName = destinationName || "Destino";
   const windowLabel = opts.window === "6h" ? "últimas 6 horas" : "últimas 24 horas";
 
   const counts = new Map<string, number>();
@@ -357,7 +368,7 @@ export function buildTravelSummary(opts: {
   if (total === 0) {
     headline = `Sin avisos recientes hacia ${destinationName}`;
     blurb =
-      "Lo que la comunidad reportó cerca del camino aparece aquí. No prometemos una ruta segura: solo lo que vecinos y medios han compartido.";
+      "Lo que vecinos y medios reportaron cerca del camino aparece aquí. No prometemos una ruta segura: solo lo compartido.";
   } else {
     const parts: string[] = [];
     if (corridorCount > 0) {
@@ -366,9 +377,7 @@ export function buildTravelSummary(opts: {
       );
     }
     if (destinationCount > 0) {
-      parts.push(
-        `${destinationCount} en ${destinationName}`,
-      );
+      parts.push(`${destinationCount} en ${destinationName}`);
     }
     headline =
       parts.length > 0
@@ -381,7 +390,7 @@ export function buildTravelSummary(opts: {
   }
 
   return {
-    direction: opts.direction,
+    direction,
     originSlug,
     destinationSlug,
     originName,
@@ -397,6 +406,69 @@ export function buildTravelSummary(opts: {
     headline,
     blurb,
   };
+}
+
+/** Filtra pulsos locales por polilínea de ruta (~2 km). */
+export function collectPulsesNearPolyline(opts: {
+  alerts: AlertItem[];
+  communityPosts: CommunityPost[];
+  window: TravelWindow;
+  polyline: LatLng[];
+  destinationName: string;
+}): TravelPulse[] {
+  const bundle = opts.polyline;
+  if (bundle.length < 2) return [];
+  const out: TravelPulse[] = [];
+
+  for (const alert of opts.alerts) {
+    if (alert.parentAlertId) continue;
+    if (isOperativoCategory(alert.category)) continue;
+    if (alert.status !== "active" && alert.status !== "resolved") continue;
+    if (!isAlertInWindow(alert, opts.window)) continue;
+    const hasGeo = Number.isFinite(alert.lat) && Number.isFinite(alert.lng);
+    if (!hasGeo) continue;
+    if (!isNearCorridor(alert.lat, alert.lng, bundle)) continue;
+    out.push({
+      id: alert.id,
+      kind: "alert",
+      category: alert.category,
+      title: alert.title || CATEGORY_LABELS[alert.category] || "Aviso",
+      placeLabel: alert.neighborhood || opts.destinationName,
+      createdAt: alert.createdAt,
+      status: alert.status,
+      lat: alert.lat,
+      lng: alert.lng,
+      onCorridor: true,
+      inDestination: false,
+    });
+  }
+
+  for (const post of opts.communityPosts) {
+    if (!isCommunityInWindow(post, opts.window)) continue;
+    const cat = post.categoryGuess || "otro";
+    if (isOperativoCategory(cat)) continue;
+    const hasGeo = typeof post.lat === "number" && typeof post.lng === "number";
+    if (!hasGeo) continue;
+    if (!isNearCorridor(post.lat!, post.lng!, bundle)) continue;
+    out.push({
+      id: post.id,
+      kind: "community",
+      category: cat,
+      title: post.text.slice(0, 120),
+      placeLabel: post.placeLabel || opts.destinationName,
+      createdAt: post.createdAt,
+      status: post.status === "resolved" ? "resolved" : "active",
+      lat: post.lat,
+      lng: post.lng,
+      onCorridor: true,
+      inDestination: false,
+    });
+  }
+
+  out.sort(
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+  );
+  return out;
 }
 
 export function travelShareMessage(summary: TravelSummary): string {

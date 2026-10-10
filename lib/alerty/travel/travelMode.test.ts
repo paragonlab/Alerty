@@ -140,9 +140,10 @@ async function run() {
   assert(pulses.some((p) => p.id === "a1"), "incluye bloqueo corredor");
   assert(pulses.some((p) => p.id === "a2"), "incluye destino");
   assert(pulses.some((p) => p.id === "c1"), "incluye community");
-  assert(!pulses.some((p) => p.id === "a-op"), "operativo <2h fuera");
+  assert(!pulses.some((p) => p.id === "a-op"), "operativo fresco fuera");
   assert(!pulses.some((p) => p.id === "a-far"), "fuera del buffer fuera");
 
+  // Modo viaje: operativo nunca, aunque ya tenga delay de 2 h.
   const opReady = collectTravelPulses({
     alerts: [
       baseAlert({
@@ -159,10 +160,7 @@ async function run() {
     window: "24h",
     bundle: corridor.bundle,
   });
-  const op = opReady.find((p) => p.id === "a-op2");
-  assert(op, "operativo listo tras delay");
-  assert(op!.lat === null && op!.lng === null, "operativo sin coords");
-  assert(op!.placeLabel.includes("Tramo") || op!.placeLabel.includes("Mazatlán"), "lugar amplio");
+  assert(!opReady.some((p) => p.id === "a-op2"), "operativo excluido del viaje");
 
   const summary = buildTravelSummary({
     direction: "culiacan_to_mazatlan",
