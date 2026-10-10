@@ -200,7 +200,9 @@ Deno.serve(async (req) => {
   // o en segundo plano deja la alerta guardada y a nadie avisado — justo cuando
   // más importa. El secreto vive en Vault y nunca sale del servidor.
   const hookSecret = Deno.env.get("NOTIFY_HOOK_SECRET");
-  const fromServer = Boolean(hookSecret) && req.headers.get("x-pulso-hook") === hookSecret;
+  const fromHook = Boolean(hookSecret) && req.headers.get("x-pulso-hook") === hookSecret;
+  const fromServiceRole = authHeader === `Bearer ${serviceKey}`;
+  const fromServer = fromHook || fromServiceRole;
 
   if (!fromServer) {
     const userClient = createClient(
@@ -215,7 +217,22 @@ Deno.serve(async (req) => {
   // Service role para leer destinatarios saltando RLS
   const admin = createClient(Deno.env.get("SUPABASE_URL")!, serviceKey);
 
-  let body: { type?: string; alertId?: string; updateId?: string; confirmations?: number };
+  let body: {
+    type?: string;
+    alertId?: string;
+    updateId?: string;
+    confirmations?: number;
+    postId?: string;
+    externalId?: string;
+    lat?: number;
+    lng?: number;
+    cityId?: string;
+    category?: string;
+    title?: string;
+    placeLabel?: string;
+    digestCount?: number;
+    restrictToUserIds?: string[];
+  };
   try {
     body = await req.json();
   } catch {
@@ -457,6 +474,92 @@ Deno.serve(async (req) => {
         priority: "high",
         channelId: "default",
         data: { alertId: alert.id, cleared: true },
+      });
+    }
+  } else if (body.type === "tomtom_incident") {
+    // Aviso suave a Círculo (watchedZones) cuando un incidente TomTom cae cerca.
+    // Geocerca en DB (haversine) — TomTom Geofencing no aporta sobre nuestras zonas.
+    // Anti-spam: 1 push por (user, external_id); sync agrupa (digestCount / restrictToUserIds).
+    if (!fromServer) return json({ error: "Forbidden" }, 403);
+
+    const lat = Number(body.lat);
+    const lng = Number(body.lng);
+    const cityId = body.cityId || null;
+    const externalId = body.externalId || "";
+    const digestCount = Math.max(1, Number(body.digestCount) || 1);
+    const restrictTo = Array.isArray(body.restrictToUserIds)
+      ? (body.restrictToUserIds as unknown[]).filter((id): id is string => typeof id === "string")
+      : null;
+    if (!cityId || !externalId || !Number.isFinite(lat) || !Number.isFinite(lng)) {
+      return json({ sent: 0, skipped: "bad_tomtom_payload" });
+    }
+
+    const { data: zones } = await admin
+      .from("watched_zones")
+      .select("user_id,label,lat,lng,city_id")
+      .eq("city_id", cityId);
+
+    const nearByUser = new Map<string, string>();
+    for (const zone of filterZonesByAlertCity(zones ?? [], cityId)) {
+      if (restrictTo && !restrictTo.includes(zone.user_id)) continue;
+      const km = haversineKm(lat, lng, Number(zone.lat), Number(zone.lng));
+      if (km <= CIRCULO_RADIUS_KM && !nearByUser.has(zone.user_id)) {
+        nearByUser.set(zone.user_id, zone.label);
+      }
+    }
+    if (nearByUser.size === 0) return json({ sent: 0, skipped: "no_nearby_zones" });
+
+    // Filtrar ya notificados (anti-spam).
+    const { data: already } = await admin
+      .from("tomtom_zone_notify_log")
+      .select("user_id")
+      .eq("external_id", externalId)
+      .in("user_id", [...nearByUser.keys()]);
+
+    const alreadySet = new Set((already ?? []).map((r) => r.user_id as string));
+    const recipients = [...nearByUser.keys()].filter((id) => !alreadySet.has(id));
+    if (recipients.length === 0) return json({ sent: 0, skipped: "already_notified" });
+
+    const { data: rows } = await admin
+      .from("push_tokens")
+      .select("token, user_id, users!inner(push_enabled, city_id)")
+      .in("user_id", recipients)
+      .eq("users.push_enabled", true)
+      .eq("users.city_id", cityId);
+
+    const scoped = filterTokensByAlertCity(rows ?? [], cityId);
+    const label = CATEGORY_LABELS[body.category ?? ""] ?? "Circulación";
+    const place = body.placeLabel || "tu zona";
+    for (const row of scoped) {
+      const userId = (row as { user_id: string }).user_id;
+      const zoneLabel = nearByUser.get(userId) || place;
+      const title =
+        digestCount > 1
+          ? `Circulación cerca de ${zoneLabel}`
+          : `${label} cerca de ${zoneLabel}`;
+      const text =
+        digestCount > 1
+          ? `Hay ${digestCount} avisos de circulación cerca de tu zona vigilada. Ábrelos con calma.`
+          : "Hay un aviso de circulación cerca de tu zona vigilada. Ábrelo con calma.";
+      messages.push({
+        to: (row as { token: string }).token,
+        title,
+        body: text,
+        sound: "default",
+        priority: "high",
+        channelId: "default",
+        data: { postId: body.postId, tomtom: true, digestCount },
+      });
+    }
+
+    if (messages.length > 0) {
+      const logRows = recipients.map((user_id) => ({
+        user_id,
+        external_id: externalId,
+        city_id: cityId,
+      }));
+      await admin.from("tomtom_zone_notify_log").upsert(logRows, {
+        onConflict: "user_id,external_id",
       });
     }
   } else if (body.type === "impact" && body.alertId) {

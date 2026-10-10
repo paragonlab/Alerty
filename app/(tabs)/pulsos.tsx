@@ -35,6 +35,7 @@ import {
 } from "../../lib/alerty/utils";
 import { isAboutCuliacan, isCommunityVideo } from "../../lib/alerty/communityLabel";
 import { isOperativoCategory } from "../../lib/alerty/operativoPolicy";
+import { isTravelModeEnabled } from "../../lib/alerty/travel/travelMode";
 import type { AlertItem, CommunityPost } from "../../lib/alerty/types";
 
 type FeedRow =
@@ -225,6 +226,18 @@ export default function FeedScreen() {
           <Text style={styles.cityChipText}>{cityName}</Text>
           <Ionicons name="chevron-down" size={12} color={theme.colors.textMuted} />
         </Pressable>
+        {isTravelModeEnabled() ? (
+          <Pressable
+            style={styles.viajeChip}
+            onPress={() => router.push("/viaje" as any)}
+            accessibilityRole="button"
+            accessibilityLabel="Modo viaje: Antes de salir Culiacán Mazatlán"
+          >
+            <Ionicons name="car-outline" size={16} color={theme.colors.accent} />
+            <Text style={styles.viajeChipText}>Antes de salir · Culiacán ↔ Mazatlán</Text>
+            <Ionicons name="chevron-forward" size={14} color={theme.colors.textMuted} />
+          </Pressable>
+        ) : null}
       </View>
 
       <View style={styles.filterRow}>
@@ -429,6 +442,24 @@ const createStyles = (theme: any) => StyleSheet.create({
     minHeight: 32,
   },
   cityChipText: {
+    color: theme.colors.text,
+    fontSize: 13,
+    fontFamily: theme.fonts.heading,
+  },
+  viajeChip: {
+    marginTop: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 12,
+    backgroundColor: theme.colors.surfaceAlt,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+  },
+  viajeChipText: {
+    flex: 1,
     color: theme.colors.text,
     fontSize: 13,
     fontFamily: theme.fonts.heading,

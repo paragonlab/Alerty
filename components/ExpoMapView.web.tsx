@@ -153,6 +153,17 @@ export function Circle(_props: CircleProps) {
   return null;
 }
 
+export type PolylineProps = {
+  coordinates: { latitude: number; longitude: number }[];
+  strokeColor?: string;
+  strokeWidth?: number;
+  lineDashPattern?: number[];
+};
+
+export function Polyline(_props: PolylineProps) {
+  return null;
+}
+
 export const PROVIDER_GOOGLE = "google";
 
 let mapsLoad: Promise<void> | null = null;
@@ -922,6 +933,21 @@ function collectCircles(node: React.ReactNode, out: CircleProps[] = []): CircleP
   return out;
 }
 
+function collectPolylines(node: React.ReactNode, out: PolylineProps[] = []): PolylineProps[] {
+  Children.forEach(node, (child) => {
+    if (!isValidElement(child)) return;
+    const props = child.props as PolylineProps & { children?: React.ReactNode };
+    if (Array.isArray(props.coordinates) && props.coordinates.length >= 2) {
+      out.push(props);
+      return;
+    }
+    if (props.children != null) {
+      collectPolylines(props.children, out);
+    }
+  });
+  return out;
+}
+
 /** Minimal Ionicons-like SVGs for category identity on HTML overlays. */
 const ICON_SVGS: Record<string, string> = {
   warning:
@@ -1203,6 +1229,11 @@ type MapViewProps = {
   onRegionChangeComplete?: (region: Region) => void;
   showsUserLocation?: boolean;
   showsMyLocationButton?: boolean;
+  /** Capa de tráfico: TomTom tiles en Leaflet; TrafficLayer en Google. */
+  showsTraffic?: boolean;
+  /** URL template Leaflet `{z}/{x}/{y}` (TomTom). Null = sin tiles. */
+  trafficTileUrl?: string | null;
+  trafficAttribution?: string;
   pitchEnabled?: boolean;
   zoomEnabled?: boolean;
   rotateEnabled?: boolean;
@@ -1225,6 +1256,8 @@ const ExpoMapView = forwardRef<MapHandle, MapViewProps>(function ExpoMapView(pro
   const polygonsRef = useRef<any[]>([]);
   const leafletGroupRef = useRef<any>(null);
   const tileLayerRef = useRef<any>(null);
+  const trafficLayerRef = useRef<any>(null);
+  const googleTrafficRef = useRef<any>(null);
   const longPressTimer = useRef<number | null>(null);
   const mapDraggedRef = useRef(false);
   const longPressFiredRef = useRef(false);
@@ -1501,6 +1534,51 @@ const ExpoMapView = forwardRef<MapHandle, MapViewProps>(function ExpoMapView(pro
     map.setOptions?.({ styles: dark ? DARK_MAP_STYLE : [] });
   }, [props.userInterfaceStyle, ready, mapEpoch]);
 
+  // Capa de tráfico opt-in (TomTom Leaflet / Google TrafficLayer).
+  useEffect(() => {
+    const map = mapRef.current;
+    const engine = engineRef.current;
+    if (!map || !ready || !engine) return;
+
+    const want = Boolean(props.showsTraffic);
+
+    if (engine === "leaflet") {
+      const L = (window as any).L;
+      if (!L) return;
+      if (trafficLayerRef.current) {
+        map.removeLayer(trafficLayerRef.current);
+        trafficLayerRef.current = null;
+      }
+      if (want && props.trafficTileUrl) {
+        trafficLayerRef.current = L.tileLayer(props.trafficTileUrl, {
+          opacity: 0.65,
+          maxZoom: 18,
+          attribution: props.trafficAttribution || "© TomTom",
+          className: "pulso-traffic-tiles",
+        });
+        trafficLayerRef.current.addTo(map);
+      }
+      return;
+    }
+
+    const g = typeof window !== "undefined" ? (window as any).google : null;
+    if (!g?.maps) return;
+    if (googleTrafficRef.current) {
+      googleTrafficRef.current.setMap(null);
+      googleTrafficRef.current = null;
+    }
+    if (want) {
+      googleTrafficRef.current = new g.maps.TrafficLayer();
+      googleTrafficRef.current.setMap(map);
+    }
+  }, [
+    props.showsTraffic,
+    props.trafficTileUrl,
+    props.trafficAttribution,
+    ready,
+    mapEpoch,
+  ]);
+
   useEffect(() => {
     const map = mapRef.current;
     const engine = engineRef.current;
@@ -1516,6 +1594,7 @@ const ExpoMapView = forwardRef<MapHandle, MapViewProps>(function ExpoMapView(pro
     const markers = collectMarkerProps(props.children);
     const polygons = collectPolygons(props.children, [], gridTheme);
     const circles = collectCircles(props.children);
+    const polylines = collectPolylines(props.children);
     const heat = collectHeatmap(props.children);
     const overlaySig = [
       isDark ? "dark" : "light",
@@ -1540,6 +1619,10 @@ const ExpoMapView = forwardRef<MapHandle, MapViewProps>(function ExpoMapView(pro
         return `${m.meta.kind}:${m.coordinate.latitude.toFixed(5)}:${m.coordinate.longitude.toFixed(5)}:${m.meta.color}:${look.intensity ?? ""}:${look.glow === false ? "0" : "1"}:${look.name ?? ""}:${look.giro ?? ""}:${look.logoUrl || look.avatarUrl ? "L" : ""}:${look.showName ? "1" : "0"}:${look.character ?? ""}:${look.userId ?? ""}:${look.username ?? ""}:${look.categoryGuess ?? look.category ?? ""}:${look.authorName ?? ""}:${look.extraSources ?? 0}`;
       }),
       ...polygons.map((p) => `p:${p.coordinates.length}`),
+      ...polylines.map(
+        (p) =>
+          `l:${p.coordinates.length}:${p.strokeColor ?? ""}:${p.strokeWidth ?? ""}`,
+      ),
       ...circles.map(
         (c) =>
           `c:${c.center.latitude.toFixed(5)}:${c.center.longitude.toFixed(5)}:${c.radius}:${c.fillColor ?? ""}`,
@@ -1631,6 +1714,22 @@ const ExpoMapView = forwardRef<MapHandle, MapViewProps>(function ExpoMapView(pro
         );
       });
 
+      polylines.forEach((line) => {
+        const stroke = splitCssColor(line.strokeColor);
+        group.addLayer(
+          L.polyline(
+            line.coordinates.map((c) => [c.latitude, c.longitude]),
+            {
+              color: stroke.color || "#1B1A17",
+              opacity: stroke.opacity ?? 0.85,
+              weight: line.strokeWidth ?? 4,
+              dashArray: line.lineDashPattern?.join(" "),
+              interactive: false,
+            },
+          ),
+        );
+      });
+
       markers.forEach((p) => {
         const isDest = p.meta.kind === "destination";
         const isBalloon =
@@ -1695,6 +1794,19 @@ const ExpoMapView = forwardRef<MapHandle, MapViewProps>(function ExpoMapView(pro
         strokeColor: stroke.color,
         strokeOpacity: stroke.opacity ?? 0.7,
         strokeWeight: poly.strokeWidth ?? 1,
+        clickable: false,
+      });
+      shape.setMap(map);
+      polygonsRef.current.push(shape);
+    });
+
+    polylines.forEach((line) => {
+      const stroke = splitCssColor(line.strokeColor);
+      const shape = new g.maps.Polyline({
+        path: line.coordinates.map((c) => ({ lat: c.latitude, lng: c.longitude })),
+        strokeColor: stroke.color || "#1B1A17",
+        strokeOpacity: stroke.opacity ?? 0.85,
+        strokeWeight: line.strokeWidth ?? 4,
         clickable: false,
       });
       shape.setMap(map);

@@ -309,6 +309,13 @@ export default function RootLayout() {
           }}
         />
         <Stack.Screen
+          name="viaje"
+          options={{
+            presentation: "modal",
+            headerShown: false,
+          }}
+        />
+        <Stack.Screen
           name="onboarding"
           options={{
             headerShown: false,

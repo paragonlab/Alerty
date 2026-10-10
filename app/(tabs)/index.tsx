@@ -9,7 +9,7 @@ import {
   TextInput,
   View,
 } from "react-native";
-import MapView, { Circle, Marker, PROVIDER_GOOGLE } from "../../components/ExpoMapView";
+import MapView, { Circle, Marker, Polyline, PROVIDER_GOOGLE } from "../../components/ExpoMapView";
 import { RiskGrid } from "../../components/RiskGrid";
 import {
   GO_DEST_LABEL,
@@ -32,6 +32,19 @@ import {
 } from "../../lib/alerty/coloniaGeocode";
 import { summarizeWindow, TONE_LABEL } from "../../lib/alerty/daySummary";
 import { shareZonePulse } from "../../lib/alerty/share";
+import { trackEvent } from "../../lib/analytics";
+import {
+  getShowTraffic,
+  hydrateTrafficPreference,
+  isTrafficMockEnabled,
+  isTrafficToggleAvailable,
+  persistTrafficPreference,
+  subscribeTrafficPreference,
+  tomTomTrafficTileUrlTemplate,
+  TOMTOM_ATTRIBUTION,
+} from "../../lib/alerty/trafficPreference";
+import { isTravelModeEnabled, resolveCorridor } from "../../lib/alerty/travel/travelMode";
+import type { LatLng } from "../../lib/alerty/travel/corridorMexico15";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import * as Location from "expo-location";
@@ -121,14 +134,26 @@ export default function MapScreen() {
   const [pinTracks, setPinTracks] = useState(true);
   const [citySlug, setCitySlug] = useState<CitySlug>(getActiveCitySlug);
   const [cityPickerOpen, setCityPickerOpen] = useState(false);
+  const [showTraffic, setShowTraffic] = useState(false);
+  const [corridorLines, setCorridorLines] = useState<
+    { id: string; name: string; coordinates: LatLng[] }[]
+  >([]);
   const mapCenter = useMemo(() => getActiveMapCenter(), [citySlug]);
   const [mapLatitudeDelta, setMapLatitudeDelta] = useState(mapCenter.latitudeDelta);
   const isWeb = Platform.OS === "web";
   const showPinNames = shouldShowSponsorName({ latitudeDelta: mapLatitudeDelta });
   const showSponsorNames = showPinNames;
+  const trafficToggleAvailable = isTrafficToggleAvailable();
+  const trafficTileUrl = tomTomTrafficTileUrlTemplate();
+  const trafficMock = isTrafficMockEnabled() && !trafficTileUrl;
 
   const cityCenteredOnce = useRef(false);
   useEffect(() => subscribeCityChange(setCitySlug), []);
+
+  useEffect(() => {
+    void hydrateTrafficPreference().then(setShowTraffic);
+    return subscribeTrafficPreference(setShowTraffic);
+  }, []);
 
   useEffect(() => {
     setMapLatitudeDelta(mapCenter.latitudeDelta);
@@ -157,7 +182,26 @@ export default function MapScreen() {
     communityLoaded,
     openReels,
     focusCommunity,
+    travelMapActive,
+    travelDirection,
+    setTravelMapOverlay,
   } = useAlertyStore();
+
+  useEffect(() => {
+    if (!travelMapActive) {
+      setCorridorLines([]);
+      return;
+    }
+    let cancelled = false;
+    void resolveCorridor({ direction: travelDirection }).then((c) => {
+      if (cancelled) return;
+      setCorridorLines(c.lines);
+      mapRef.current?.animateToRegion(c.region, 600);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [travelMapActive, travelDirection]);
 
   const theme = useAlertyTheme();
   const isDark = themeMode === "darkHighVisibility";
@@ -672,6 +716,9 @@ export default function MapScreen() {
             initialRegion={mapCenter}
             showsUserLocation
             showsMyLocationButton={false}
+            showsTraffic={showTraffic && !isWeb}
+            trafficTileUrl={showTraffic && isWeb ? trafficTileUrl : null}
+            trafficAttribution={TOMTOM_ATTRIBUTION}
             pitchEnabled={false}
             zoomEnabled={true}
             rotateEnabled={false}
@@ -689,6 +736,15 @@ export default function MapScreen() {
             }}
           >
             {showGrid && <RiskGrid cells={riskGrid} />}
+            {corridorLines.map((line) => (
+              <Polyline
+                key={line.id}
+                coordinates={line.coordinates}
+                strokeColor={line.id.includes("cuota") ? "#1B1A17" : "#D9552B"}
+                strokeWidth={line.id.includes("cuota") ? 5 : 3}
+                lineDashPattern={line.id.includes("libre") ? [8, 6] : undefined}
+              />
+            ))}
             {filteredAlerts.map((alert) => (
               <Marker
                 key={alert.id}
@@ -843,6 +899,46 @@ export default function MapScreen() {
                 >
                   <Ionicons name="locate" size={18} color={theme.colors.text} />
                 </Pressable>
+                {isTravelModeEnabled() ? (
+                  <Pressable
+                    style={[styles.headerTool, travelMapActive && styles.headerToolActive]}
+                    onPress={() => {
+                      void Haptics.selectionAsync();
+                      router.push("/viaje" as any);
+                    }}
+                    accessibilityLabel="Modo viaje: Antes de salir"
+                  >
+                    <Ionicons
+                      name="car-outline"
+                      size={17}
+                      color={travelMapActive ? "#FFFFFF" : theme.colors.text}
+                    />
+                  </Pressable>
+                ) : null}
+                {trafficToggleAvailable ? (
+                  <Pressable
+                    style={[styles.headerTool, showTraffic && styles.headerToolActive]}
+                    onPress={() => {
+                      void Haptics.selectionAsync();
+                      const next = !showTraffic;
+                      setShowTraffic(next);
+                      void persistTrafficPreference(next);
+                      void trackEvent({
+                        event_type: "traffic_toggle",
+                        metadata: { on: next, mock: trafficMock },
+                      });
+                    }}
+                    accessibilityLabel={
+                      showTraffic ? "Ocultar circulación en el mapa" : "Mostrar circulación en el mapa"
+                    }
+                  >
+                    <Ionicons
+                      name="git-network-outline"
+                      size={16}
+                      color={showTraffic ? "#FFFFFF" : theme.colors.text}
+                    />
+                  </Pressable>
+                ) : null}
                 <Pressable
                   style={[styles.headerTool, showHeatmap && styles.headerToolActive]}
                   onPress={toggleHeat}
@@ -866,6 +962,40 @@ export default function MapScreen() {
                 </Pressable>
               </View>
             </View>
+
+            {isTravelModeEnabled() ? (
+              <Pressable
+                style={styles.viajeEntry}
+                onPress={() => router.push("/viaje" as any)}
+                accessibilityLabel="Abrir Modo viaje Antes de salir"
+              >
+                <Ionicons name="car-outline" size={16} color={theme.colors.accent} />
+                <Text style={[styles.viajeEntryText, { color: theme.colors.text }]}>
+                  Antes de salir · Culiacán ↔ Mazatlán
+                </Text>
+                <Ionicons name="chevron-forward" size={16} color={theme.colors.textMuted} />
+              </Pressable>
+            ) : null}
+
+            {travelMapActive ? (
+              <Pressable
+                style={styles.viajeBanner}
+                onPress={() => setTravelMapOverlay(false)}
+                accessibilityLabel="Ocultar corredor del mapa"
+              >
+                <Text style={styles.viajeBannerText}>
+                  Corredor México 15 / 15D · toca para ocultar
+                </Text>
+              </Pressable>
+            ) : null}
+
+            {showTraffic && trafficMock ? (
+              <View style={styles.trafficMockBanner} pointerEvents="none">
+                <Text style={styles.trafficMockText}>
+                  Circulación · vista previa (sin clave TomTom)
+                </Text>
+              </View>
+            ) : null}
 
             <View style={styles.searchBar}>
               <Ionicons name="search" size={16} color={theme.colors.textMuted} />
@@ -1311,6 +1441,51 @@ const createStyles = (theme: any, themeMode: string) => StyleSheet.create({
   headerToolActive: {
     backgroundColor: theme.colors.reportAction,
     borderColor: theme.colors.reportAction,
+  },
+  viajeEntry: {
+    marginTop: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 12,
+    backgroundColor: themeMode === "light" ? "rgba(255,255,255,0.88)" : "rgba(255,255,255,0.08)",
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+  },
+  viajeEntryText: {
+    flex: 1,
+    fontSize: 13,
+    fontFamily: theme.fonts.heading,
+  },
+  viajeBanner: {
+    marginTop: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    backgroundColor: "rgba(27,26,23,0.88)",
+  },
+  viajeBannerText: {
+    color: "#F6F2EA",
+    fontSize: 12,
+    fontFamily: theme.fonts.body,
+    textAlign: "center",
+  },
+  trafficMockBanner: {
+    marginTop: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 10,
+    backgroundColor: "rgba(217,85,43,0.12)",
+    borderWidth: 1,
+    borderColor: "rgba(217,85,43,0.28)",
+  },
+  trafficMockText: {
+    color: theme.colors.text,
+    fontSize: 11,
+    fontFamily: theme.fonts.body,
+    textAlign: "center",
   },
   destMeta: {
     gap: 6,

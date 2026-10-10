@@ -14,7 +14,7 @@ import {
 
 export type { PinGiro };
 export type SponsorZoneType = "refugio" | "anuncio";
-export type CommunitySourceKind = "x" | "rss";
+export type CommunitySourceKind = "x" | "rss" | "tomtom";
 
 /** Lienzo fuente del globo (pins.py). La punta está en (60, 124). */
 const SRC_W = 120;
@@ -381,6 +381,14 @@ function sourceChip(kind: CommunitySourceKind): string {
       base +
       `<path d="M${bx - 8},${by - 7} H${bx + 5} L${bx + 8},${by - 4} V${by + 7} H${bx - 8} Z" fill="${WHITE}" stroke="${INK}" stroke-width="2" stroke-linejoin="round"/>` +
       `<path d="M${bx - 5},${by - 2.5} H${bx + 5} M${bx - 5},${by + 1} H${bx + 5} M${bx - 5},${by + 4.3} H${bx + 2}" stroke="${INK}" stroke-width="1.7" stroke-linecap="round"/>`
+    );
+  }
+  if (kind === "tomtom") {
+    // Chip de circulación (trazo de vía) — distinto de X/RSS.
+    return (
+      base +
+      `<path d="M${bx - 7},${by + 6} L${bx - 2},${by - 7} H${bx + 2} L${bx + 7},${by + 6} Z" fill="none" stroke="${INK}" stroke-width="2" stroke-linejoin="round"/>` +
+      `<path d="M${bx},${by - 4} V${by + 3}" stroke="${INK}" stroke-width="1.8" stroke-linecap="round" stroke-dasharray="2.2 2"/>`
     );
   }
   return (

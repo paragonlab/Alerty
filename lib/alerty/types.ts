@@ -90,14 +90,19 @@ export type WatchedZone = {
   createdAt: string;
 };
 
-/** Post de comunidad desde X (Twitter). No es una alerta ciudadana de Pulso. */
-export type CommunitySource = "x" | "rss";
+/** Post de comunidad: X, RSS o TomTom Traffic. */
+export type CommunitySource = "x" | "rss" | "tomtom";
 
-/** community=Desde X; medio/oficial=allowlist; news=RSS */
-export type CommunityTrustTier = "community" | "medio" | "oficial" | "news";
+/** community=Desde X; medio/oficial=allowlist; news=RSS; traffic=TomTom */
+export type CommunityTrustTier = "community" | "medio" | "oficial" | "news" | "traffic";
 
 /** Cómo se eligió lat/lng del post (sync). */
-export type CommunityGeoSource = "tweet_coords" | "place_bbox" | "text_colonia" | "none";
+export type CommunityGeoSource =
+  | "tweet_coords"
+  | "place_bbox"
+  | "text_colonia"
+  | "none"
+  | "tomtom";
 
 export type CommunityPost = {
   id: string;
@@ -128,4 +133,7 @@ export type CommunityPost = {
   /** true = seed de muestra; nunca tratarlo como X en vivo */
   isDemo: boolean;
   trustTier: CommunityTrustTier;
+  /** TomTom / futuro: active | resolved (“Ya se despejó”). */
+  status?: "active" | "resolved";
+  resolvedAt?: string | null;
 };

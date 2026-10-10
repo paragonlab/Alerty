@@ -48,10 +48,11 @@ export function isAboutCuliacan(post: Pick<CommunityPost, "text" | "lat" | "lng"
   return nameRe.test(body);
 }
 
-/** Nombre del medio en pulsos RSS; "Desde X" en comunidad. */
+/** Nombre del medio en pulsos RSS; TomTom; "Desde X" en comunidad. */
 export function communitySourceLabel(
   post: Pick<CommunityPost, "source" | "trustTier" | "authorName">,
 ): string {
+  if (post.source === "tomtom" || post.trustTier === "traffic") return "TomTom";
   if (!isNewsPost(post)) return "Desde X";
   const name = post.authorName?.trim();
   return name || "Noticia";

@@ -62,14 +62,27 @@ const mapCommunityRow = (row: any): CommunityPost => {
     typeof row.lng === "number" &&
     Number.isFinite(row.lat) &&
     Number.isFinite(row.lng);
-  const source = row.source === "rss" ? "rss" : "x";
+  const source: CommunityPost["source"] =
+    row.source === "rss" ? "rss" : row.source === "tomtom" ? "tomtom" : "x";
   const rawTier = row.trust_tier;
   const trustTier: CommunityPost["trustTier"] =
-    rawTier === "medio" || rawTier === "oficial" || rawTier === "news" || rawTier === "community"
+    rawTier === "medio" ||
+    rawTier === "oficial" ||
+    rawTier === "news" ||
+    rawTier === "community" ||
+    rawTier === "traffic"
       ? rawTier
       : source === "rss"
         ? "news"
-        : "community";
+        : source === "tomtom"
+          ? "traffic"
+          : "community";
+  const placeFallback =
+    source === "rss"
+      ? "Sinaloa (noticia)"
+      : source === "tomtom"
+        ? "Circulación"
+        : "Culiacán (X)";
   const mapped: CommunityPost = {
     id: row.id,
     source,
@@ -86,12 +99,13 @@ const mapCommunityRow = (row: any): CommunityPost => {
     // Sin geo usable → null (Feed sí; mapa no). No centrar en Culiacán artificialmente.
     lat: hasGeo ? row.lat : null,
     lng: hasGeo ? row.lng : null,
-    placeLabel: row.place_label ?? (source === "rss" ? "Sinaloa (noticia)" : "Culiacán (X)"),
+    placeLabel: row.place_label ?? placeFallback,
     geoSource:
       row.geo_source === "tweet_coords" ||
       row.geo_source === "place_bbox" ||
       row.geo_source === "text_colonia" ||
-      row.geo_source === "none"
+      row.geo_source === "none" ||
+      row.geo_source === "tomtom"
         ? row.geo_source
         : null,
     placeNameSource: row.place_name_source ?? null,
@@ -101,6 +115,8 @@ const mapCommunityRow = (row: any): CommunityPost => {
     categoryGuess: row.category_guess ?? null,
     isDemo: Boolean(row.is_demo),
     trustTier,
+    status: row.status === "resolved" ? "resolved" : "active",
+    resolvedAt: row.resolved_at ?? null,
   };
   return redactOperativoLocation(mapped);
 };
@@ -207,6 +223,13 @@ type AlertyState = {
   clearUnreadAlerts: () => void;
   userCoords: UserCoords | null;
   setUserCoords: (coords: UserCoords | null) => void;
+  /** Polilínea del corredor México 15 en el mapa (Modo viaje). */
+  travelMapActive: boolean;
+  travelDirection: "culiacan_to_mazatlan" | "mazatlan_to_culiacan";
+  setTravelMapOverlay: (
+    active: boolean,
+    direction?: "culiacan_to_mazatlan" | "mazatlan_to_culiacan",
+  ) => void;
 };
 
 const syncPreference = async (key: string, value: any) => {
@@ -237,7 +260,7 @@ const isDbId = (id: string) =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
 
 const COMMUNITY_POST_COLUMNS =
-  "id,source,external_id,author_handle,author_name,text,url,media_url,video_url,author_avatar_url,lat,lng,place_label,geo_source,place_name_source,geocoded_from_text,created_at,fetched_at,category_guess,is_demo,trust_tier";
+  "id,source,external_id,author_handle,author_name,text,url,media_url,video_url,author_avatar_url,lat,lng,place_label,geo_source,place_name_source,geocoded_from_text,created_at,fetched_at,category_guess,is_demo,trust_tier,status,resolved_at";
 
 const NEWS_SYNC_MIN_MS = 2 * 60 * 1000;
 let lastNewsSyncAt = 0;
@@ -441,6 +464,14 @@ export const useAlertyStore = create<AlertyState>((set, get) => ({
     set({ userCoords: coords });
     void persistLastLocation(get().currentUser?.id, coords, prev);
   },
+  travelMapActive: false,
+  travelDirection: "culiacan_to_mazatlan",
+  setTravelMapOverlay: (active, direction) =>
+    set((state) => ({
+      travelMapActive: active,
+      travelDirection: direction ?? state.travelDirection,
+    })),
+
   startDemo: () => {
     if (!isDemoEnabled) return;
 
