@@ -91,11 +91,11 @@ async function smokeDirect() {
     ) && ok;
 
   const poi = await get(
-    `/search/2/nearbySearch/.json?lat=23.95&lon=-107.02&radius=50000&categorySet=7309&limit=3&language=es-ES`,
+    `/search/2/nearbySearch/.json?lat=23.95&lon=-107.02&radius=50000&categorySet=7311&limit=3&language=es-ES`,
   );
   ok =
     pass(
-      "nearbySearch (gas)",
+      "nearbySearch (petrol 7311)",
       poi.ok && Array.isArray(poi.data?.results),
       `HTTP ${poi.status}, n=${poi.data?.results?.length ?? "?"}`,
     ) && ok;

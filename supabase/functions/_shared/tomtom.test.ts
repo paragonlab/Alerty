@@ -7,12 +7,18 @@ import {
   TOMTOM_BBOXES,
   TOMTOM_BUDGET,
   TOMTOM_MAX_BBOX_KM2,
+  TOMTOM_POI_CACHE_KEY,
+  TOMTOM_POI_CACHE_TTL_EMPTY_SEC,
+  TOMTOM_POI_CATEGORIES,
+  TOMTOM_POI_MAX_RADIUS_M,
+  TOMTOM_POI_SAMPLE_POINTS,
   TOMTOM_TRAVEL_RATE,
   bboxAreaKm2,
   bboxesOverlap,
   calmIncidentText,
   cityIdForIncident,
   clientIpFromHeaders,
+  dedupePoisByNamePos,
   extraMinutesFromFlow,
   isFreshTomtomIncident,
   isAllowedTravelPoint,
@@ -21,6 +27,7 @@ import {
   parseIncidentDetails,
   parseNearbySearch,
   planTomtomNotifiesPerUser,
+  poiListsAreEmpty,
   pointFromIncidentGeometry,
   pointInBbox,
   rateLimitBucket,
@@ -244,6 +251,39 @@ Deno.test("rate limit keys / IP header", () => {
     clientIpFromHeaders(new Headers({ "x-forwarded-for": "203.0.113.9, 10.0.0.1" })),
     "203.0.113.9",
   );
+});
+
+Deno.test("POI: categorías, radio ≤50km, cache v2 y TTL vacío", () => {
+  assertEquals(TOMTOM_POI_CATEGORIES.gas_station, "7311"); // petrol, no 7309 EV
+  assertEquals(TOMTOM_POI_CATEGORIES.hospital, "7321");
+  assertEquals(TOMTOM_POI_CATEGORIES.pharmacy, "7326");
+  assertEquals(TOMTOM_POI_CATEGORIES.toll, "7375"); // toll gate
+  assertEquals(TOMTOM_POI_MAX_RADIUS_M, 50_000);
+  assertEquals(TOMTOM_POI_MAX_RADIUS_M <= 50_000, true);
+  assertEquals(TOMTOM_POI_CACHE_KEY, "poi:corridor:v2");
+  assertEquals(TOMTOM_POI_CACHE_TTL_EMPTY_SEC, 10 * 60);
+  assertEquals(TOMTOM_POI_SAMPLE_POINTS.length >= 2, true);
+
+  assertEquals(
+    poiListsAreEmpty({ gas_station: [], hospital: [], pharmacy: [], toll: [] }),
+    true,
+  );
+  assertEquals(
+    poiListsAreEmpty({
+      gas_station: [{ name: "x" }],
+      hospital: [],
+      pharmacy: [],
+      toll: [],
+    }),
+    false,
+  );
+
+  const deduped = dedupePoisByNamePos([
+    { name: "Pemex", lat: 24.55, lng: -107.45, distKm: 0.4 },
+    { name: "Pemex", lat: 24.55, lng: -107.45, distKm: 0.5 },
+    { name: "Shell", lat: 23.95, lng: -107.02, distKm: 1.2 },
+  ]);
+  assertEquals(deduped.length, 2);
 });
 
 Deno.test("travel endpoints: presets y clamp de puntos fuera de zona", () => {

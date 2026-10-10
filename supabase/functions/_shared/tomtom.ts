@@ -72,6 +72,55 @@ export const CORRIDOR_FLOW_POINTS = [
   { id: "villa_union", label: "cerca de Villa Unión", lat: 23.28, lng: -106.35 },
 ] as const;
 
+/**
+ * Categorías Search API (IDs numéricos TomTom).
+ * 7309 = EV charging (no usar para gasolina); 7311 = petrol station;
+ * 7321 = hospital/polyclinic; 7326 = pharmacy; 7375 = toll gate.
+ */
+export const TOMTOM_POI_CATEGORIES = {
+  gas_station: "7311",
+  hospital: "7321",
+  pharmacy: "7326",
+  toll: "7375",
+} as const;
+
+/** NearbySearch: radio máximo documentado = 50_000 m. */
+export const TOMTOM_POI_MAX_RADIUS_M = 50_000;
+
+/** Muestras a lo largo del corredor (≤50 km c/u cubre México 15/15D). */
+export const TOMTOM_POI_SAMPLE_POINTS = [
+  CORRIDOR_FLOW_POINTS[0], // Culiacán sur
+  CORRIDOR_FLOW_POINTS[2], // Elota
+  CORRIDOR_FLOW_POINTS[4], // Villa Unión
+] as const;
+
+export const TOMTOM_POI_CACHE_KEY = "poi:corridor:v2";
+export const TOMTOM_POI_CACHE_TTL_OK_SEC = 6 * 3600;
+/** Fallidos / vacíos: TTL corto para reintentar sin pegarle al free tier. */
+export const TOMTOM_POI_CACHE_TTL_EMPTY_SEC = 10 * 60;
+
+export function poiListsAreEmpty(
+  pois: Record<string, Array<unknown>>,
+): boolean {
+  return Object.values(pois).every((list) => !Array.isArray(list) || list.length === 0);
+}
+
+export function dedupePoisByNamePos<T extends { name: string; lat: number; lng: number }>(
+  items: T[],
+  limit = 5,
+): T[] {
+  const seen = new Set<string>();
+  const out: T[] = [];
+  for (const p of items) {
+    const key = `${p.name.toLowerCase()}|${p.lat.toFixed(3)}|${p.lng.toFixed(3)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(p);
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
 export const TOMTOM_NOTIFY_MAX_AGE_MINUTES = 30;
 export const TOMTOM_NOTIFY_MAX_PER_USER = 2;
 export const TOMTOM_CIRCULO_RADIUS_KM = 0.8;

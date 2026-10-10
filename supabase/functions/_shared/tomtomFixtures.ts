@@ -130,7 +130,7 @@ export const FIXTURE_NEARBY_GAS = {
       id: "poi-gas-001",
       score: 2.1,
       dist: 420,
-      poi: { name: "Pemex Costa Rica", categories: ["petrol station"], categorySet: [{ id: 7309 }] },
+      poi: { name: "Pemex Costa Rica", categories: ["petrol station"], categorySet: [{ id: 7311 }] },
       position: { lat: 24.55, lon: -107.44 },
     },
     {
@@ -138,7 +138,7 @@ export const FIXTURE_NEARBY_GAS = {
       id: "poi-gas-002",
       score: 1.8,
       dist: 2100,
-      poi: { name: "Shell Elota", categories: ["petrol station"], categorySet: [{ id: 7309 }] },
+      poi: { name: "Shell Elota", categories: ["petrol station"], categorySet: [{ id: 7311 }] },
       position: { lat: 23.96, lon: -107.03 },
     },
   ],

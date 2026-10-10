@@ -14,11 +14,19 @@ import {
   CORRIDOR_FLOW_POINTS,
   TOMTOM_ATTRIBUTION,
   TOMTOM_BUDGET,
+  TOMTOM_POI_CACHE_KEY,
+  TOMTOM_POI_CACHE_TTL_EMPTY_SEC,
+  TOMTOM_POI_CACHE_TTL_OK_SEC,
+  TOMTOM_POI_CATEGORIES,
+  TOMTOM_POI_MAX_RADIUS_M,
+  TOMTOM_POI_SAMPLE_POINTS,
   TOMTOM_TRAVEL_RATE,
   clientIpFromHeaders,
+  dedupePoisByNamePos,
   extraMinutesFromFlow,
   parseCalculateRoute,
   parseNearbySearch,
+  poiListsAreEmpty,
   rateLimitBucket,
   rateLimitCacheKey,
   resolveTravelEndpoints,
@@ -193,19 +201,11 @@ async function fetchRoute(
   return payload;
 }
 
-const POI_CATEGORIES: Record<string, string> = {
-  gas_station: "7309",
-  hospital: "7321",
-  pharmacy: "7326",
-  // Toll booth / plaza — category varies; use 7376 (Open Parking) fallback + query
-  toll: "7372",
-};
-
 async function fetchPois(
   admin: ReturnType<typeof createClient>,
   skipCache = false,
 ): Promise<Record<string, Array<{ name: string; lat: number; lng: number; distKm: number }>>> {
-  const cacheKey = "poi:corridor:v1";
+  const cacheKey = TOMTOM_POI_CACHE_KEY;
   if (!skipCache) {
     const cached = await cacheGet(admin, cacheKey);
     if (cached && typeof cached === "object") {
@@ -216,7 +216,6 @@ async function fetchPois(
     }
   }
 
-  const mid = CORRIDOR_FLOW_POINTS[2]; // Elota-ish midpoint
   const out: Record<
     string,
     Array<{ name: string; lat: number; lng: number; distKm: number }>
@@ -227,20 +226,34 @@ async function fetchPois(
     toll: [],
   };
 
-  for (const [kind, cat] of Object.entries(POI_CATEGORIES)) {
-    const path =
-      `/search/2/nearbySearch/.json?lat=${mid.lat}&lon=${mid.lng}` +
-      `&radius=80000&categorySet=${cat}&limit=5&language=es-ES`;
-    const { ok, data } = await tomtomGetJson(path);
-    if (!ok || !data) continue;
-    out[kind] = parseNearbySearch(data).map((p) => ({
-      ...p,
-      lat: p.lat || mid.lat,
-      lng: p.lng || mid.lng,
-    }));
+  // Varias muestras ≤50 km: un solo punto no cubre CUL↔MZT.
+  for (const [kind, cat] of Object.entries(TOMTOM_POI_CATEGORIES)) {
+    const merged: Array<{ name: string; lat: number; lng: number; distKm: number }> = [];
+    for (const pt of TOMTOM_POI_SAMPLE_POINTS) {
+      const path =
+        `/search/2/nearbySearch/.json?lat=${pt.lat}&lon=${pt.lng}` +
+        `&radius=${TOMTOM_POI_MAX_RADIUS_M}&categorySet=${cat}&limit=5&language=es-ES`;
+      const { ok, data } = await tomtomGetJson(path);
+      if (!ok || !data) continue;
+      for (const p of parseNearbySearch(data)) {
+        merged.push({
+          ...p,
+          lat: p.lat || pt.lat,
+          lng: p.lng || pt.lng,
+        });
+      }
+    }
+    out[kind] = dedupePoisByNamePos(merged, 5);
   }
 
-  await cacheSet(admin, cacheKey, "poi", out, 6 * 3600);
+  const empty = poiListsAreEmpty(out);
+  await cacheSet(
+    admin,
+    cacheKey,
+    "poi",
+    out,
+    empty ? TOMTOM_POI_CACHE_TTL_EMPTY_SEC : TOMTOM_POI_CACHE_TTL_OK_SEC,
+  );
   return out;
 }
 
