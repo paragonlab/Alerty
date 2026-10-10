@@ -177,7 +177,7 @@ Deno.serve(async (req) => {
 
   const path =
     `/search/2/search/${encodeURIComponent(q)}.json` +
-    `?typeahead=true&limit=6&countrySet=MX&language=es-MX&idxSet=Geo,PAD,Addr,POI`;
+    `?typeahead=true&limit=6&countrySet=MX&language=es-ES`;
   const { ok, data } = await tomtomGetJson(path);
   if (!ok || !data) {
     return json(
